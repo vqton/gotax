@@ -1,0 +1,1185 @@
+basePath: /api/v1
+definitions:
+  gl.Account:
+    properties:
+      arrears_days:
+        type: integer
+      code:
+        type: string
+      detail_by:
+        $ref: '#/definitions/gl.DetailBy'
+      is_active:
+        type: boolean
+      is_foreign:
+        type: boolean
+      is_parent:
+        type: boolean
+      name:
+        type: string
+      name2:
+        type: string
+      note:
+        type: string
+      parent_code:
+        type: string
+      type:
+        $ref: '#/definitions/gl.AccountType'
+    type: object
+  gl.AccountType:
+    enum:
+    - ASSET
+    - LIABILITY
+    - EQUITY
+    - REVENUE
+    - EXPENSE
+    type: string
+    x-enum-varnames:
+    - AccountTypeAsset
+    - AccountTypeLiability
+    - AccountTypeEquity
+    - AccountTypeRevenue
+    - AccountTypeExpense
+  gl.DetailBy:
+    enum:
+    - ""
+    - OBJECT
+    - PROJECT
+    - CONTRACT
+    - COST_ITEM
+    - DEPARTMENT
+    type: string
+    x-enum-varnames:
+    - DetailByNone
+    - DetailByObject
+    - DetailByProject
+    - DetailByContract
+    - DetailByCostItem
+    - DetailByDepartment
+  gl.ExchangeRate:
+    properties:
+      average_rate:
+        type: number
+      buy_rate:
+        type: number
+      created_at:
+        type: string
+      currency_code:
+        type: string
+      id:
+        type: string
+      rate_date:
+        type: string
+      sell_rate:
+        type: number
+      source:
+        type: string
+    type: object
+  gl.JournalEntry:
+    properties:
+      accounting_date:
+        type: string
+      approved_at:
+        type: string
+      approved_by:
+        type: string
+      company_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      currency_code:
+        type: string
+      description:
+        type: string
+      entry_date:
+        type: string
+      entry_number:
+        type: string
+      exchange_rate:
+        type: number
+      id:
+        type: string
+      lines:
+        items:
+          $ref: '#/definitions/gl.JournalLine'
+        type: array
+      period_id:
+        type: string
+      posted_at:
+        type: string
+      reviewed_by:
+        type: string
+      status:
+        $ref: '#/definitions/gl.JournalEntryStatus'
+      voucher_type:
+        $ref: '#/definitions/gl.VoucherType'
+    type: object
+  gl.JournalEntryStatus:
+    enum:
+    - DRAFT
+    - REVIEWING
+    - APPROVED
+    - POSTED
+    - CANCELLED
+    type: string
+    x-enum-varnames:
+    - JournalEntryDraft
+    - JournalEntryReviewing
+    - JournalEntryApproved
+    - JournalEntryPosted
+    - JournalEntryCancelled
+  gl.JournalLine:
+    properties:
+      account_code:
+        type: string
+      contract_id:
+        type: string
+      cost_item_id:
+        type: string
+      credit_amount:
+        type: number
+      currency_code:
+        type: string
+      debit_amount:
+        type: number
+      department_id:
+        type: string
+      description:
+        type: string
+      entry_id:
+        type: string
+      exchange_rate:
+        type: number
+      foreign_amount:
+        type: number
+      id:
+        type: string
+      line_number:
+        type: integer
+      object_id:
+        type: string
+      project_id:
+        type: string
+    type: object
+  gl.Period:
+    properties:
+      end_date:
+        type: string
+      id:
+        type: string
+      month:
+        type: integer
+      start_date:
+        type: string
+      status:
+        $ref: '#/definitions/gl.PeriodStatus'
+      year:
+        type: integer
+    type: object
+  gl.PeriodStatus:
+    enum:
+    - OPEN
+    - CLOSING
+    - CLOSED
+    - LOCKED
+    type: string
+    x-enum-varnames:
+    - PeriodOpen
+    - PeriodClosing
+    - PeriodClosed
+    - PeriodLocked
+  gl.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: string
+      is_active:
+        type: boolean
+      role:
+        $ref: '#/definitions/gl.UserRole'
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+  gl.UserRole:
+    enum:
+    - admin
+    - chief_accountant
+    - accountant
+    - viewer
+    type: string
+    x-enum-varnames:
+    - UserRoleAdmin
+    - UserRoleChiefAccountant
+    - UserRoleAccountant
+    - UserRoleViewer
+  gl.VoucherType:
+    enum:
+    - THU
+    - CHI
+    - BAN
+    - MUA
+    - KHAC
+    - KC
+    type: string
+    x-enum-varnames:
+    - VoucherTypeReceipt
+    - VoucherTypePayment
+    - VoucherTypeSale
+    - VoucherTypePurchase
+    - VoucherTypeOther
+    - VoucherTypeClosing
+host: localhost:8080
+info:
+  contact:
+    email: support@gotax.vn
+    name: API Support
+    url: https://gotax.vn/support
+  description: General Ledger API — Circular 99/2025/TT-BTC compliant
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://gotax.vn/terms
+  title: GoTax GL API
+  version: 1.0.0
+paths:
+  /accounts:
+    get:
+      consumes:
+      - application/json
+      description: List all accounts, optionally filter by active status
+      parameters:
+      - description: Filter by active status
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: accounts list
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List accounts
+      tags:
+      - accounts
+    post:
+      consumes:
+      - application/json
+      description: Create a new account with code and name
+      parameters:
+      - description: Account payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/gl.Account'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: account created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: code conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create account
+      tags:
+      - accounts
+  /accounts/{code}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete account by code. Admin only.
+      parameters:
+      - description: Account code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: account deleted
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: has children
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete account
+      tags:
+      - accounts
+    get:
+      consumes:
+      - application/json
+      description: Get a single account by its code
+      parameters:
+      - description: Account code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: account found
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get account
+      tags:
+      - accounts
+    put:
+      consumes:
+      - application/json
+      description: Update account details by code
+      parameters:
+      - description: Account code
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Account payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/gl.Account'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: account updated
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update account
+      tags:
+      - accounts
+  /audit:
+    get:
+      consumes:
+      - application/json
+      description: Get audit log entries with optional limit. Admin only.
+      parameters:
+      - description: Max entries (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: audit log
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get audit log
+      tags:
+      - audit
+  /audit/entity:
+    get:
+      consumes:
+      - application/json
+      description: Get audit log entries filtered by entity type and ID. Admin only.
+      parameters:
+      - description: Entity type
+        in: query
+        name: entity_type
+        required: true
+        type: string
+      - description: Entity ID
+        in: query
+        name: entity_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: audit log
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get audit log by entity
+      tags:
+      - audit
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate with username/password, receive JWT
+      parameters:
+      - description: Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            password:
+              type: string
+            username:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: token + user
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: invalid credentials
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /exchange-rates:
+    get:
+      consumes:
+      - application/json
+      description: List all exchange rates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: rates list
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List exchange rates
+      tags:
+      - exchange-rates
+    post:
+      consumes:
+      - application/json
+      description: Create a new exchange rate entry
+      parameters:
+      - description: Exchange rate payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/gl.ExchangeRate'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: rate created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create exchange rate
+      tags:
+      - exchange-rates
+  /journal-entries:
+    get:
+      consumes:
+      - application/json
+      description: Get all journal entries within a date range
+      parameters:
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: End date (YYYY-MM-DD)
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entries list
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List journal entries
+      tags:
+      - journal-entries
+    post:
+      consumes:
+      - application/json
+      description: Create a new journal entry with lines
+      parameters:
+      - description: Journal entry payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/gl.JournalEntry'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: entry created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single journal entry by its ID
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entry found
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get journal entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Approve a journal entry that has been reviewed
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entry approved
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Cancel a journal entry by ID
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entry cancelled
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: already cancelled
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}/post:
+    post:
+      consumes:
+      - application/json
+      description: Post an approved journal entry to the general ledger
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entry posted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Post entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}/review:
+    post:
+      consumes:
+      - application/json
+      description: Review a journal entry that has been submitted
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entry reviewed
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Review entry
+      tags:
+      - journal-entries
+  /journal-entries/{id}/submit:
+    post:
+      consumes:
+      - application/json
+      description: Submit a journal entry for review
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: submitted for review
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit entry
+      tags:
+      - journal-entries
+  /me:
+    get:
+      consumes:
+      - application/json
+      description: Get profile of the currently authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: user profile
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - users
+  /periods:
+    get:
+      consumes:
+      - application/json
+      description: List all accounting periods
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: periods list
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List periods
+      tags:
+      - periods
+    post:
+      consumes:
+      - application/json
+      description: Create a new accounting period. Admin only.
+      parameters:
+      - description: Period payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/gl.Period'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: period created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create period
+      tags:
+      - periods
+  /periods/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single accounting period by ID
+      parameters:
+      - description: Period ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: period found
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get period
+      tags:
+      - periods
+  /periods/{id}/close:
+    post:
+      consumes:
+      - application/json
+      description: Close an accounting period by ID. Admin only.
+      parameters:
+      - description: Period ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: period closed
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: already closed
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Close period
+      tags:
+      - periods
+  /periods/{id}/reopen:
+    post:
+      consumes:
+      - application/json
+      description: Reopen a closed accounting period by ID. Admin only.
+      parameters:
+      - description: Period ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: period reopened
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reopen period
+      tags:
+      - periods
+  /reports/balance-sheet:
+    get:
+      consumes:
+      - application/json
+      description: Generate balance sheet for a given year/month
+      parameters:
+      - description: Fiscal year
+        in: query
+        name: year
+        required: true
+        type: integer
+      - description: Fiscal month (1-12)
+        in: query
+        name: month
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: balance sheet
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Balance sheet
+      tags:
+      - reports
+  /reports/income-statement:
+    get:
+      consumes:
+      - application/json
+      description: Generate income statement for a given year/month
+      parameters:
+      - description: Fiscal year
+        in: query
+        name: year
+        required: true
+        type: integer
+      - description: Fiscal month (1-12)
+        in: query
+        name: month
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: income statement
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Income statement
+      tags:
+      - reports
+  /reports/trial-balance:
+    get:
+      consumes:
+      - application/json
+      description: Generate trial balance for a given year/month
+      parameters:
+      - description: Fiscal year
+        in: query
+        name: year
+        required: true
+        type: integer
+      - description: Fiscal month (1-12)
+        in: query
+        name: month
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: trial balance
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trial balance
+      tags:
+      - reports
+  /users:
+    get:
+      consumes:
+      - application/json
+      description: List all registered users. Admin only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: users list
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Create a new user with password. Admin only.
+      parameters:
+      - description: User + password
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            password:
+              type: string
+            user:
+              $ref: '#/definitions/gl.User'
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: user created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create user
+      tags:
+      - users
+  /users/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: user found
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get user
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
