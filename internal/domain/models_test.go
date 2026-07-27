@@ -310,3 +310,112 @@ func TestAccountTypeConstants(t *testing.T) {
 	assert.Equal(t, AccountType("REVENUE"), AccountTypeRevenue)
 	assert.Equal(t, AccountType("EXPENSE"), AccountTypeExpense)
 }
+
+// ─── Opening Balance Tests ──────────────────────────────────────────
+
+func TestOpeningBalanceValidate_Valid(t *testing.T) {
+	ob := OpeningBalance{
+		CompanyID:   "c1",
+		PeriodID:    "p1",
+		AccountCode: "1111",
+		DebitAmount: 100000,
+	}
+	assert.NoError(t, ob.Validate())
+	assert.Equal(t, "VND", ob.CurrencyCode)
+	assert.Equal(t, OBStatusDraft, ob.Status)
+	assert.Equal(t, "MANUAL", ob.SourceType)
+}
+
+func TestOpeningBalanceValidate_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		ob   OpeningBalance
+		err  error
+	}{
+		{"no company", OpeningBalance{PeriodID: "p1", AccountCode: "1111", DebitAmount: 100}, ErrCompanyIDRequired},
+		{"no period", OpeningBalance{CompanyID: "c1", AccountCode: "1111", DebitAmount: 100}, ErrPeriodNotFound},
+		{"no account", OpeningBalance{CompanyID: "c1", PeriodID: "p1", DebitAmount: 100}, ErrAccountCodeRequired},
+		{"no amount", OpeningBalance{CompanyID: "c1", PeriodID: "p1", AccountCode: "1111"}, ErrAmountRequired},
+		{"both debit credit", OpeningBalance{CompanyID: "c1", PeriodID: "p1", AccountCode: "1111", DebitAmount: 100, CreditAmount: 100}, ErrBothDebitAndCredit},
+		{"negative debit", OpeningBalance{CompanyID: "c1", PeriodID: "p1", AccountCode: "1111", DebitAmount: -1}, ErrJournalLineInvalidAmount},
+		{"foreign no rate", OpeningBalance{CompanyID: "c1", PeriodID: "p1", AccountCode: "1111", DebitAmount: 100, CurrencyCode: "USD"}, ErrInvalidExchangeRate},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ErrorIs(t, tt.ob.Validate(), tt.err)
+		})
+	}
+}
+
+func TestOpeningBalanceStatusTransitions(t *testing.T) {
+	assert.True(t, OBStatusDraft.CanSubmit())
+	assert.True(t, OBStatusRejected.CanSubmit())
+	assert.False(t, OBStatusPending.CanSubmit())
+	assert.False(t, OBStatusApproved.CanSubmit())
+
+	assert.True(t, OBStatusDraft.CanEdit())
+	assert.True(t, OBStatusRejected.CanEdit())
+	assert.False(t, OBStatusPending.CanEdit())
+	assert.False(t, OBStatusApproved.CanEdit())
+
+	assert.True(t, OBStatusApproved.IsTerminal())
+	assert.True(t, OBStatusCorrected.IsTerminal())
+	assert.False(t, OBStatusDraft.IsTerminal())
+	assert.False(t, OBStatusPending.IsTerminal())
+
+	assert.True(t, OBStatusDraft.Valid())
+	assert.True(t, OBStatusPending.Valid())
+	assert.True(t, OBStatusApproved.Valid())
+	assert.True(t, OBStatusRejected.Valid())
+	assert.True(t, OBStatusCorrected.Valid())
+	assert.False(t, OpeningBalanceStatus("INVALID").Valid())
+}
+
+func TestOpeningBalanceDetailValidate(t *testing.T) {
+	tests := []struct {
+		name string
+		d    OpeningBalanceDetail
+		err  error
+	}{
+		{"valid", OpeningBalanceDetail{EntityType: DetailCustomer, EntityID: "KH001", DebitAmount: 100}, nil},
+		{"invalid entity type", OpeningBalanceDetail{EntityType: "BAD", EntityID: "KH001", DebitAmount: 100}, ErrEntityTypeRequired},
+		{"no entity id", OpeningBalanceDetail{EntityType: DetailCustomer, DebitAmount: 100}, ErrEntityIDRequired},
+		{"no amount", OpeningBalanceDetail{EntityType: DetailCustomer, EntityID: "KH001"}, ErrAmountRequired},
+		{"negative", OpeningBalanceDetail{EntityType: DetailCustomer, EntityID: "KH001", DebitAmount: -1}, ErrJournalLineInvalidAmount},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err != nil {
+				assert.ErrorIs(t, tt.d.Validate(), tt.err)
+			} else {
+				assert.NoError(t, tt.d.Validate())
+			}
+		})
+	}
+}
+
+func TestDetailEntityTypeValid(t *testing.T) {
+	assert.True(t, DetailCustomer.Valid())
+	assert.True(t, DetailSupplier.Valid())
+	assert.True(t, DetailEmployee.Valid())
+	assert.True(t, DetailBank.Valid())
+	assert.True(t, DetailFixedAsset.Valid())
+	assert.True(t, DetailInventoryItem.Valid())
+	assert.False(t, DetailEntityType("OTHER").Valid())
+}
+
+func TestOpeningBalanceCanSubmit(t *testing.T) {
+	ob := OpeningBalance{Status: OBStatusDraft}
+	assert.True(t, ob.CanSubmit())
+	ob.Status = OBStatusApproved
+	assert.False(t, ob.CanSubmit())
+}
+
+func TestOpeningBalanceCanEdit(t *testing.T) {
+	ob := OpeningBalance{Status: OBStatusDraft}
+	assert.True(t, ob.CanEdit())
+	ob.Status = OBStatusPending
+	assert.False(t, ob.CanEdit())
+	ob.Status = OBStatusApproved
+	assert.False(t, ob.CanEdit())
+}

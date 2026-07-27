@@ -94,7 +94,8 @@ func main() {
 		rateRepo := repository.NewPGExchangeRateRepo(pool)
 		templateRepo := repository.NewPGClosingTemplateRepo(pool)
 
-		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil)
+		obRepo := repository.NewPGOpeningBalanceRepo(pool)
+		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil, obRepo)
 		h := handler.NewHandler(svc)
 
 		companyRepo := repository.NewPGCompanyRepo(pool)
@@ -131,7 +132,8 @@ func main() {
 	refreshRepo := repository.NewMemoryRefreshTokenRepo()
 	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 
-	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo)
+	obRepo := repository.NewMemoryOpeningBalanceRepo()
+	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo)
 	h := handler.NewHandler(svc)
 
 	companyRepo := repository.NewMemoryCompanyRepo()

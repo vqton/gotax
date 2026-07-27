@@ -60,6 +60,45 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			reports.GET("/income-statement", h.IncomeStatement)
 		}
 
+		ob := v1.Group("/opening-balances")
+		{
+			ob.POST("", h.CreateOpeningBalance)
+			ob.GET("", h.ListOpeningBalances)
+			ob.GET("/:id", h.GetOpeningBalance)
+			ob.PUT("/:id", h.UpdateOpeningBalance)
+			ob.DELETE("/:id", h.DeleteOpeningBalance)
+			ob.POST("/:id/submit", h.SubmitOpeningBalance)
+			ob.POST("/:id/approve", h.ApproveOpeningBalance)
+			ob.POST("/:id/correct", h.CorrectOpeningBalance)
+			ob.POST("/:id/details", h.CreateOpeningBalanceDetail)
+			ob.GET("/:id/details", h.GetOpeningBalanceDetails)
+			ob.DELETE("/:id/details/:detailId", h.DeleteOpeningBalanceDetail)
+			ob.GET("/totals", h.GetOpeningBalanceTotals)
+			ob.POST("/import", h.ImportOpeningBalances)
+			ob.GET("/report", h.DownloadOpeningBalancePDF)
+		}
+
+		cf := v1.Group("/carry-forward")
+		{
+			cf.POST("", adminMW, h.CarryForward)
+			cf.GET("", h.GetCarryForwardLogs)
+			cf.GET("/:id", h.GetCarryForwardLogByID)
+		}
+
+		c99 := v1.Group("/circular99-mappings")
+		{
+			c99.POST("", h.CreateCircular99Mapping)
+			c99.GET("", h.ListCircular99Mappings)
+			c99.GET("/:oldCode", h.GetCircular99MappingByOldCode)
+		}
+
+		mig := v1.Group("/balance-migrations")
+		{
+			mig.POST("", h.CreateBalanceMigration)
+			mig.GET("", h.ListBalanceMigrations)
+			mig.GET("/:id", h.GetBalanceMigrationByID)
+		}
+
 		periods := v1.Group("/periods")
 		{
 			periods.POST("", adminMW, h.CreatePeriod)

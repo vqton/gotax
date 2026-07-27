@@ -227,3 +227,38 @@ type TaxRepository interface {
 	GetAuditCases(ctx context.Context, companyID string) ([]TaxAuditCase, error)
 	UpdateAuditCase(ctx context.Context, a *TaxAuditCase) error
 }
+
+// ─── Opening Balance Repository ───────────────────────────────────
+
+type OpeningBalanceRepository interface {
+	Create(ctx context.Context, ob *OpeningBalance) error
+	GetByID(ctx context.Context, id string) (*OpeningBalance, error)
+	List(ctx context.Context, filter OBListFilter) ([]OpeningBalance, error)
+	GetByAccount(ctx context.Context, companyID, periodID, accountCode string) (*OpeningBalance, error)
+	Update(ctx context.Context, ob *OpeningBalance) error
+	UpdateStatus(ctx context.Context, id string, status OpeningBalanceStatus, approvedBy string) error
+	Delete(ctx context.Context, id string) error
+
+	BulkCreate(ctx context.Context, balances []OpeningBalance) error
+	BulkUpdateStatus(ctx context.Context, ids []string, status OpeningBalanceStatus, approvedBy string) error
+
+	CreateDetail(ctx context.Context, d *OpeningBalanceDetail) error
+	GetDetails(ctx context.Context, balanceID string) ([]OpeningBalanceDetail, error)
+	DeleteDetail(ctx context.Context, id string) error
+	DeleteDetails(ctx context.Context, balanceID string) error
+
+	GetTotals(ctx context.Context, companyID, periodID string) (totalDebit, totalCredit float64, err error)
+	ValidateBalanced(ctx context.Context, companyID, periodID string) (bool, error)
+
+	CreateCarryForwardLog(ctx context.Context, log *CarryForwardLog) error
+	GetCarryForwardLogs(ctx context.Context, companyID string) ([]CarryForwardLog, error)
+	GetCarryForwardLogByID(ctx context.Context, id string) (*CarryForwardLog, error)
+
+	CreateCircular99Mapping(ctx context.Context, m *Circular99Mapping) error
+	ListCircular99Mappings(ctx context.Context) ([]Circular99Mapping, error)
+	GetCircular99MappingByOldCode(ctx context.Context, oldCode string) (*Circular99Mapping, error)
+
+	CreateMigration(ctx context.Context, m *BalanceMigration) error
+	GetMigrationByID(ctx context.Context, id string) (*BalanceMigration, error)
+	ListMigrations(ctx context.Context, companyID string) ([]BalanceMigration, error)
+}

@@ -97,6 +97,42 @@ type Service interface {
 	CreateIFRSMapping(ctx context.Context, mapping *domain.IFRSMapping) error
 	GetIFRSMapping(ctx context.Context, vasCode string) (*domain.IFRSMapping, error)
 	ListIFRSMappings(ctx context.Context) ([]domain.IFRSMapping, error)
+
+	// Opening Balance
+	CreateOpeningBalance(ctx context.Context, ob *domain.OpeningBalance) error
+	GetOpeningBalance(ctx context.Context, id string) (*domain.OpeningBalance, error)
+	ListOpeningBalances(ctx context.Context, filter domain.OBListFilter) ([]domain.OpeningBalance, error)
+	UpdateOpeningBalance(ctx context.Context, ob *domain.OpeningBalance) error
+	SubmitOpeningBalance(ctx context.Context, id, userID string) error
+	ApproveOpeningBalance(ctx context.Context, id, approverID string) error
+	CorrectOpeningBalance(ctx context.Context, id, correctedBy, reason string) (*domain.OpeningBalance, error)
+	DeleteOpeningBalance(ctx context.Context, id string) error
+
+	BulkCreateOpeningBalances(ctx context.Context, balances []domain.OpeningBalance) error
+	BulkSubmitOpeningBalances(ctx context.Context, ids []string, userID string) error
+	BulkApproveOpeningBalances(ctx context.Context, ids []string, approverID string) error
+
+	CreateOpeningBalanceDetail(ctx context.Context, d *domain.OpeningBalanceDetail) error
+	GetOpeningBalanceDetails(ctx context.Context, balanceID string) ([]domain.OpeningBalanceDetail, error)
+	DeleteOpeningBalanceDetail(ctx context.Context, id string) error
+
+	GetOpeningBalanceTotals(ctx context.Context, companyID, periodID string) (debit, credit float64, err error)
+	ValidateOpeningBalancesBalanced(ctx context.Context, companyID, periodID string) (bool, error)
+
+	CarryForward(ctx context.Context, companyID, fromPeriodID, toPeriodID, fromFiscalYear, toFiscalYear, executedBy string) (*domain.CarryForwardLog, error)
+	GetCarryForwardLogs(ctx context.Context, companyID string) ([]domain.CarryForwardLog, error)
+	GetCarryForwardLogByID(ctx context.Context, id string) (*domain.CarryForwardLog, error)
+
+	CreateCircular99Mapping(ctx context.Context, m *domain.Circular99Mapping) error
+	ListCircular99Mappings(ctx context.Context) ([]domain.Circular99Mapping, error)
+	GetCircular99MappingByOldCode(ctx context.Context, oldCode string) (*domain.Circular99Mapping, error)
+
+	CreateBalanceMigration(ctx context.Context, m *domain.BalanceMigration) error
+	GetBalanceMigrationByID(ctx context.Context, id string) (*domain.BalanceMigration, error)
+	ListBalanceMigrations(ctx context.Context, companyID string) ([]domain.BalanceMigration, error)
+
+	ImportOpeningBalances(ctx context.Context, data []byte, companyID, periodID, createdBy string) (*OBImportResult, error)
+	GenerateOpeningBalancePDF(ctx context.Context, companyID, periodID string) ([]byte, error)
 }
 
 type service struct {
@@ -114,6 +150,7 @@ type service struct {
 	ifrs      domain.IFRSMappingRepository
 	refresh   domain.RefreshTokenRepository
 	reset     domain.PasswordResetTokenRepository
+	ob        domain.OpeningBalanceRepository
 	limiter   *auth.RateLimiter
 	now       func() time.Time
 }
@@ -133,6 +170,7 @@ func NewService(
 	ifrsRepo domain.IFRSMappingRepository,
 	refreshRepo domain.RefreshTokenRepository,
 	resetRepo domain.PasswordResetTokenRepository,
+	obRepo domain.OpeningBalanceRepository,
 ) Service {
 	return &service{
 		accounts:  accRepo,
@@ -149,6 +187,7 @@ func NewService(
 		ifrs:      ifrsRepo,
 		refresh:   refreshRepo,
 		reset:     resetRepo,
+		ob:        obRepo,
 		limiter:   auth.NewRateLimiter(5, 15*time.Minute),
 		now:       time.Now,
 	}
