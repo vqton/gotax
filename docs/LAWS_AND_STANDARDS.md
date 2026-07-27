@@ -123,10 +123,36 @@
 | IGAP documents | Internal | Versioned, signed |
 | IFRS mapping | Internal | Role-restricted |
 | Account usage patterns | Internal | Standard access |
+| User credentials | Restricted | bcrypt cost=12, encrypted at rest |
+| Auth tokens | Sensitive | RS256 JWT, 15min TTL |
+| Session data | Internal | Revocable, opaque refresh tokens |
+| Audit auth events | Internal | Immutable, 5-year retention |
 
 ---
 
-## 8. Key References
+## 9. Auth-Related Regulations
+
+| Law/Decree | Key Requirement | Status |
+|------------|----------------|--------|
+| **Circular 99/2025/TT-BTC Art 28** | Security, alert mechanism, unauthorized interference prevention | ⚠️ Planned |
+| **Decree 130/2018/ND-CP** | Digital signature conditions, private key security | N/A (v2) |
+| **Decree 23/2025/ND-CP** | Electronic signature trust service, CA requirements | N/A (v2) |
+| **Law on Info Security 2015** | Personal data protection, breach notification | ⚠️ Partial |
+| **Circular 78/2021/TT-BTC** | E-tax transaction security | ❌ Planned |
+| **Nghị định 85/2021/NĐ-CP** | E-commerce platform security | N/A (B2B only) |
+
+---
+
+## 10. Superseded Documents (Archived)
+
+| File | Reason | Archived At |
+|------|--------|-------------|
+| `docs/BRD_GL_MODULE.md` | Superseded by COA_BRD.md + AUTH_BRD.md | 2026-07-27 |
+| `docs/CAP_GL_MODULE.md` | Superseded by COA_SPECS.md | 2026-07-27 |
+| `docs/GL_SPECS.md` | Superseded by COA_SPECS.md + AUTH_SPECS.md | 2026-07-27 |
+| `docs/UC_GL_MODULE.md` | Superseded by COA_USE_CASES.md + AUTH_USE_CASES.md | 2026-07-27 |
+
+## 11. Key References
 
 - https://www.gdt.gov.vn — General Dept of Taxation
 - https://mof.gov.vn — Ministry of Finance

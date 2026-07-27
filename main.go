@@ -89,7 +89,7 @@ func main() {
 		rateRepo := gl.NewPGExchangeRateRepo(pool)
 		templateRepo := gl.NewPGClosingTemplateRepo(pool)
 
-		svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+		svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 		handler := gl.NewHandler(svc)
 
 		authMW := gl.AuthMiddleware()
@@ -111,7 +111,7 @@ func main() {
 	rateRepo := gl.NewMemoryExchangeRateRepo()
 	templateRepo := gl.NewMemoryClosingTemplateRepo()
 
-	svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 	handler := gl.NewHandler(svc)
 
 	authMW := gl.AuthMiddleware()
