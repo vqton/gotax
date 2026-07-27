@@ -64,6 +64,12 @@ func (r *MemoryAccountRepo) Delete(_ context.Context, code string) error {
 	return nil
 }
 
+func (r *MemoryAccountRepo) Accounts() map[string]*Account {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.accounts
+}
+
 func (r *MemoryAccountRepo) GetChildren(_ context.Context, parentCode string) ([]Account, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -79,11 +85,18 @@ func (r *MemoryAccountRepo) GetChildren(_ context.Context, parentCode string) ([
 type MemoryJournalRepo struct {
 	mu       sync.RWMutex
 	journals map[string]*JournalEntry
+	accounts map[string]*Account
 	seq      int
 }
 
 func NewMemoryJournalRepo() *MemoryJournalRepo {
-	return &MemoryJournalRepo{journals: make(map[string]*JournalEntry)}
+	return &MemoryJournalRepo{journals: make(map[string]*JournalEntry), accounts: make(map[string]*Account)}
+}
+
+func (r *MemoryJournalRepo) SetAccounts(accounts map[string]*Account) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accounts = accounts
 }
 
 func (r *MemoryJournalRepo) nextID() string {
@@ -302,17 +315,36 @@ func (r *MemoryJournalRepo) GetTrialBalance(_ context.Context, periodID string) 
 func (r *MemoryJournalRepo) GetFinancialStatement(_ context.Context, periodID string, accountTypes []AccountType) ([]AccountBalance, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	accTypes := make(map[string]AccountType)
+	for code, act := range r.accounts {
+		accTypes[code] = act.Type
+	}
+
 	accBalances := make(map[string]*AccountBalance)
-	typeMap := make(map[string]AccountType)
 	for _, entry := range r.journals {
 		if entry.PeriodID != periodID || entry.Status != JournalEntryPosted {
 			continue
 		}
 		for _, line := range entry.Lines {
+			actType, known := accTypes[line.AccountCode]
+			if !known {
+				continue
+			}
+			match := false
+			for _, t := range accountTypes {
+				if actType == t {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
 			b, ok := accBalances[line.AccountCode]
 			if !ok {
 				b = &AccountBalance{
 					AccountCode: line.AccountCode,
+					AccountType: actType,
 					PeriodID:    periodID,
 				}
 				accBalances[line.AccountCode] = b
@@ -322,17 +354,8 @@ func (r *MemoryJournalRepo) GetFinancialStatement(_ context.Context, periodID st
 		}
 	}
 	var result []AccountBalance
-	for code, b := range accBalances {
-		actType, found := typeMap[code]
-		if !found {
-			continue
-		}
-		for _, t := range accountTypes {
-			if actType == t {
-				result = append(result, *b)
-				break
-			}
-		}
+	for _, b := range accBalances {
+		result = append(result, *b)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].AccountCode < result[j].AccountCode
@@ -676,6 +699,283 @@ func (r *MemoryClosingTemplateRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// ─── COA: In-Memory Approval Repository ─────────────────────────
+
+type MemoryApprovalRepo struct {
+	mu   sync.RWMutex
+	data map[string]*ApprovalRequest
+	seq  int
+}
+
+func NewMemoryApprovalRepo() *MemoryApprovalRepo {
+	return &MemoryApprovalRepo{data: make(map[string]*ApprovalRequest)}
+}
+
+func (r *MemoryApprovalRepo) Create(_ context.Context, req *ApprovalRequest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	req.ID = fmt.Sprintf("APPR-%04d", r.seq)
+	req.CreatedAt = time.Now()
+	r.data[req.ID] = req
+	return nil
+}
+
+func (r *MemoryApprovalRepo) GetByID(_ context.Context, id string) (*ApprovalRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	req, ok := r.data[id]
+	if !ok {
+		return nil, ErrApprovalNotFound
+	}
+	return req, nil
+}
+
+func (r *MemoryApprovalRepo) GetByStatus(_ context.Context, status ApprovalStatus) ([]ApprovalRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []ApprovalRequest
+	for _, req := range r.data {
+		if req.Status == status {
+			result = append(result, *req)
+		}
+	}
+	return result, nil
+}
+
+func (r *MemoryApprovalRepo) GetByEntity(_ context.Context, entityType, entityID string) ([]ApprovalRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []ApprovalRequest
+	for _, req := range r.data {
+		if req.EntityType == entityType && req.EntityID == entityID {
+			result = append(result, *req)
+		}
+	}
+	return result, nil
+}
+
+func (r *MemoryApprovalRepo) UpdateStatus(_ context.Context, id string, status ApprovalStatus, reviewedBy, reviewNote string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.data[id]
+	if !ok {
+		return ErrApprovalNotFound
+	}
+	req.Status = status
+	req.ReviewedBy = reviewedBy
+	req.ReviewNote = reviewNote
+	now := time.Now()
+	req.ReviewedAt = &now
+	return nil
+}
+
+func (r *MemoryApprovalRepo) GetAll(_ context.Context) ([]ApprovalRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []ApprovalRequest
+	for _, req := range r.data {
+		result = append(result, *req)
+	}
+	return result, nil
+}
+
+// ─── COA: In-Memory Account Version Repository ──────────────────
+
+type MemoryAccountVersionRepo struct {
+	mu   sync.RWMutex
+	data map[string]*AccountVersion
+	seq  int
+}
+
+func NewMemoryAccountVersionRepo() *MemoryAccountVersionRepo {
+	return &MemoryAccountVersionRepo{data: make(map[string]*AccountVersion)}
+}
+
+func (r *MemoryAccountVersionRepo) Create(_ context.Context, ver *AccountVersion) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data[ver.VersionNumber] = ver
+	return nil
+}
+
+func (r *MemoryAccountVersionRepo) GetByVersionNumber(_ context.Context, versionNumber string) (*AccountVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ver, ok := r.data[versionNumber]
+	if !ok {
+		return nil, ErrVersionNotFound
+	}
+	return ver, nil
+}
+
+func (r *MemoryAccountVersionRepo) GetLatest(_ context.Context) (*AccountVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var latest *AccountVersion
+	for _, ver := range r.data {
+		if latest == nil || ver.CreatedAt.After(latest.CreatedAt) {
+			latest = ver
+		}
+	}
+	if latest == nil {
+		return nil, ErrVersionNotFound
+	}
+	return latest, nil
+}
+
+func (r *MemoryAccountVersionRepo) GetAll(_ context.Context) ([]AccountVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []AccountVersion
+	for _, ver := range r.data {
+		result = append(result, *ver)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result, nil
+}
+
+// ─── COA: In-Memory Account Mapping Repository ──────────────────
+
+type MemoryAccountMappingRepo struct {
+	mu   sync.RWMutex
+	data map[string]*AccountMapping
+	seq  int
+}
+
+func NewMemoryAccountMappingRepo() *MemoryAccountMappingRepo {
+	return &MemoryAccountMappingRepo{data: make(map[string]*AccountMapping)}
+}
+
+func (r *MemoryAccountMappingRepo) Create(_ context.Context, m *AccountMapping) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	m.ID = fmt.Sprintf("MAP-%04d", r.seq)
+	m.CreatedAt = time.Now()
+	key := fmt.Sprintf("%s|%s|%s", m.SourceRegime, m.TargetRegime, m.OldCode)
+	r.data[key] = m
+	return nil
+}
+
+func (r *MemoryAccountMappingRepo) GetByOldCode(_ context.Context, sourceRegime, oldCode string) (*AccountMapping, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, m := range r.data {
+		if m.SourceRegime == sourceRegime && m.OldCode == oldCode {
+			return m, nil
+		}
+	}
+	return nil, ErrMappingNotFound
+}
+
+func (r *MemoryAccountMappingRepo) GetByRegime(_ context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []AccountMapping
+	for _, m := range r.data {
+		if m.SourceRegime == sourceRegime && m.TargetRegime == targetRegime {
+			result = append(result, *m)
+		}
+	}
+	return result, nil
+}
+
+func (r *MemoryAccountMappingRepo) GetAll(_ context.Context) ([]AccountMapping, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []AccountMapping
+	for _, m := range r.data {
+		result = append(result, *m)
+	}
+	return result, nil
+}
+
+// ─── COA: In-Memory Account Analysis Repository ──────────────────
+
+type MemoryAccountAnalysisRepo struct {
+	mu   sync.RWMutex
+	data map[string]*AccountAnalysis
+}
+
+func NewMemoryAccountAnalysisRepo() *MemoryAccountAnalysisRepo {
+	return &MemoryAccountAnalysisRepo{data: make(map[string]*AccountAnalysis)}
+}
+
+func (r *MemoryAccountAnalysisRepo) Create(_ context.Context, a *AccountAnalysis) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data[a.AccountCode] = a
+	return nil
+}
+
+func (r *MemoryAccountAnalysisRepo) GetByAccount(_ context.Context, accountCode string) (*AccountAnalysis, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.data[accountCode]
+	if !ok {
+		return nil, ErrAnalysisNotFound
+	}
+	return a, nil
+}
+
+func (r *MemoryAccountAnalysisRepo) Update(_ context.Context, a *AccountAnalysis) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data[a.AccountCode] = a
+	return nil
+}
+
+// ─── COA: In-Memory IFRS Mapping Repository ──────────────────────
+
+type MemoryIFRSMappingRepo struct {
+	mu   sync.RWMutex
+	data map[string]*IFRSMapping
+	seq  int
+}
+
+func NewMemoryIFRSMappingRepo() *MemoryIFRSMappingRepo {
+	return &MemoryIFRSMappingRepo{data: make(map[string]*IFRSMapping)}
+}
+
+func (r *MemoryIFRSMappingRepo) Create(_ context.Context, m *IFRSMapping) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	m.ID = fmt.Sprintf("IFRS-%04d", r.seq)
+	r.data[m.VASCode] = m
+	return nil
+}
+
+func (r *MemoryIFRSMappingRepo) GetByVASCode(_ context.Context, vasCode string) (*IFRSMapping, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.data[vasCode]
+	if !ok {
+		return nil, ErrIFRSMappingNotFound
+	}
+	return m, nil
+}
+
+func (r *MemoryIFRSMappingRepo) GetAll(_ context.Context) ([]IFRSMapping, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []IFRSMapping
+	for _, m := range r.data {
+		result = append(result, *m)
+	}
+	return result, nil
+}
+
+func (r *MemoryIFRSMappingRepo) Update(_ context.Context, m *IFRSMapping) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data[m.VASCode] = m
+	return nil
+}
+
 var _ AccountRepository = (*MemoryAccountRepo)(nil)
 var _ JournalRepository = (*MemoryJournalRepo)(nil)
 var _ PeriodRepository = (*MemoryPeriodRepo)(nil)
@@ -683,3 +983,8 @@ var _ UserRepository = (*MemoryUserRepo)(nil)
 var _ AuditLogRepository = (*MemoryAuditLogRepo)(nil)
 var _ ExchangeRateRepository = (*MemoryExchangeRateRepo)(nil)
 var _ ClosingTemplateRepository = (*MemoryClosingTemplateRepo)(nil)
+var _ ApprovalRepository = (*MemoryApprovalRepo)(nil)
+var _ AccountVersionRepository = (*MemoryAccountVersionRepo)(nil)
+var _ AccountMappingRepository = (*MemoryAccountMappingRepo)(nil)
+var _ AccountAnalysisRepository = (*MemoryAccountAnalysisRepo)(nil)
+var _ IFRSMappingRepository = (*MemoryIFRSMappingRepo)(nil)

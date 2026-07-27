@@ -78,6 +78,51 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			users.GET("/:id", h.GetUser)
 		}
 
+		coa := v1.Group("/coa")
+		{
+			accounts := coa.Group("/accounts")
+			{
+				accounts.POST("/:code/freeze", h.FreezeAccount)
+				accounts.POST("/:code/unfreeze", h.UnfreezeAccount)
+				accounts.GET("/:code/balance", h.GetAccountBalance)
+				accounts.GET("/:code/drill-down", h.GetAccountBalanceDrillDown)
+				accounts.GET("/:code/usage", h.GetAccountUsage)
+				accounts.POST("/:code/analysis", h.CreateAccountAnalysis)
+				accounts.GET("/:code/analysis", h.GetAccountAnalysis)
+				accounts.PUT("/:code/analysis", h.UpdateAccountAnalysis)
+			}
+
+			approvals := coa.Group("/approvals")
+			{
+				approvals.POST("", h.CreateApprovalRequest)
+				approvals.GET("", h.ListApprovalRequests)
+				approvals.POST("/:id/approve", h.ApproveRequest)
+				approvals.POST("/:id/reject", h.RejectRequest)
+			}
+
+			versions := coa.Group("/versions")
+			{
+				versions.POST("", h.CreateAccountVersion)
+				versions.GET("", h.ListVersions)
+				versions.GET("/compare", h.CompareVersions)
+				versions.GET("/:versionNumber", h.GetVersion)
+			}
+
+			mappings := coa.Group("/mappings")
+			{
+				mappings.POST("", h.CreateAccountMapping)
+				mappings.GET("", h.ListMappings)
+				mappings.GET("/:oldCode", h.GetMappingByOldCode)
+			}
+
+			ifrs := coa.Group("/ifrs")
+			{
+				ifrs.POST("", h.CreateIFRSMapping)
+				ifrs.GET("", h.ListIFRSMappings)
+				ifrs.GET("/:vasCode", h.GetIFRSMapping)
+			}
+		}
+
 		v1.GET("/me", h.GetCurrentUser)
 	}
 }
@@ -513,8 +558,16 @@ func (h *Handler) BalanceSheet(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "year and month query params required"})
 		return
 	}
-	year, _ := strconv.Atoi(yearStr)
-	month, _ := strconv.Atoi(monthStr)
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
+		return
+	}
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month (1-12)"})
+		return
+	}
 	balances, err := h.svc.BalanceSheet(c.Request.Context(), year, month)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -542,8 +595,16 @@ func (h *Handler) IncomeStatement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "year and month query params required"})
 		return
 	}
-	year, _ := strconv.Atoi(yearStr)
-	month, _ := strconv.Atoi(monthStr)
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
+		return
+	}
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month (1-12)"})
+		return
+	}
 	balances, err := h.svc.IncomeStatement(c.Request.Context(), year, month)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -843,4 +904,344 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, user)
+}
+
+// ─── COA: Freeze / Unfreeze ──────────────────────────────────────
+
+func (h *Handler) FreezeAccount(c *gin.Context) {
+	code := c.Param("code")
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
+		return
+	}
+	if err := h.svc.FreezeAccount(c.Request.Context(), code, req.Reason); err != nil {
+		switch {
+		case errors.Is(err, ErrAccountNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrAccountAlreadyFrozen):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "account frozen"})
+}
+
+func (h *Handler) UnfreezeAccount(c *gin.Context) {
+	code := c.Param("code")
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
+		return
+	}
+	if err := h.svc.UnfreezeAccount(c.Request.Context(), code, req.Reason); err != nil {
+		switch {
+		case errors.Is(err, ErrAccountNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrAccountNotFrozen):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "account unfrozen"})
+}
+
+// ─── COA: Account Balance & Drill-down ───────────────────────────
+
+func (h *Handler) GetAccountBalance(c *gin.Context) {
+	code := c.Param("code")
+	periodID := c.Query("period_id")
+	if periodID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id query param required"})
+		return
+	}
+	bal, err := h.svc.GetAccountBalance(c.Request.Context(), code, periodID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, bal)
+}
+
+func (h *Handler) GetAccountBalanceDrillDown(c *gin.Context) {
+	code := c.Param("code")
+	periodID := c.Query("period_id")
+	if periodID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id query param required"})
+		return
+	}
+	entries, err := h.svc.GetAccountBalanceDrillDown(c.Request.Context(), code, periodID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
+}
+
+func (h *Handler) GetAccountUsage(c *gin.Context) {
+	code := c.Param("code")
+	usage, err := h.svc.GetAccountUsage(c.Request.Context(), code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, usage)
+}
+
+// ─── COA: Approval Requests ──────────────────────────────────────
+
+func (h *Handler) CreateApprovalRequest(c *gin.Context) {
+	var req ApprovalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	req.RequestedBy = GetUserID(c)
+	if err := h.svc.CreateApprovalRequest(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "approval request created", "data": req})
+}
+
+func (h *Handler) ApproveRequest(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err == nil {
+		_ = req
+	}
+	reviewerID := GetUserID(c)
+	if err := h.svc.ApproveRequest(c.Request.Context(), id, reviewerID, req.Note); err != nil {
+		switch {
+		case errors.Is(err, ErrApprovalNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrSelfApproval):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrApprovalAlreadyProcessed):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "request approved"})
+}
+
+func (h *Handler) RejectRequest(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "rejection note required"})
+		return
+	}
+	reviewerID := GetUserID(c)
+	if err := h.svc.RejectRequest(c.Request.Context(), id, reviewerID, req.Note); err != nil {
+		switch {
+		case errors.Is(err, ErrApprovalNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrApprovalAlreadyProcessed):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "request rejected"})
+}
+
+func (h *Handler) ListApprovalRequests(c *gin.Context) {
+	status := ApprovalStatus(c.Query("status"))
+	requests, err := h.svc.GetApprovalRequests(c.Request.Context(), status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, requests)
+}
+
+// ─── COA: Versioning ─────────────────────────────────────────────
+
+func (h *Handler) CreateAccountVersion(c *gin.Context) {
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
+		return
+	}
+	ver, err := h.svc.CreateAccountVersion(c.Request.Context(), req.Reason)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "version created", "data": ver})
+}
+
+func (h *Handler) GetVersion(c *gin.Context) {
+	versionNumber := c.Param("versionNumber")
+	ver, err := h.svc.GetVersion(c.Request.Context(), versionNumber)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, ver)
+}
+
+func (h *Handler) ListVersions(c *gin.Context) {
+	versions, err := h.svc.ListVersions(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, versions)
+}
+
+func (h *Handler) CompareVersions(c *gin.Context) {
+	v1 := c.Query("from")
+	v2 := c.Query("to")
+	if v1 == "" || v2 == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from and to query params required"})
+		return
+	}
+	diff, err := h.svc.CompareVersions(c.Request.Context(), v1, v2)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, diff)
+}
+
+// ─── COA: Account Analysis ───────────────────────────────────────
+
+func (h *Handler) CreateAccountAnalysis(c *gin.Context) {
+	var analysis AccountAnalysis
+	if err := c.ShouldBindJSON(&analysis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.CreateAccountAnalysis(c.Request.Context(), &analysis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "analysis created", "data": analysis})
+}
+
+func (h *Handler) GetAccountAnalysis(c *gin.Context) {
+	code := c.Param("code")
+	analysis, err := h.svc.GetAccountAnalysis(c.Request.Context(), code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, analysis)
+}
+
+func (h *Handler) UpdateAccountAnalysis(c *gin.Context) {
+	var analysis AccountAnalysis
+	if err := c.ShouldBindJSON(&analysis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.UpdateAccountAnalysis(c.Request.Context(), &analysis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "analysis updated", "data": analysis})
+}
+
+// ─── COA: Account Mappings ───────────────────────────────────────
+
+func (h *Handler) CreateAccountMapping(c *gin.Context) {
+	var mapping AccountMapping
+	if err := c.ShouldBindJSON(&mapping); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.CreateAccountMapping(c.Request.Context(), &mapping); err != nil {
+		switch {
+		case errors.Is(err, ErrMappingExists):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "mapping created", "data": mapping})
+}
+
+func (h *Handler) GetMappingByOldCode(c *gin.Context) {
+	sourceRegime := c.Query("source_regime")
+	oldCode := c.Param("oldCode")
+	if sourceRegime == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source_regime query param required"})
+		return
+	}
+	mapping, err := h.svc.GetMappingByOldCode(c.Request.Context(), sourceRegime, oldCode)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mapping)
+}
+
+func (h *Handler) ListMappings(c *gin.Context) {
+	sourceRegime := c.Query("source_regime")
+	targetRegime := c.Query("target_regime")
+	mappings, err := h.svc.ListMappings(c.Request.Context(), sourceRegime, targetRegime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mappings)
+}
+
+// ─── COA: IFRS Mappings ──────────────────────────────────────────
+
+func (h *Handler) CreateIFRSMapping(c *gin.Context) {
+	var mapping IFRSMapping
+	if err := c.ShouldBindJSON(&mapping); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.CreateIFRSMapping(c.Request.Context(), &mapping); err != nil {
+		switch {
+		case errors.Is(err, ErrIFRSMappingExists):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "IFRS mapping created", "data": mapping})
+}
+
+func (h *Handler) GetIFRSMapping(c *gin.Context) {
+	vasCode := c.Param("vasCode")
+	mapping, err := h.svc.GetIFRSMapping(c.Request.Context(), vasCode)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mapping)
+}
+
+func (h *Handler) ListIFRSMappings(c *gin.Context) {
+	mappings, err := h.svc.ListIFRSMappings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mappings)
 }

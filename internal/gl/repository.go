@@ -96,3 +96,41 @@ type ClosingTemplateRepository interface {
 	Update(ctx context.Context, template *ClosingTemplate) error
 	Delete(ctx context.Context, id string) error
 }
+
+// COA Extension Interfaces
+
+type ApprovalRepository interface {
+	Create(ctx context.Context, req *ApprovalRequest) error
+	GetByID(ctx context.Context, id string) (*ApprovalRequest, error)
+	GetByStatus(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error)
+	GetByEntity(ctx context.Context, entityType, entityID string) ([]ApprovalRequest, error)
+	UpdateStatus(ctx context.Context, id string, status ApprovalStatus, reviewedBy, reviewNote string) error
+	GetAll(ctx context.Context) ([]ApprovalRequest, error)
+}
+
+type AccountVersionRepository interface {
+	Create(ctx context.Context, version *AccountVersion) error
+	GetByVersionNumber(ctx context.Context, versionNumber string) (*AccountVersion, error)
+	GetLatest(ctx context.Context) (*AccountVersion, error)
+	GetAll(ctx context.Context) ([]AccountVersion, error)
+}
+
+type AccountMappingRepository interface {
+	Create(ctx context.Context, mapping *AccountMapping) error
+	GetByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error)
+	GetByRegime(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error)
+	GetAll(ctx context.Context) ([]AccountMapping, error)
+}
+
+type AccountAnalysisRepository interface {
+	Create(ctx context.Context, analysis *AccountAnalysis) error
+	GetByAccount(ctx context.Context, accountCode string) (*AccountAnalysis, error)
+	Update(ctx context.Context, analysis *AccountAnalysis) error
+}
+
+type IFRSMappingRepository interface {
+	Create(ctx context.Context, mapping *IFRSMapping) error
+	GetByVASCode(ctx context.Context, vasCode string) (*IFRSMapping, error)
+	GetAll(ctx context.Context) ([]IFRSMapping, error)
+	Update(ctx context.Context, mapping *IFRSMapping) error
+}

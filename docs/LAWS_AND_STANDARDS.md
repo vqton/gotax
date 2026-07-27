@@ -1,102 +1,138 @@
-# GoTax AUTH Module - Legal & Standards Compliance Reference
+# GoTax - Legal & Standards Compliance Reference (Updated 2026-07-27)
 
 ---
 
-## 1. Primary Legislation (Effective 2025-2026)
+## 1. Current Effective COA Standard: Circular 99/2025/TT-BTC
 
-| Law/Decree | Effective | Key Requirements for AUTH |
-|------------|-----------|--------------------------|
-| Law on E-Transactions 20/2023/QH15 | 01/07/2024 | E-signature legal validity, digital signature standards, trust services |
-| Decree 69/2024/ND-CP | 25/06/2024 | VNeID mandatory for organizations from 01/07/2025, eID levels 1 & 2 |
-| Decree 23/2025/ND-CP | 10/04/2025 | Digital signature & trust services: PKI, CRL/OCSP, remote signing |
-| Law on Tax Admin 108/2025/QH15 | 01/07/2026 | Electronic tax transactions, e-invoice signatures, data linkage |
-| Decree 254/2026/ND-CP | 01/07/2026 | E-invoice rules, digital signature on invoices, tax authority codes |
-| Circular 91/2026/TT-BTC | 01/07/2026 | Implementation guide for Decree 254 |
-| Decision 29/2026/QD-TTg | 20/07/2026 | SSO via VNeID ONLY for National Public Service Portal |
-| Decree 13/2023/ND-CP | 01/07/2023 | Personal data protection: consent, encryption, breach notification |
-| Law on Network Security 86/2015/QH13 | 01/07/2016 | Network security requirements for information systems |
-| Law on Cybersecurity 24/2018/QH14 | 01/01/2019 | Data localization, cybersecurity assessment |
-| Circular 22/2020/TT-BTTTT | 01/01/2021 | Technical requirements for digital signature software |
-| Circular 19/2021/TT-BTC | 18/03/2021 | E-transactions in tax (amended by 46/2024/TT-BTC) |
+| Attribute | Detail |
+|---|---|
+| Full name | Thong tu 99/2025/TT-BTC huong dan Che do ke toan doanh nghiep |
+| Issuer | Ministry of Finance (Bo Tai chinh) |
+| Effective | **01/01/2026** |
+| Replaces | Circular 200/2014/TT-BTC (entirely) |
+| Level-1 accounts | **71** (was 76 under TT200) |
+| Philosophy | Principles-based, flexible (was rules-based) |
+| Enterprise modification | Self-modify allowed, no MoF approval (was MoF approval required) |
 
-## 2. Secondary Standards
+### Accounts Removed (6)
+- 417, 441, 461, 466, 611, 631
 
-| Standard | Issuer | Relevance |
-|----------|--------|-----------|
-| VSA (Vietnam Standards on Auditing) | MOF/VACPA | Audit evidence integrity, retention |
-| VSQC 1 (Quality Control) | MOF/VACPA | ISQC 1 equivalent for audit firms |
-| VAS (Vietnam Accounting Standards) | MOF | Financial record authentication |
-| ISO/IEC 27001:2022 | ISO | ISMS (FAST certified, BRAVO pursuing) |
-| OWASP Top 10 (2021) | OWASP | Web app security baseline (BRAVO benchmark) |
-| PKCS#11 | OASIS | Cryptoki for USB token digital signatures |
-| RFC 7519 (JWT) | IETF | Token-based authentication |
-| RFC 6238 (TOTP) | IETF | Time-based one-time passwords |
-| RFC 2560 (OCSP) | IETF | Online Certificate Status Protocol |
-| RFC 5280 (X.509) | IETF | Certificate path validation |
+### Accounts Added (New)
+- **215** - Tai san sinh hoc (Biological assets)
+- **332** - Phai tra co tuc, loi nhuan (Dividends payable)
+- **158** - Hang hoa kho bao thue (Bonded warehouse goods)
+- **171** - Giao dich mua lai (Govt bond repurchase)
+- **82112** - CP thue TNDN toi thieu toan cau (Global min tax / Pillar 2)
 
-## 3. Outdated/Replaced Documents (DO NOT USE)
+### Accounts Renamed
+| Old (TT200) | New (TT99) |
+|---|---|
+| 112 - Tien gui Ngan hang | 112 - Tien gui khong ky han |
+| 242 - Chi phi tra truoc | 242 - Chi phi cho phan bo |
+| 419 - Co phieu quy | 419 - Co phieu mua lai |
+| 155 - Thanh pham | 155 - San pham |
+| 1562 - Hang hoa ban ra | (merged into 156) |
 
-| Document | Replaced By | Status |
-|----------|-------------|--------|
-| Decree 130/2018/ND-CP (digital signatures) | Decree 23/2025/ND-CP | Superseded 10/04/2025 |
-| Law on E-Transactions 51/2005/QH11 | Law 20/2023/QH15 | Superseded 01/07/2024 |
-| Decree 59/2022/ND-CP (eID - old) | Decree 69/2024/ND-CP | Superseded 25/06/2024 |
-| Law on Tax Admin 38/2019/QH14 | Law 108/2025/QH15 | Superseded 01/07/2026 |
-| Decree 123/2020/ND-CP (e-invoice) | Decree 254/2026/ND-CP (amended) | Superseded 01/07/2026 |
-| Decree 119/2018/ND-CP (e-invoice pilot) | Decree 123/2020/ND-CP | Superseded |
+---
 
-## 4. Key Compliance Deadlines
+## 2. All Enterprise Accounting Regimes (as of July 2026)
 
-| Date | Requirement | Impact on AUTH |
-|------|-------------|----------------|
-| 01/07/2025 | VNeID mandatory for eTax login | AUTH must support VNeID OIDC |
-| 01/01/2026 | Tax declaration for e-commerce HHKD | AUTH for platform tax data |
-| 01/07/2026 | Law on Tax Admin 108/2025 effective | Full AUTH compliance required |
-| 01/07/2026 | Decree 254/2026 effective | Digital sig on all e-invoices |
-| 20/07/2026 | VNeID only for DVC Quoc Gia | VNeID primary auth method |
-| Ongoing | Password change every 90 days | AUTH policy enforcement |
-| Ongoing | Audit retention 5 years | Immutable audit log storage |
+| Regime | Standard | Enterprises | Status |
+|---|---|---|---|
+| Enterprise | Circular 99/2025/TT-BTC | All enterprises (general) | **CURRENT** from 01/01/2026 |
+| SME | Circular 133/2016/TT-BTC | Small & medium | **ACTIVE** (optional) |
+| Micro | Circular 58/2026/TT-BTC | Micro-enterprises | **CURRENT** from 01/07/2026 |
+| Administrative | Circular 24/2024/TT-BTC | Public service units | **CURRENT** from 01/01/2025 |
+| Banking | Circular 19/2015/TT-NHNN | Credit institutions | **SEPARATE** regime |
 
-## 5. Data Classification for AUTH Module
+---
 
-| Data Type | Classification | Protection Required |
-|-----------|---------------|-------------------|
-| Password hash | Sensitive | bcrypt cost 12, never logged |
-| TOTP secret | Sensitive | AES-256-GCM encrypted at rest |
-| VNeID ID token | Sensitive | In-memory only, not persisted |
-| Audit logs | Internal | Append-only, encrypted backup |
-| User PII (name, email, phone) | Sensitive | Encrypted at rest, access controlled |
-| Session tokens | Sensitive | httpOnly cookie, encrypted |
-| Role/permission data | Internal | Standard access control |
+## 3. IFRS Adoption Roadmap (Decision 345/QD-BTC)
 
-## 6. Audit Log Events (Mandatory per VSA & Decree 13/2023)
+| Stage | Period | Status |
+|---|---|---|
+| 1 - Preparation | 2020-2021 | Complete |
+| 2 - Voluntary pilot | 2022-2025 | Complete |
+| 3 - Compulsory adoption | From 2026 onward | **IN PROGRESS** |
+| Full VFRS convergence | Target 2030+ | Per Decision 633/QD-TTg |
 
-```
-Event Type                    Retention        Description
-─────────────────────────────────────────────────────────────
-LOGIN_SUCCESS                 5 years          User login successful
-LOGIN_FAILED                  5 years          Failed login attempt
-LOGOUT                        5 years          User logout
-TOKEN_REFRESH                 1 year           Token rotation
-PASSWORD_CHANGE               5 years          Password changed
-PASSWORD_RESET                5 years          Password reset via forgot flow
-2FA_ENABLED                   5 years          TOTP enabled
-2FA_DISABLED                  5 years          TOTP disabled
-USER_CREATED                  5 years          New user account
-USER_DEACTIVATED              5 years          User deactivated
-USER_REACTIVATED              5 years          User reactivated
-ROLE_CREATED                  5 years          New role created
-ROLE_MODIFIED                 5 years          Role permissions changed
-ROLE_DELETED                  5 years          Role deleted
-ROLE_ASSIGNED                 5 years          Role assigned to user
-ROLE_REVOKED                  5 years          Role removed from user
-DOCUMENT_SIGNED               5 years          Document digitally signed
-DOCUMENT_SIGNED_REMOTE        5 years          Document signed via remote CA
-SIGNATURE_FAILED              5 years          Signature attempt failed
-CERTIFICATE_REGISTERED        5 years          Digital cert registered
-CERTIFICATE_REMOVED           5 years          Digital cert removed
-ACCESS_DENIED                 1 year           Permission denied attempt
-SESSION_REVOKED               1 year           Admin revoked session
-ACCOUNT_LOCKED                5 years          Account auto/manually locked
-EXPORT_AUDIT_LOG              1 year           Audit log exported
-```
+---
+
+## 4. Primary Legislation (Effective 2025-2026)
+
+| Law/Decree | Effective | Key Requirements for COA |
+|---|---|---|
+| Circular 99/2025/TT-BTC | 01/01/2026 | Enterprise COA regime, 71 L1 accounts, self-modification |
+| Circular 133/2016/TT-BTC | 01/01/2017 | SME COA regime (optional) |
+| Circular 58/2026/TT-BTC | 01/07/2026 | Micro-enterprise COA regime |
+| Circular 24/2024/TT-BTC | 01/01/2025 | Administrative accounting regime |
+| Law on Accounting 88/2015/QH13 | 01/01/2017 | Art. 22: account system foundation |
+| Law 56/2024/QH15 (Accounting Law amendments) | 2025 | Amendments enabling TT99 |
+| Law on E-Transactions 20/2023/QH15 | 01/07/2024 | Digital signature legal validity |
+| Decree 69/2024/ND-CP | 25/06/2024 | VNeID mandatory |
+| Decree 23/2025/ND-CP | 10/04/2025 | Digital signature standards |
+| Law on Tax Admin 108/2025/QH15 | 01/07/2026 | E-tax transactions, tax linkage |
+| Decree 254/2026/ND-CP | 01/07/2026 | E-invoice rules, digital signatures |
+| Decision 29/2026/QD-TTg | 20/07/2026 | SSO via VNeID only |
+| Decree 13/2023/ND-CP | 01/07/2023 | Personal data protection |
+| Decision 345/QD-BTC | 16/03/2020 | IFRS adoption roadmap |
+| Decision 633/QD-TTg | — | Accounting Strategy to 2030 |
+
+---
+
+## 5. OUTDATED / SUPERSEDED DOCUMENTS (DO NOT USE)
+
+| Old Document | Replaced By | Superseded Date |
+|---|---|---|
+| **Quyet dinh 15/2006/QD-BTC** | Circular 200/2014/TT-BTC | 2014 |
+| **Quyet dinh 48/2006/QD-BTC** | Circular 133/2016/TT-BTC | 2016 |
+| **Circular 200/2014/TT-BTC** | **Circular 99/2025/TT-BTC** | **01/01/2026** |
+| Circular 75/2015/TT-BTC | Circular 99/2025/TT-BTC | 01/01/2026 |
+| Circular 53/2016/TT-BTC | Circular 99/2025/TT-BTC | 01/01/2026 |
+| Circular 195/2012/TT-BTC | Circular 99/2025/TT-BTC | 01/01/2026 |
+| Decree 130/2018/ND-CP (digital sig) | Decree 23/2025/ND-CP | 10/04/2025 |
+| Law on E-Transactions 51/2005/QH11 | Law 20/2023/QH15 | 01/07/2024 |
+| Decree 59/2022/ND-CP (eID old) | Decree 69/2024/ND-CP | 25/06/2024 |
+| Law on Tax Admin 38/2019/QH14 | Law 108/2025/QH15 | 01/07/2026 |
+| Decree 123/2020/ND-CP (e-invoice) | Decree 254/2026/ND-CP | 01/07/2026 |
+| Circular 132/2018/TT-BTC | Circular 58/2026/TT-BTC | 01/07/2026 |
+| Circular 107/2017/TT-BTC | Circular 24/2024/TT-BTC | 01/01/2025 |
+
+---
+
+## 6. COA Compliance Deadlines
+
+| Date | Requirement | COA Impact |
+|---|---|---|
+| 01/01/2026 | Circular 99 effective | Must use TT99 COA for FY2026 |
+| 01/07/2026 | Circular 58/2026 effective | Micro-enterprises must adopt |
+| From 2026 | IFRS Stage 3 | IFRS mapping for listed/SOEs |
+| Ongoing | Audit retention 5 years | COA version history retained |
+| Ongoing | IGAP maintenance | COA changes documented in IGAP |
+
+---
+
+## 7. Data Classification for COA Module
+
+| Data Type | Classification | Protection |
+|---|---|---|
+| Account code/name | Internal | Standard access control |
+| Account balance data | Internal | Access per role |
+| COA version snapshots | Internal | Immutable, append-only |
+| Approval records | Internal | 5-year retention |
+| IGAP documents | Internal | Versioned, signed |
+| IFRS mapping | Internal | Role-restricted |
+| Account usage patterns | Internal | Standard access |
+
+---
+
+## 8. Key References
+
+- https://www.gdt.gov.vn — General Dept of Taxation
+- https://mof.gov.vn — Ministry of Finance
+- https://vaa.net.vn — Vietnam Accounting Association
+- https://vacpa.org.vn — Vietnam Auditing Association
+- http://www.ifrs.org — IFRS Foundation
+- https://vbpl.vn — Legal database
+- https://thuedientu.gdt.gov.vn — E-tax portal
+- https://dichvucong.gov.vn — National Public Service Portal

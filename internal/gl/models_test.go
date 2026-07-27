@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccount_Validate(t *testing.T) {
@@ -311,6 +313,193 @@ func TestAccountType_NormalBalance(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccount_Freeze(t *testing.T) {
+	t.Run("freeze active account", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusActive}
+		err := acc.Freeze("test freeze reason")
+		assert.NoError(t, err)
+		assert.Equal(t, AccountStatusFrozen, acc.Status)
+		assert.Equal(t, "test freeze reason", acc.FreezeReason)
+	})
+
+	t.Run("freeze already frozen account", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusFrozen}
+		err := acc.Freeze("reason")
+		assert.ErrorIs(t, err, ErrAccountAlreadyFrozen)
+	})
+
+	t.Run("freeze without reason", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusActive}
+		err := acc.Freeze("")
+		assert.ErrorIs(t, err, ErrFreezeReasonRequired)
+	})
+}
+
+func TestAccount_Unfreeze(t *testing.T) {
+	t.Run("unfreeze frozen account", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusFrozen, FreezeReason: "reason"}
+		err := acc.Unfreeze("resolved")
+		assert.NoError(t, err)
+		assert.Equal(t, AccountStatusActive, acc.Status)
+		assert.Empty(t, acc.FreezeReason)
+	})
+
+	t.Run("unfreeze active account", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusActive}
+		err := acc.Unfreeze("reason")
+		assert.ErrorIs(t, err, ErrAccountNotFrozen)
+	})
+}
+
+func TestAccount_CanPost(t *testing.T) {
+	t.Run("active account can post", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, IsActive: true, Status: AccountStatusActive}
+		assert.NoError(t, acc.CanPost())
+	})
+
+	t.Run("frozen account cannot post", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, IsActive: true, Status: AccountStatusFrozen}
+		assert.ErrorIs(t, acc.CanPost(), ErrAccountFrozen)
+	})
+
+	t.Run("inactive account cannot post", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, IsActive: false, Status: AccountStatusInactive}
+		assert.ErrorIs(t, acc.CanPost(), ErrAccountInactive)
+	})
+}
+
+func TestApprovalRequest_Validate(t *testing.T) {
+	t.Run("valid approval request", func(t *testing.T) {
+		req := &ApprovalRequest{
+			EntityType:  "ACCOUNT",
+			EntityID:    "1111",
+			RequestType: "CREATE",
+			Reason:      "Need new account",
+			RequestedBy: "user-1",
+		}
+		assert.NoError(t, req.Validate())
+		assert.Equal(t, ApprovalPending, req.Status)
+	})
+
+	t.Run("missing entity type", func(t *testing.T) {
+		req := &ApprovalRequest{EntityID: "1111", RequestType: "CREATE", Reason: "test", RequestedBy: "user-1"}
+		assert.Error(t, req.Validate())
+	})
+
+	t.Run("missing reason", func(t *testing.T) {
+		req := &ApprovalRequest{EntityType: "ACCOUNT", EntityID: "1111", RequestType: "CREATE", Reason: "", RequestedBy: "user-1"}
+		assert.ErrorIs(t, req.Validate(), ErrApprovalReasonRequired)
+	})
+}
+
+func TestApprovalStatus_IsTerminal(t *testing.T) {
+	assert.True(t, ApprovalStatus("APPROVED").IsTerminal())
+	assert.True(t, ApprovalStatus("REJECTED").IsTerminal())
+	assert.True(t, ApprovalStatus("CANCELLED").IsTerminal())
+	assert.True(t, ApprovalStatus("EXPIRED").IsTerminal())
+	assert.False(t, ApprovalStatus("PENDING").IsTerminal())
+}
+
+func TestAccountMapping_Validate(t *testing.T) {
+	t.Run("valid direct mapping", func(t *testing.T) {
+		m := &AccountMapping{
+			SourceRegime: "TT200",
+			TargetRegime: "TT99",
+			OldCode:      "1111",
+			NewCode:      "1111",
+			MappingType:  "DIRECT",
+		}
+		assert.NoError(t, m.Validate())
+	})
+
+	t.Run("invalid mapping type", func(t *testing.T) {
+		m := &AccountMapping{
+			SourceRegime: "TT200",
+			TargetRegime: "TT99",
+			OldCode:      "611",
+			NewCode:      "632",
+			MappingType:  "INVALID",
+		}
+		assert.Error(t, m.Validate())
+	})
+
+	t.Run("split requires ratio", func(t *testing.T) {
+		m := &AccountMapping{
+			SourceRegime: "TT200",
+			TargetRegime: "TT99",
+			OldCode:      "1562",
+			NewCode:      "156",
+			MappingType:  "SPLIT",
+			SplitRatio:   0,
+		}
+		assert.Error(t, m.Validate())
+	})
+
+	t.Run("split with valid ratio", func(t *testing.T) {
+		m := &AccountMapping{
+			SourceRegime: "TT200",
+			TargetRegime: "TT99",
+			OldCode:      "1562",
+			NewCode:      "156",
+			MappingType:  "SPLIT",
+			SplitRatio:   1.0,
+		}
+		assert.NoError(t, m.Validate())
+	})
+}
+
+func TestAccountAnalysis_Validate(t *testing.T) {
+	t.Run("valid analysis", func(t *testing.T) {
+		a := &AccountAnalysis{AccountCode: "1111", CostCenterID: "CC-001"}
+		assert.NoError(t, a.Validate())
+	})
+
+	t.Run("missing account code", func(t *testing.T) {
+		a := &AccountAnalysis{AccountCode: ""}
+		assert.Error(t, a.Validate())
+	})
+}
+
+func TestIFRSMapping_Validate(t *testing.T) {
+	t.Run("valid IFRS mapping", func(t *testing.T) {
+		m := &IFRSMapping{VASCode: "1111", IFRSCode: "IFRS-1100"}
+		assert.NoError(t, m.Validate())
+	})
+
+	t.Run("missing VAS code", func(t *testing.T) {
+		m := &IFRSMapping{VASCode: "", IFRSCode: "IFRS-1100"}
+		assert.Error(t, m.Validate())
+	})
+
+	t.Run("missing IFRS code", func(t *testing.T) {
+		m := &IFRSMapping{VASCode: "1111", IFRSCode: ""}
+		assert.Error(t, m.Validate())
+	})
+}
+
+func TestAccount_ValidateWithStatus(t *testing.T) {
+	t.Run("no status defaults to active", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset}
+		assert.NoError(t, acc.Validate())
+		assert.Equal(t, AccountStatusActive, acc.Status)
+	})
+
+	t.Run("frozen requires reason", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusFrozen}
+		assert.ErrorIs(t, acc.Validate(), ErrFreezeReasonRequired)
+	})
+
+	t.Run("frozen with reason passes", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: AccountStatusFrozen, FreezeReason: "reason"}
+		assert.NoError(t, acc.Validate())
+	})
+
+	t.Run("invalid status", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "Test", Type: AccountTypeAsset, Status: "UNKNOWN"}
+		assert.ErrorIs(t, acc.Validate(), ErrAccountStatusInvalid)
+	})
 }
 
 func TestJournalEntry_HasDebitCredit(t *testing.T) {

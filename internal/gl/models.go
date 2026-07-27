@@ -70,34 +70,76 @@ const (
 )
 
 var (
-	ErrAccountCodeRequired       = errors.New("account code is required")
-	ErrAccountNameRequired       = errors.New("account name is required")
-	ErrAccountInvalidType        = errors.New("account type is invalid")
-	ErrAccountCodeInvalid        = errors.New("account code must be digits, min 3 chars")
-	ErrJournalEntryNoLines       = errors.New("journal entry must have at least one line")
-	ErrJournalEntryUnbalanced    = errors.New("total debit must equal total credit")
-	ErrJournalEntryInvalidDate   = errors.New("entry date is required")
-	ErrJournalEntryNoDescription = errors.New("description is required")
-	ErrJournalLineInvalidAmount  = errors.New("line amount must be positive")
-	ErrInvalidCurrencyCode       = errors.New("currency code must be 3 chars")
-	ErrInvalidExchangeRate       = errors.New("exchange rate must be positive")
-	ErrInvalidUserRole           = errors.New("invalid user role")
-	ErrUsernameRequired          = errors.New("username is required")
-	ErrPasswordRequired          = errors.New("password is required")
+	ErrAccountCodeRequired          = errors.New("account code is required")
+	ErrAccountNameRequired          = errors.New("account name is required")
+	ErrAccountInvalidType           = errors.New("account type is invalid")
+	ErrAccountCodeInvalid           = errors.New("account code must be digits, min 3 chars")
+	ErrAccountCodeInvalidHierarchy  = errors.New("account code must start with parent code prefix")
+	ErrAccountStatusInvalid         = errors.New("account status is invalid")
+	ErrAccountAlreadyFrozen         = errors.New("account is already frozen")
+	ErrAccountNotFrozen             = errors.New("account is not frozen")
+	ErrAccountFrozen                = errors.New("account is frozen, cannot post")
+	ErrApprovalNotFound             = errors.New("approval request not found")
+	ErrApprovalAlreadyProcessed     = errors.New("approval request already processed")
+	ErrSelfApproval                 = errors.New("cannot self-approve")
+	ErrApprovalExpired              = errors.New("approval request has expired")
+	ErrVersionNotFound              = errors.New("version not found")
+	ErrMappingNotFound              = errors.New("account mapping not found")
+	ErrMappingExists                = errors.New("account mapping already exists")
+	ErrAnalysisNotFound             = errors.New("account analysis not found")
+	ErrIFRSMappingNotFound          = errors.New("IFRS mapping not found")
+	ErrIFRSMappingExists            = errors.New("IFRS mapping already exists")
+	ErrFreezeReasonRequired         = errors.New("freeze reason is required")
+	ErrApprovalReasonRequired       = errors.New("approval reason is required")
+	ErrReviewNoteRequired           = errors.New("review note is required")
+	ErrJournalEntryNoLines         = errors.New("journal entry must have at least one line")
+	ErrJournalEntryUnbalanced      = errors.New("total debit must equal total credit")
+	ErrJournalEntryInvalidDate     = errors.New("entry date is required")
+	ErrJournalEntryNoDescription   = errors.New("description is required")
+	ErrJournalLineInvalidAmount    = errors.New("line amount must be positive")
+	ErrInvalidCurrencyCode         = errors.New("currency code must be 3 chars")
+	ErrInvalidExchangeRate         = errors.New("exchange rate must be positive")
+	ErrInvalidUserRole             = errors.New("invalid user role")
+	ErrUsernameRequired            = errors.New("username is required")
+	ErrPasswordRequired            = errors.New("password is required")
 )
 
+type AccountStatus string
+
+const (
+	AccountStatusActive   AccountStatus = "ACTIVE"
+	AccountStatusFrozen   AccountStatus = "FROZEN"
+	AccountStatusInactive AccountStatus = "INACTIVE"
+)
+
+type ApprovalStatus string
+
+const (
+	ApprovalPending   ApprovalStatus = "PENDING"
+	ApprovalApproved  ApprovalStatus = "APPROVED"
+	ApprovalRejected  ApprovalStatus = "REJECTED"
+	ApprovalCancelled ApprovalStatus = "CANCELLED"
+	ApprovalExpired   ApprovalStatus = "EXPIRED"
+)
+
+func (s ApprovalStatus) IsTerminal() bool {
+	return s == ApprovalApproved || s == ApprovalRejected || s == ApprovalCancelled || s == ApprovalExpired
+}
+
 type Account struct {
-	Code        string      `json:"code"`
-	Name        string      `json:"name"`
-	Name2       string      `json:"name2,omitempty"`
-	Type        AccountType `json:"type"`
-	ParentCode  string      `json:"parent_code,omitempty"`
-	IsActive    bool        `json:"is_active"`
-	IsForeign   bool        `json:"is_foreign"`
-	DetailBy    DetailBy    `json:"detail_by,omitempty"`
-	IsParent    bool        `json:"is_parent"`
-	ArrearsDays int         `json:"arrears_days,omitempty"`
-	Note        string      `json:"note,omitempty"`
+	Code        string         `json:"code"`
+	Name        string         `json:"name"`
+	Name2       string         `json:"name2,omitempty"`
+	Type        AccountType    `json:"type"`
+	ParentCode  string         `json:"parent_code,omitempty"`
+	IsActive    bool           `json:"is_active"`
+	Status      AccountStatus  `json:"status,omitempty"`
+	FreezeReason string        `json:"freeze_reason,omitempty"`
+	IsForeign   bool           `json:"is_foreign"`
+	DetailBy    DetailBy       `json:"detail_by,omitempty"`
+	IsParent    bool           `json:"is_parent"`
+	ArrearsDays int            `json:"arrears_days,omitempty"`
+	Note        string         `json:"note,omitempty"`
 }
 
 func (a *Account) Validate() error {
@@ -119,6 +161,48 @@ func (a *Account) Validate() error {
 	case AccountTypeAsset, AccountTypeLiability, AccountTypeEquity, AccountTypeRevenue, AccountTypeExpense:
 	default:
 		return ErrAccountInvalidType
+	}
+	if a.Status == "" {
+		a.Status = AccountStatusActive
+	}
+	switch a.Status {
+	case AccountStatusActive, AccountStatusFrozen, AccountStatusInactive:
+	default:
+		return ErrAccountStatusInvalid
+	}
+	if a.Status == AccountStatusFrozen && a.FreezeReason == "" {
+		return ErrFreezeReasonRequired
+	}
+	return nil
+}
+
+func (a *Account) Freeze(reason string) error {
+	if a.Status == AccountStatusFrozen {
+		return ErrAccountAlreadyFrozen
+	}
+	if reason == "" {
+		return ErrFreezeReasonRequired
+	}
+	a.Status = AccountStatusFrozen
+	a.FreezeReason = reason
+	return nil
+}
+
+func (a *Account) Unfreeze(reason string) error {
+	if a.Status != AccountStatusFrozen {
+		return ErrAccountNotFrozen
+	}
+	a.Status = AccountStatusActive
+	a.FreezeReason = ""
+	return nil
+}
+
+func (a *Account) CanPost() error {
+	if a.Status == AccountStatusFrozen {
+		return ErrAccountFrozen
+	}
+	if !a.IsActive || a.Status == AccountStatusInactive {
+		return ErrAccountInactive
 	}
 	return nil
 }
@@ -257,6 +341,27 @@ type Period struct {
 	Status    PeriodStatus `json:"status"`
 }
 
+func (p *Period) Validate() error {
+	if p.Year < 2000 || p.Year > 2100 {
+		return errors.New("year out of range (2000-2100)")
+	}
+	if p.Month < 1 || p.Month > 12 {
+		return errors.New("month must be 1-12")
+	}
+	if p.StartDate.IsZero() || p.EndDate.IsZero() {
+		return errors.New("start_date and end_date are required")
+	}
+	if p.EndDate.Before(p.StartDate) {
+		return errors.New("end_date must be after start_date")
+	}
+	switch p.Status {
+	case PeriodOpen, PeriodClosing, PeriodClosed, PeriodLocked:
+	default:
+		return errors.New("invalid period status")
+	}
+	return nil
+}
+
 type AccountBalance struct {
 	AccountCode       string      `json:"account_code"`
 	AccountType       AccountType `json:"account_type"`
@@ -351,4 +456,156 @@ type ClosingTemplateLine struct {
 	CreditAccount string `json:"credit_account"`
 	Formula       string `json:"formula"`
 	Description   string `json:"description,omitempty"`
+}
+
+// COA Extension Models
+
+type ApprovalRequest struct {
+	ID          string         `json:"id"`
+	TenantID    string         `json:"tenant_id,omitempty"`
+	EntityType  string         `json:"entity_type"`
+	EntityID    string         `json:"entity_id"`
+	RequestType string         `json:"request_type"`
+	OldValue    string         `json:"old_value,omitempty"`
+	NewValue    string         `json:"new_value"`
+	Reason      string         `json:"reason"`
+	Status      ApprovalStatus `json:"status"`
+	RequestedBy string         `json:"requested_by"`
+	ReviewedBy  string         `json:"reviewed_by,omitempty"`
+	ReviewNote  string         `json:"review_note,omitempty"`
+	ExpiresAt   time.Time      `json:"expires_at,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	ReviewedAt  *time.Time     `json:"reviewed_at,omitempty"`
+}
+
+func (r *ApprovalRequest) Validate() error {
+	if r.EntityType == "" {
+		return errors.New("entity type is required")
+	}
+	if r.EntityID == "" {
+		return errors.New("entity id is required")
+	}
+	if r.RequestType == "" {
+		return errors.New("request type is required")
+	}
+	if r.Reason == "" {
+		return ErrApprovalReasonRequired
+	}
+	if r.RequestedBy == "" {
+		return errors.New("requester is required")
+	}
+	if r.Status == "" {
+		r.Status = ApprovalPending
+	}
+	return nil
+}
+
+type AccountVersion struct {
+	ID             string    `json:"id"`
+	VersionNumber  string    `json:"version_number"`
+	Snapshot       string    `json:"snapshot"`
+	ChangeSummary  string    `json:"change_summary,omitempty"`
+	ChangeReason   string    `json:"change_reason,omitempty"`
+	CreatedBy      string    `json:"created_by,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type AccountMapping struct {
+	ID           string    `json:"id"`
+	SourceRegime string    `json:"source_regime"`
+	TargetRegime string    `json:"target_regime"`
+	OldCode      string    `json:"old_code"`
+	NewCode      string    `json:"new_code"`
+	MappingType  string    `json:"mapping_type"`
+	SplitRatio   float64   `json:"split_ratio,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (m *AccountMapping) Validate() error {
+	if m.SourceRegime == "" {
+		return errors.New("source regime is required")
+	}
+	if m.TargetRegime == "" {
+		return errors.New("target regime is required")
+	}
+	if m.OldCode == "" {
+		return errors.New("old code is required")
+	}
+	if m.NewCode == "" {
+		return errors.New("new code is required")
+	}
+	switch m.MappingType {
+	case "DIRECT", "MERGE", "SPLIT", "CUSTOM":
+	default:
+		return errors.New("mapping type must be DIRECT, MERGE, SPLIT, or CUSTOM")
+	}
+	if m.MappingType == "SPLIT" && m.SplitRatio <= 0 {
+		return errors.New("split ratio must be positive for SPLIT mappings")
+	}
+	return nil
+}
+
+type AccountAnalysis struct {
+	AccountCode    string `json:"account_code"`
+	CostCenterID   string `json:"cost_center_id,omitempty"`
+	ProfitCenterID string `json:"profit_center_id,omitempty"`
+	DepartmentID   string `json:"department_id,omitempty"`
+	ProjectID      string `json:"project_id,omitempty"`
+	CustomDim1     string `json:"custom_dim1,omitempty"`
+	CustomDim2     string `json:"custom_dim2,omitempty"`
+}
+
+func (a *AccountAnalysis) Validate() error {
+	if a.AccountCode == "" {
+		return errors.New("account code is required")
+	}
+	return nil
+}
+
+type IFRSMapping struct {
+	ID                   string `json:"id"`
+	VASCode              string `json:"vas_code"`
+	IFRSCode             string `json:"ifrs_code"`
+	IFRSName             string `json:"ifrs_name,omitempty"`
+	ReclassificationRule string `json:"reclassification_rule,omitempty"`
+	AdjustmentType       string `json:"adjustment_type,omitempty"`
+	IsActive             bool   `json:"is_active"`
+}
+
+func (m *IFRSMapping) Validate() error {
+	if m.VASCode == "" {
+		return errors.New("VAS code is required")
+	}
+	if m.IFRSCode == "" {
+		return errors.New("IFRS code is required")
+	}
+	return nil
+}
+
+type AccountUsage struct {
+	AccountCode  string  `json:"account_code"`
+	EntryCount   int     `json:"entry_count"`
+	TotalDebit   float64 `json:"total_debit"`
+	TotalCredit  float64 `json:"total_credit"`
+	LastUsedDate string  `json:"last_used_date,omitempty"`
+}
+
+type VersionDiff struct {
+	VersionFrom string        `json:"version_from"`
+	VersionTo   string        `json:"version_to"`
+	Added       []Account     `json:"added,omitempty"`
+	Removed     []Account     `json:"removed,omitempty"`
+	Modified    []AccountDiff `json:"modified,omitempty"`
+}
+
+type AccountDiff struct {
+	Code     string            `json:"code"`
+	Old      Account           `json:"old"`
+	New      Account           `json:"new"`
+	Changes  map[string]Change `json:"changes"`
+}
+
+type Change struct {
+	OldValue interface{} `json:"old_value"`
+	NewValue interface{} `json:"new_value"`
 }

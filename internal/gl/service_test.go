@@ -262,6 +262,156 @@ func (m *mockTemplateRepo) Delete(ctx context.Context, id string) error {
 	return args.Error(0)
 }
 
+// ─── COA Mock Repos ──────────────────────────────────────────────
+
+type mockApprovalRepo struct {
+	mock.Mock
+}
+
+func (m *mockApprovalRepo) Create(ctx context.Context, req *ApprovalRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+func (m *mockApprovalRepo) GetByID(ctx context.Context, id string) (*ApprovalRequest, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ApprovalRequest), args.Error(1)
+}
+func (m *mockApprovalRepo) GetByStatus(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error) {
+	args := m.Called(ctx, status)
+	return args.Get(0).([]ApprovalRequest), args.Error(1)
+}
+func (m *mockApprovalRepo) GetByEntity(ctx context.Context, entityType, entityID string) ([]ApprovalRequest, error) {
+	args := m.Called(ctx, entityType, entityID)
+	return args.Get(0).([]ApprovalRequest), args.Error(1)
+}
+func (m *mockApprovalRepo) UpdateStatus(ctx context.Context, id string, status ApprovalStatus, reviewedBy, reviewNote string) error {
+	args := m.Called(ctx, id, status, reviewedBy, reviewNote)
+	return args.Error(0)
+}
+func (m *mockApprovalRepo) GetAll(ctx context.Context) ([]ApprovalRequest, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]ApprovalRequest), args.Error(1)
+}
+
+type mockAccountVersionRepo struct {
+	mock.Mock
+}
+
+func (m *mockAccountVersionRepo) Create(ctx context.Context, ver *AccountVersion) error {
+	args := m.Called(ctx, ver)
+	return args.Error(0)
+}
+func (m *mockAccountVersionRepo) GetByVersionNumber(ctx context.Context, versionNumber string) (*AccountVersion, error) {
+	args := m.Called(ctx, versionNumber)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*AccountVersion), args.Error(1)
+}
+func (m *mockAccountVersionRepo) GetLatest(ctx context.Context) (*AccountVersion, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*AccountVersion), args.Error(1)
+}
+func (m *mockAccountVersionRepo) GetAll(ctx context.Context) ([]AccountVersion, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]AccountVersion), args.Error(1)
+}
+
+type mockAccountMappingRepo struct {
+	mock.Mock
+}
+
+func (m *mockAccountMappingRepo) Create(ctx context.Context, mp *AccountMapping) error {
+	args := m.Called(ctx, mp)
+	return args.Error(0)
+}
+func (m *mockAccountMappingRepo) GetByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error) {
+	args := m.Called(ctx, sourceRegime, oldCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*AccountMapping), args.Error(1)
+}
+func (m *mockAccountMappingRepo) GetByRegime(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error) {
+	args := m.Called(ctx, sourceRegime, targetRegime)
+	return args.Get(0).([]AccountMapping), args.Error(1)
+}
+func (m *mockAccountMappingRepo) GetAll(ctx context.Context) ([]AccountMapping, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]AccountMapping), args.Error(1)
+}
+
+type mockAccountAnalysisRepo struct {
+	mock.Mock
+}
+
+func (m *mockAccountAnalysisRepo) Create(ctx context.Context, a *AccountAnalysis) error {
+	args := m.Called(ctx, a)
+	return args.Error(0)
+}
+func (m *mockAccountAnalysisRepo) GetByAccount(ctx context.Context, accountCode string) (*AccountAnalysis, error) {
+	args := m.Called(ctx, accountCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*AccountAnalysis), args.Error(1)
+}
+func (m *mockAccountAnalysisRepo) Update(ctx context.Context, a *AccountAnalysis) error {
+	args := m.Called(ctx, a)
+	return args.Error(0)
+}
+
+type mockIFRSMappingRepo struct {
+	mock.Mock
+}
+
+func (m *mockIFRSMappingRepo) Create(ctx context.Context, mp *IFRSMapping) error {
+	args := m.Called(ctx, mp)
+	return args.Error(0)
+}
+func (m *mockIFRSMappingRepo) GetByVASCode(ctx context.Context, vasCode string) (*IFRSMapping, error) {
+	args := m.Called(ctx, vasCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*IFRSMapping), args.Error(1)
+}
+func (m *mockIFRSMappingRepo) GetAll(ctx context.Context) ([]IFRSMapping, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]IFRSMapping), args.Error(1)
+}
+func (m *mockIFRSMappingRepo) Update(ctx context.Context, mp *IFRSMapping) error {
+	args := m.Called(ctx, mp)
+	return args.Error(0)
+}
+
+// ─── NewService helper ───────────────────────────────────────────
+
+type serviceOption func(*service)
+
+func newTestServiceWithCOA(
+	accRepo AccountRepository,
+	jeRepo JournalRepository,
+	perRepo PeriodRepository,
+	userRepo UserRepository,
+	auditRepo AuditLogRepository,
+	rateRepo ExchangeRateRepository,
+	templateRepo ClosingTemplateRepository,
+	approvalRepo ApprovalRepository,
+	versionRepo AccountVersionRepository,
+	mappingRepo AccountMappingRepository,
+	analysisRepo AccountAnalysisRepository,
+	ifrsRepo IFRSMappingRepository,
+) *service {
+	return NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo).(*service)
+}
+
 // Compile checks: ensure mock types implement interfaces
 var _ AccountRepository = (*mockAccountRepo)(nil)
 var _ JournalRepository = (*mockJournalRepo)(nil)
@@ -270,6 +420,11 @@ var _ UserRepository = (*mockUserRepo)(nil)
 var _ AuditLogRepository = (*mockAuditRepo)(nil)
 var _ ExchangeRateRepository = (*mockRateRepo)(nil)
 var _ ClosingTemplateRepository = (*mockTemplateRepo)(nil)
+var _ ApprovalRepository = (*mockApprovalRepo)(nil)
+var _ AccountVersionRepository = (*mockAccountVersionRepo)(nil)
+var _ AccountMappingRepository = (*mockAccountMappingRepo)(nil)
+var _ AccountAnalysisRepository = (*mockAccountAnalysisRepo)(nil)
+var _ IFRSMappingRepository = (*mockIFRSMappingRepo)(nil)
 
 func TestAccountService_Create(t *testing.T) {
 	accRepo := new(mockAccountRepo)
@@ -279,7 +434,7 @@ func TestAccountService_Create(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success create account", func(t *testing.T) {
 		acc := &Account{Code: "1111", Name: "TM VND", Type: AccountTypeAsset, IsActive: true}
@@ -316,7 +471,7 @@ func TestAccountService_Delete(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success delete leaf account", func(t *testing.T) {
 		acc := &Account{Code: "1112", Name: "Test", Type: AccountTypeAsset, IsActive: true}
@@ -354,7 +509,7 @@ func TestJournalService_CreateEntry(t *testing.T) {
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
 	now := time.Now()
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success create draft entry", func(t *testing.T) {
 		entry := &JournalEntry{
@@ -434,7 +589,7 @@ func TestJournalService_PostEntry(t *testing.T) {
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
 	now := time.Now()
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success full lifecycle", func(t *testing.T) {
 		entry := &JournalEntry{
@@ -568,7 +723,7 @@ func TestJournalService_CancelEntry(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success cancel posted entry", func(t *testing.T) {
 		entry := &JournalEntry{ID: "JE-001", Status: JournalEntryPosted}
@@ -606,7 +761,7 @@ func TestJournalService_TrialBalance(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success get trial balance", func(t *testing.T) {
 		balances := []AccountBalance{
@@ -641,7 +796,7 @@ func TestAccountService_Update(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success update account", func(t *testing.T) {
 		existing := &Account{Code: "1111", Name: "Old Name", Type: AccountTypeAsset, IsActive: true}
@@ -672,7 +827,7 @@ func TestJournalService_GetByDateRange(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 	now := time.Now()
 
 	t.Run("success get entries by date range", func(t *testing.T) {
@@ -700,7 +855,7 @@ func TestAccountService_GetAllAccounts(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success get all active", func(t *testing.T) {
 		accounts := []Account{
@@ -725,7 +880,7 @@ func TestAccountService_GetAccount(t *testing.T) {
 	auditRepo := new(mockAuditRepo)
 	rateRepo := new(mockRateRepo)
 	templateRepo := new(mockTemplateRepo)
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil)
 
 	t.Run("success get account by code", func(t *testing.T) {
 		acc := &Account{Code: "1111", Name: "TM VND", Type: AccountTypeAsset}
@@ -740,6 +895,351 @@ func TestAccountService_GetAccount(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		accRepo.On("GetByCode", mock.Anything, "9999").Return(nil, ErrAccountNotFound).Once()
 		_, err := svc.GetAccount(context.Background(), "9999")
+		assert.ErrorIs(t, err, ErrAccountNotFound)
+	})
+}
+
+// ─── COA: Freeze/Unfreeze Tests ─────────────────────────────────
+
+func TestCOA_FreezeAccount(t *testing.T) {
+	accRepo := new(mockAccountRepo)
+	svc := newTestServiceWithCOA(accRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	t.Run("success freeze", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusActive}
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(acc, nil).Once()
+		accRepo.On("Update", mock.Anything, mock.MatchedBy(func(a *Account) bool {
+			return a.Status == AccountStatusFrozen && a.FreezeReason == "audit hold"
+		})).Return(nil).Once()
+
+		err := svc.FreezeAccount(context.Background(), "1111", "audit hold")
+		assert.NoError(t, err)
+		accRepo.AssertExpectations(t)
+	})
+
+	t.Run("fail - already frozen", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusFrozen}
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(acc, nil).Once()
+
+		err := svc.FreezeAccount(context.Background(), "1111", "reason")
+		assert.ErrorIs(t, err, ErrAccountAlreadyFrozen)
+	})
+}
+
+func TestCOA_UnfreezeAccount(t *testing.T) {
+	accRepo := new(mockAccountRepo)
+	svc := newTestServiceWithCOA(accRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	t.Run("success unfreeze", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusFrozen, FreezeReason: "hold"}
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(acc, nil).Once()
+		accRepo.On("Update", mock.Anything, mock.MatchedBy(func(a *Account) bool {
+			return a.Status == AccountStatusActive && a.FreezeReason == ""
+		})).Return(nil).Once()
+
+		err := svc.UnfreezeAccount(context.Background(), "1111", "resolved")
+		assert.NoError(t, err)
+		accRepo.AssertExpectations(t)
+	})
+
+	t.Run("fail - not frozen", func(t *testing.T) {
+		acc := &Account{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusActive}
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(acc, nil).Once()
+
+		err := svc.UnfreezeAccount(context.Background(), "1111", "reason")
+		assert.ErrorIs(t, err, ErrAccountNotFrozen)
+	})
+}
+
+// ─── COA: Approval Tests ─────────────────────────────────────────
+
+func TestCOA_ApproveRequest(t *testing.T) {
+	approvalRepo := new(mockApprovalRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, approvalRepo, nil, nil, nil, nil)
+
+	t.Run("success approve", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-001", Status: ApprovalPending, RequestedBy: "user-1",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-001").Return(req, nil).Once()
+		approvalRepo.On("UpdateStatus", mock.Anything, "APPR-001", ApprovalApproved, "reviewer-1", "looks good").Return(nil).Once()
+
+		err := svc.ApproveRequest(context.Background(), "APPR-001", "reviewer-1", "looks good")
+		assert.NoError(t, err)
+		approvalRepo.AssertExpectations(t)
+	})
+
+	t.Run("fail - self approval", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-002", Status: ApprovalPending, RequestedBy: "same-user",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-002").Return(req, nil).Once()
+
+		err := svc.ApproveRequest(context.Background(), "APPR-002", "same-user", "ok")
+		assert.ErrorIs(t, err, ErrSelfApproval)
+	})
+
+	t.Run("fail - already processed", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-003", Status: ApprovalApproved, RequestedBy: "user-1",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-003").Return(req, nil).Once()
+
+		err := svc.ApproveRequest(context.Background(), "APPR-003", "reviewer-1", "ok")
+		assert.ErrorIs(t, err, ErrApprovalAlreadyProcessed)
+	})
+}
+
+func TestCOA_RejectRequest(t *testing.T) {
+	approvalRepo := new(mockApprovalRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, approvalRepo, nil, nil, nil, nil)
+
+	t.Run("success reject", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-001", Status: ApprovalPending, RequestedBy: "user-1",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-001").Return(req, nil).Once()
+		approvalRepo.On("UpdateStatus", mock.Anything, "APPR-001", ApprovalRejected, "reviewer-1", "needs more info").Return(nil).Once()
+
+		err := svc.RejectRequest(context.Background(), "APPR-001", "reviewer-1", "needs more info")
+		assert.NoError(t, err)
+	})
+
+	t.Run("fail - empty note", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-002", Status: ApprovalPending, RequestedBy: "user-1",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-002").Return(req, nil).Once()
+
+		err := svc.RejectRequest(context.Background(), "APPR-002", "reviewer-1", "")
+		assert.ErrorIs(t, err, ErrReviewNoteRequired)
+	})
+
+	t.Run("fail - already processed", func(t *testing.T) {
+		req := &ApprovalRequest{
+			ID: "APPR-003", Status: ApprovalRejected, RequestedBy: "user-1",
+		}
+		approvalRepo.On("GetByID", mock.Anything, "APPR-003").Return(req, nil).Once()
+
+		err := svc.RejectRequest(context.Background(), "APPR-003", "reviewer-1", "note")
+		assert.ErrorIs(t, err, ErrApprovalAlreadyProcessed)
+	})
+}
+
+func TestCOA_CreateApprovalRequest(t *testing.T) {
+	approvalRepo := new(mockApprovalRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, approvalRepo, nil, nil, nil, nil)
+
+	t.Run("success create", func(t *testing.T) {
+		req := &ApprovalRequest{
+			EntityType: "ACCOUNT", EntityID: "1111", RequestType: "FREEZE",
+			Reason: "audit", RequestedBy: "user-1",
+		}
+		approvalRepo.On("Create", mock.Anything, req).Return(nil).Once()
+
+		err := svc.CreateApprovalRequest(context.Background(), req)
+		assert.NoError(t, err)
+	})
+
+	t.Run("fail - missing reason", func(t *testing.T) {
+		req := &ApprovalRequest{
+			EntityType: "ACCOUNT", EntityID: "1111", RequestType: "FREEZE",
+			Reason: "", RequestedBy: "user-1",
+		}
+		err := svc.CreateApprovalRequest(context.Background(), req)
+		assert.ErrorIs(t, err, ErrApprovalReasonRequired)
+	})
+}
+
+// ─── COA: Versioning Tests ───────────────────────────────────────
+
+func TestCOA_CreateAccountVersion(t *testing.T) {
+	accRepo := new(mockAccountRepo)
+	verRepo := new(mockAccountVersionRepo)
+	svc := newTestServiceWithCOA(accRepo, nil, nil, nil, nil, nil, nil, nil, verRepo, nil, nil, nil)
+
+	t.Run("success create version v1", func(t *testing.T) {
+		accounts := []Account{
+			{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusActive},
+		}
+		accRepo.On("GetAll", mock.Anything, false).Return(accounts, nil).Once()
+		verRepo.On("GetLatest", mock.Anything).Return((*AccountVersion)(nil), ErrVersionNotFound).Once()
+		verRepo.On("Create", mock.Anything, mock.Anything).Return(nil).Once()
+
+		ver, err := svc.CreateAccountVersion(context.Background(), "initial version")
+		assert.NoError(t, err)
+		assert.Equal(t, "v1", ver.VersionNumber)
+		assert.Equal(t, "initial version", ver.ChangeReason)
+	})
+
+	t.Run("success increment version", func(t *testing.T) {
+		accounts := []Account{{Code: "1111", Name: "TM", Type: AccountTypeAsset, Status: AccountStatusActive}}
+		existing := &AccountVersion{VersionNumber: "v1", CreatedAt: time.Now()}
+
+		accRepo.On("GetAll", mock.Anything, false).Return(accounts, nil).Once()
+		verRepo.On("GetLatest", mock.Anything).Return(existing, nil).Once()
+		verRepo.On("Create", mock.Anything, mock.MatchedBy(func(v *AccountVersion) bool {
+			return v.VersionNumber == "v2"
+		})).Return(nil).Once()
+
+		ver, err := svc.CreateAccountVersion(context.Background(), "version 2")
+		assert.NoError(t, err)
+		assert.Equal(t, "v2", ver.VersionNumber)
+	})
+}
+
+func TestCOA_CompareVersions(t *testing.T) {
+	verRepo := new(mockAccountVersionRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, nil, verRepo, nil, nil, nil)
+
+	t.Run("detect added/removed/modified", func(t *testing.T) {
+		v1 := &AccountVersion{
+			VersionNumber: "v1",
+			Snapshot:      `[{"code":"1111","name":"TM","type":"ASSET","status":"ACTIVE"}]`,
+		}
+		v2 := &AccountVersion{
+			VersionNumber: "v2",
+			Snapshot:      `[{"code":"1111","name":"Cash","type":"ASSET","status":"ACTIVE"},{"code":"5111","name":"Revenue","type":"REVENUE","status":"ACTIVE"}]`,
+		}
+
+		verRepo.On("GetByVersionNumber", mock.Anything, "v1").Return(v1, nil).Once()
+		verRepo.On("GetByVersionNumber", mock.Anything, "v2").Return(v2, nil).Once()
+
+		diff, err := svc.CompareVersions(context.Background(), "v1", "v2")
+		assert.NoError(t, err)
+		assert.Equal(t, "v1", diff.VersionFrom)
+		assert.Equal(t, "v2", diff.VersionTo)
+		assert.Len(t, diff.Added, 1)
+		assert.Equal(t, "5111", diff.Added[0].Code)
+		assert.Len(t, diff.Modified, 1)
+		assert.Equal(t, "1111", diff.Modified[0].Code)
+		assert.Contains(t, diff.Modified[0].Changes, "name")
+	})
+}
+
+// ─── COA: Account Mapping Tests ──────────────────────────────────
+
+func TestCOA_AccountMapping(t *testing.T) {
+	mappingRepo := new(mockAccountMappingRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, nil, nil, mappingRepo, nil, nil)
+
+	t.Run("success create mapping", func(t *testing.T) {
+		m := &AccountMapping{
+			SourceRegime: "TT200", TargetRegime: "TT99", OldCode: "611", NewCode: "632",
+			MappingType: "DIRECT",
+		}
+		mappingRepo.On("GetByOldCode", mock.Anything, "TT200", "611").Return((*AccountMapping)(nil), ErrMappingNotFound).Once()
+		mappingRepo.On("Create", mock.Anything, m).Return(nil).Once()
+
+		err := svc.CreateAccountMapping(context.Background(), m)
+		assert.NoError(t, err)
+	})
+
+	t.Run("fail - duplicate", func(t *testing.T) {
+		existing := &AccountMapping{OldCode: "611"}
+		m := &AccountMapping{
+			SourceRegime: "TT200", TargetRegime: "TT99", OldCode: "611", NewCode: "632",
+			MappingType: "DIRECT",
+		}
+		mappingRepo.On("GetByOldCode", mock.Anything, "TT200", "611").Return(existing, nil).Once()
+
+		err := svc.CreateAccountMapping(context.Background(), m)
+		assert.ErrorIs(t, err, ErrMappingExists)
+	})
+
+	t.Run("success get mapping", func(t *testing.T) {
+		m := &AccountMapping{OldCode: "611", NewCode: "632"}
+		mappingRepo.On("GetByOldCode", mock.Anything, "TT200", "611").Return(m, nil).Once()
+
+		result, err := svc.GetMappingByOldCode(context.Background(), "TT200", "611")
+		assert.NoError(t, err)
+		assert.Equal(t, "611", result.OldCode)
+	})
+}
+
+// ─── COA: Account Analysis Tests ─────────────────────────────────
+
+func TestCOA_AccountAnalysis(t *testing.T) {
+	accRepo := new(mockAccountRepo)
+	analysisRepo := new(mockAccountAnalysisRepo)
+	svc := newTestServiceWithCOA(accRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, analysisRepo, nil)
+
+	t.Run("success create analysis", func(t *testing.T) {
+		a := &AccountAnalysis{AccountCode: "1111", CostCenterID: "CC-001"}
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(&Account{Code: "1111"}, nil).Once()
+		analysisRepo.On("GetByAccount", mock.Anything, "1111").Return((*AccountAnalysis)(nil), ErrAnalysisNotFound).Once()
+		analysisRepo.On("Create", mock.Anything, a).Return(nil).Once()
+
+		err := svc.CreateAccountAnalysis(context.Background(), a)
+		assert.NoError(t, err)
+	})
+
+	t.Run("upsert on existing", func(t *testing.T) {
+		existing := &AccountAnalysis{AccountCode: "1111", CostCenterID: "CC-001"}
+		updated := &AccountAnalysis{AccountCode: "1111", CostCenterID: "CC-002"}
+
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(&Account{Code: "1111"}, nil).Once()
+		analysisRepo.On("GetByAccount", mock.Anything, "1111").Return(existing, nil).Once()
+		analysisRepo.On("Update", mock.Anything, updated).Return(nil).Once()
+
+		err := svc.CreateAccountAnalysis(context.Background(), updated)
+		assert.NoError(t, err)
+	})
+}
+
+// ─── COA: IFRS Mapping Tests ─────────────────────────────────────
+
+func TestCOA_IFRSMapping(t *testing.T) {
+	ifrsRepo := new(mockIFRSMappingRepo)
+	svc := newTestServiceWithCOA(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, ifrsRepo)
+
+	t.Run("success create IFRS mapping", func(t *testing.T) {
+		m := &IFRSMapping{VASCode: "1111", IFRSCode: "IFRS-1100", AdjustmentType: "RECLASSIFY"}
+		ifrsRepo.On("GetByVASCode", mock.Anything, "1111").Return((*IFRSMapping)(nil), ErrIFRSMappingNotFound).Once()
+		ifrsRepo.On("Create", mock.Anything, m).Return(nil).Once()
+
+		err := svc.CreateIFRSMapping(context.Background(), m)
+		assert.NoError(t, err)
+	})
+
+	t.Run("fail - duplicate", func(t *testing.T) {
+		existing := &IFRSMapping{VASCode: "1111"}
+		m := &IFRSMapping{VASCode: "1111", IFRSCode: "IFRS-1100"}
+		ifrsRepo.On("GetByVASCode", mock.Anything, "1111").Return(existing, nil).Once()
+
+		err := svc.CreateIFRSMapping(context.Background(), m)
+		assert.ErrorIs(t, err, ErrIFRSMappingExists)
+	})
+
+	t.Run("success get", func(t *testing.T) {
+		m := &IFRSMapping{VASCode: "1111", IFRSCode: "IFRS-1100"}
+		ifrsRepo.On("GetByVASCode", mock.Anything, "1111").Return(m, nil).Once()
+
+		result, err := svc.GetIFRSMapping(context.Background(), "1111")
+		assert.NoError(t, err)
+		assert.Equal(t, "IFRS-1100", result.IFRSCode)
+	})
+}
+
+// ─── COA: Balance Drill-down Tests ───────────────────────────────
+
+func TestCOA_GetAccountBalance(t *testing.T) {
+	accRepo := new(mockAccountRepo)
+	jeRepo := new(mockJournalRepo)
+	svc := newTestServiceWithCOA(accRepo, jeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	t.Run("success get balance", func(t *testing.T) {
+		accRepo.On("GetByCode", mock.Anything, "1111").Return(&Account{Code: "1111"}, nil).Once()
+		jeRepo.On("GetBalance", mock.Anything, "1111", "P-2026-07").Return(&AccountBalance{AccountCode: "1111", ClosingBalance: 500000}, nil).Once()
+
+		b, err := svc.GetAccountBalance(context.Background(), "1111", "P-2026-07")
+		assert.NoError(t, err)
+		assert.Equal(t, 500000.0, b.ClosingBalance)
+	})
+
+	t.Run("fail - account not found", func(t *testing.T) {
+		accRepo.On("GetByCode", mock.Anything, "9999").Return(nil, ErrAccountNotFound).Once()
+		_, err := svc.GetAccountBalance(context.Background(), "9999", "P-2026-07")
 		assert.ErrorIs(t, err, ErrAccountNotFound)
 	})
 }

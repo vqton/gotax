@@ -104,6 +104,7 @@ func main() {
 	log.Println("using in-memory backend (no DATABASE_URL set)")
 	accRepo := gl.NewMemoryAccountRepo()
 	jeRepo := gl.NewMemoryJournalRepo()
+	jeRepo.SetAccounts(accRepo.Accounts())
 	perRepo := gl.NewMemoryPeriodRepo()
 	userRepo := gl.NewMemoryUserRepo()
 	auditRepo := gl.NewMemoryAuditLogRepo()

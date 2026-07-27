@@ -2,7 +2,11 @@ package gl
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,6 +16,8 @@ type Service interface {
 	GetAllAccounts(ctx context.Context, activeOnly bool) ([]Account, error)
 	UpdateAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, code string) error
+	FreezeAccount(ctx context.Context, code, reason string) error
+	UnfreezeAccount(ctx context.Context, code, reason string) error
 
 	CreateEntry(ctx context.Context, entry *JournalEntry, userID string) error
 	SubmitForReview(ctx context.Context, id, userID string) error
@@ -45,6 +51,33 @@ type Service interface {
 	GetUser(ctx context.Context, id string) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	Authenticate(ctx context.Context, username, password string) (*User, error)
+
+	// COA Extension Methods
+	GetAccountBalance(ctx context.Context, code string, periodID string) (*AccountBalance, error)
+	GetAccountBalanceDrillDown(ctx context.Context, code string, periodID string) ([]JournalEntry, error)
+	GetAccountUsage(ctx context.Context, code string) (*AccountUsage, error)
+
+	CreateApprovalRequest(ctx context.Context, req *ApprovalRequest) error
+	ApproveRequest(ctx context.Context, id, reviewerID, note string) error
+	RejectRequest(ctx context.Context, id, reviewerID, note string) error
+	GetApprovalRequests(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error)
+
+	CreateAccountVersion(ctx context.Context, reason string) (*AccountVersion, error)
+	GetVersion(ctx context.Context, versionNumber string) (*AccountVersion, error)
+	ListVersions(ctx context.Context) ([]AccountVersion, error)
+	CompareVersions(ctx context.Context, v1, v2 string) (*VersionDiff, error)
+
+	CreateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error
+	GetAccountAnalysis(ctx context.Context, accountCode string) (*AccountAnalysis, error)
+	UpdateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error
+
+	CreateAccountMapping(ctx context.Context, mapping *AccountMapping) error
+	GetMappingByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error)
+	ListMappings(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error)
+
+	CreateIFRSMapping(ctx context.Context, mapping *IFRSMapping) error
+	GetIFRSMapping(ctx context.Context, vasCode string) (*IFRSMapping, error)
+	ListIFRSMappings(ctx context.Context) ([]IFRSMapping, error)
 }
 
 type service struct {
@@ -55,6 +88,11 @@ type service struct {
 	audit      AuditLogRepository
 	rates      ExchangeRateRepository
 	templates  ClosingTemplateRepository
+	approvals  ApprovalRepository
+	versions   AccountVersionRepository
+	mappings   AccountMappingRepository
+	analysis   AccountAnalysisRepository
+	ifrs       IFRSMappingRepository
 	now        func() time.Time
 }
 
@@ -66,6 +104,11 @@ func NewService(
 	auditRepo AuditLogRepository,
 	rateRepo ExchangeRateRepository,
 	templateRepo ClosingTemplateRepository,
+	approvalRepo ApprovalRepository,
+	versionRepo AccountVersionRepository,
+	mappingRepo AccountMappingRepository,
+	analysisRepo AccountAnalysisRepository,
+	ifrsRepo IFRSMappingRepository,
 ) Service {
 	return &service{
 		accounts:  accRepo,
@@ -75,6 +118,11 @@ func NewService(
 		audit:     auditRepo,
 		rates:     rateRepo,
 		templates: templateRepo,
+		approvals: approvalRepo,
+		versions:  versionRepo,
+		mappings:  mappingRepo,
+		analysis:  analysisRepo,
+		ifrs:      ifrsRepo,
 		now:       time.Now,
 	}
 }
@@ -85,7 +133,10 @@ func (s *service) CreateAccount(ctx context.Context, account *Account) error {
 	if err := account.Validate(); err != nil {
 		return err
 	}
-	existing, _ := s.accounts.GetByCode(ctx, account.Code)
+	existing, err := s.accounts.GetByCode(ctx, account.Code)
+	if err != nil && !errors.Is(err, ErrAccountNotFound) {
+		return err
+	}
 	if existing != nil {
 		return ErrAccountCodeExists
 	}
@@ -137,8 +188,8 @@ func (s *service) CreateEntry(ctx context.Context, entry *JournalEntry, userID s
 		if err != nil {
 			return err
 		}
-		if !acc.IsActive {
-			return ErrAccountInactive
+		if err := acc.CanPost(); err != nil {
+			return err
 		}
 	}
 	entry.Status = JournalEntryDraft
@@ -207,7 +258,10 @@ func (s *service) PostEntry(ctx context.Context, id string) error {
 	if entry.Status != JournalEntryApproved {
 		return fmt.Errorf("entry must be APPROVED to post")
 	}
-	period, _ := s.periods.GetByID(ctx, entry.PeriodID)
+	period, err := s.periods.GetByID(ctx, entry.PeriodID)
+	if err != nil {
+		return err
+	}
 	if period == nil {
 		return ErrPeriodNotFound
 	}
@@ -300,6 +354,9 @@ func (s *service) IncomeStatement(ctx context.Context, year, month int) ([]Accou
 // -- Periods --
 
 func (s *service) CreatePeriod(ctx context.Context, period *Period) error {
+	if err := period.Validate(); err != nil {
+		return err
+	}
 	return s.periods.Create(ctx, period)
 }
 
@@ -334,7 +391,10 @@ func (s *service) ReopenPeriod(ctx context.Context, id string) error {
 	if period.Status == PeriodOpen {
 		return nil
 	}
-	entries, _ := s.journals.GetByPeriod(ctx, id)
+	entries, err := s.journals.GetByPeriod(ctx, id)
+	if err != nil {
+		return err
+	}
 	for _, e := range entries {
 		if e.Status == JournalEntryPosted {
 			return fmt.Errorf("period has posted entries: %w", ErrPeriodHasEntries)
@@ -379,7 +439,10 @@ func (s *service) CreateUser(ctx context.Context, user *User, password string) e
 	if password == "" {
 		return ErrPasswordRequired
 	}
-	existing, _ := s.users.GetByUsername(ctx, user.Username)
+	existing, err := s.users.GetByUsername(ctx, user.Username)
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
+		return err
+	}
 	if existing != nil {
 		return ErrUsernameExists
 	}
@@ -411,4 +474,311 @@ func (s *service) Authenticate(ctx context.Context, username, password string) (
 		return nil, err
 	}
 	return user, nil
+}
+
+// ─── COA: Account Freeze/Unfreeze ───────────────────────────────────────────
+
+func (s *service) FreezeAccount(ctx context.Context, code, reason string) error {
+	acc, err := s.accounts.GetByCode(ctx, code)
+	if err != nil {
+		return err
+	}
+	if err := acc.Freeze(reason); err != nil {
+		return err
+	}
+	return s.accounts.Update(ctx, acc)
+}
+
+func (s *service) UnfreezeAccount(ctx context.Context, code, reason string) error {
+	acc, err := s.accounts.GetByCode(ctx, code)
+	if err != nil {
+		return err
+	}
+	if err := acc.Unfreeze(reason); err != nil {
+		return err
+	}
+	return s.accounts.Update(ctx, acc)
+}
+
+// ─── COA: Account Balance & Drill-down ──────────────────────────────────────
+
+func (s *service) GetAccountBalance(ctx context.Context, code string, periodID string) (*AccountBalance, error) {
+	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
+		return nil, err
+	}
+	return s.journals.GetBalance(ctx, code, periodID)
+}
+
+func (s *service) GetAccountBalanceDrillDown(ctx context.Context, code string, periodID string) ([]JournalEntry, error) {
+	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
+		return nil, err
+	}
+	all, err := s.journals.GetByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	var result []JournalEntry
+	for _, e := range all {
+		if e.Status != JournalEntryPosted {
+			continue
+		}
+		for _, l := range e.Lines {
+			if l.AccountCode == code {
+				result = append(result, e)
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func (s *service) GetAccountUsage(ctx context.Context, code string) (*AccountUsage, error) {
+	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
+		return nil, err
+	}
+	all, err := s.journals.GetByDateRange(ctx, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), s.now())
+	if err != nil {
+		return nil, err
+	}
+	usage := &AccountUsage{AccountCode: code}
+	for _, e := range all {
+		if e.Status != JournalEntryPosted {
+			continue
+		}
+		for _, l := range e.Lines {
+			if l.AccountCode == code {
+				usage.EntryCount++
+				usage.TotalDebit += l.DebitAmount
+				usage.TotalCredit += l.CreditAmount
+				if e.EntryDate.Format("2006-01-02") > usage.LastUsedDate {
+					usage.LastUsedDate = e.EntryDate.Format("2006-01-02")
+				}
+			}
+		}
+	}
+	return usage, nil
+}
+
+// ─── COA: Approval Workflow ─────────────────────────────────────────────────
+
+func (s *service) CreateApprovalRequest(ctx context.Context, req *ApprovalRequest) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	return s.approvals.Create(ctx, req)
+}
+
+func (s *service) ApproveRequest(ctx context.Context, id, reviewerID, note string) error {
+	req, err := s.approvals.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if req.Status.IsTerminal() {
+		return ErrApprovalAlreadyProcessed
+	}
+	if req.RequestedBy == reviewerID {
+		return ErrSelfApproval
+	}
+	if !req.ExpiresAt.IsZero() && s.now().After(req.ExpiresAt) {
+		s.approvals.UpdateStatus(ctx, id, ApprovalExpired, "", "")
+		return ErrApprovalExpired
+	}
+	return s.approvals.UpdateStatus(ctx, id, ApprovalApproved, reviewerID, note)
+}
+
+func (s *service) RejectRequest(ctx context.Context, id, reviewerID, note string) error {
+	req, err := s.approvals.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if req.Status.IsTerminal() {
+		return ErrApprovalAlreadyProcessed
+	}
+	if note == "" {
+		return ErrReviewNoteRequired
+	}
+	return s.approvals.UpdateStatus(ctx, id, ApprovalRejected, reviewerID, note)
+}
+
+func (s *service) GetApprovalRequests(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error) {
+	if status != "" {
+		return s.approvals.GetByStatus(ctx, status)
+	}
+	return s.approvals.GetAll(ctx)
+}
+
+// ─── COA: Versioning ────────────────────────────────────────────────────────
+
+func (s *service) CreateAccountVersion(ctx context.Context, reason string) (*AccountVersion, error) {
+	accounts, err := s.accounts.GetAll(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(accounts)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot marshal: %w", err)
+	}
+	lastVer, err := s.versions.GetLatest(ctx)
+	nextVer := "v1"
+	if err == nil && lastVer != nil {
+		parts := strings.Split(lastVer.VersionNumber, ".")
+		if len(parts) >= 1 {
+			n, _ := strconv.Atoi(strings.TrimPrefix(parts[0], "v"))
+			nextVer = fmt.Sprintf("v%d", n+1)
+		}
+	}
+	now := s.now()
+	ver := &AccountVersion{
+		ID:            fmt.Sprintf("VER-%d", now.UnixNano()),
+		VersionNumber: nextVer,
+		Snapshot:      string(data),
+		ChangeReason:  reason,
+		CreatedAt:     now,
+	}
+	if err := s.versions.Create(ctx, ver); err != nil {
+		return nil, err
+	}
+	return ver, nil
+}
+
+func (s *service) GetVersion(ctx context.Context, versionNumber string) (*AccountVersion, error) {
+	return s.versions.GetByVersionNumber(ctx, versionNumber)
+}
+
+func (s *service) ListVersions(ctx context.Context) ([]AccountVersion, error) {
+	return s.versions.GetAll(ctx)
+}
+
+func (s *service) CompareVersions(ctx context.Context, v1, v2 string) (*VersionDiff, error) {
+	ver1, err := s.versions.GetByVersionNumber(ctx, v1)
+	if err != nil {
+		return nil, err
+	}
+	ver2, err := s.versions.GetByVersionNumber(ctx, v2)
+	if err != nil {
+		return nil, err
+	}
+	var accs1, accs2 []Account
+	if err := json.Unmarshal([]byte(ver1.Snapshot), &accs1); err != nil {
+		return nil, fmt.Errorf("unmarshal version %s: %w", v1, err)
+	}
+	if err := json.Unmarshal([]byte(ver2.Snapshot), &accs2); err != nil {
+		return nil, fmt.Errorf("unmarshal version %s: %w", v2, err)
+	}
+	diff := &VersionDiff{VersionFrom: v1, VersionTo: v2}
+	map1 := make(map[string]Account)
+	for _, a := range accs1 {
+		map1[a.Code] = a
+	}
+	map2 := make(map[string]Account)
+	for _, a := range accs2 {
+		map2[a.Code] = a
+	}
+	for code, a := range map2 {
+		if _, ok := map1[code]; !ok {
+			diff.Added = append(diff.Added, a)
+		}
+	}
+	for code, a := range map1 {
+		if _, ok := map2[code]; !ok {
+			diff.Removed = append(diff.Removed, a)
+		}
+	}
+	for code, a1 := range map1 {
+		if a2, ok := map2[code]; ok {
+			var ad AccountDiff
+			changes := make(map[string]Change)
+			if a1.Name != a2.Name {
+				changes["name"] = Change{OldValue: a1.Name, NewValue: a2.Name}
+			}
+			if a1.Type != a2.Type {
+				changes["type"] = Change{OldValue: a1.Type, NewValue: a2.Type}
+			}
+			if a1.ParentCode != a2.ParentCode {
+				changes["parent_code"] = Change{OldValue: a1.ParentCode, NewValue: a2.ParentCode}
+			}
+			if a1.Status != a2.Status {
+				changes["status"] = Change{OldValue: a1.Status, NewValue: a2.Status}
+			}
+			if len(changes) > 0 {
+				ad.Code = code
+				ad.Old = a1
+				ad.New = a2
+				ad.Changes = changes
+				diff.Modified = append(diff.Modified, ad)
+			}
+		}
+	}
+	return diff, nil
+}
+
+// ─── COA: Account Analysis ─────────────────────────────────────────────────
+
+func (s *service) CreateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error {
+	if _, err := s.accounts.GetByCode(ctx, analysis.AccountCode); err != nil {
+		return err
+	}
+	if err := analysis.Validate(); err != nil {
+		return err
+	}
+	if existing, err := s.analysis.GetByAccount(ctx, analysis.AccountCode); err == nil && existing != nil {
+		return s.analysis.Update(ctx, analysis)
+	}
+	return s.analysis.Create(ctx, analysis)
+}
+
+func (s *service) GetAccountAnalysis(ctx context.Context, accountCode string) (*AccountAnalysis, error) {
+	return s.analysis.GetByAccount(ctx, accountCode)
+}
+
+func (s *service) UpdateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error {
+	if _, err := s.accounts.GetByCode(ctx, analysis.AccountCode); err != nil {
+		return err
+	}
+	return s.analysis.Update(ctx, analysis)
+}
+
+// ─── COA: Account Mappings ─────────────────────────────────────────────────
+
+func (s *service) CreateAccountMapping(ctx context.Context, mapping *AccountMapping) error {
+	if err := mapping.Validate(); err != nil {
+		return err
+	}
+	existing, err := s.mappings.GetByOldCode(ctx, mapping.SourceRegime, mapping.OldCode)
+	if err == nil && existing != nil {
+		return ErrMappingExists
+	}
+	return s.mappings.Create(ctx, mapping)
+}
+
+func (s *service) GetMappingByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error) {
+	return s.mappings.GetByOldCode(ctx, sourceRegime, oldCode)
+}
+
+func (s *service) ListMappings(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error) {
+	if sourceRegime != "" && targetRegime != "" {
+		return s.mappings.GetByRegime(ctx, sourceRegime, targetRegime)
+	}
+	return s.mappings.GetAll(ctx)
+}
+
+// ─── COA: IFRS Mapping ────────────────────────────────────────────────────
+
+func (s *service) CreateIFRSMapping(ctx context.Context, mapping *IFRSMapping) error {
+	if err := mapping.Validate(); err != nil {
+		return err
+	}
+	existing, err := s.ifrs.GetByVASCode(ctx, mapping.VASCode)
+	if err == nil && existing != nil {
+		return ErrIFRSMappingExists
+	}
+	return s.ifrs.Create(ctx, mapping)
+}
+
+func (s *service) GetIFRSMapping(ctx context.Context, vasCode string) (*IFRSMapping, error) {
+	return s.ifrs.GetByVASCode(ctx, vasCode)
+}
+
+func (s *service) ListIFRSMappings(ctx context.Context) ([]IFRSMapping, error) {
+	return s.ifrs.GetAll(ctx)
 }

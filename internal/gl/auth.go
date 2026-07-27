@@ -2,6 +2,7 @@ package gl
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -11,12 +12,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("gotax-gl-secret-change-in-production")
+var jwtSecret []byte
 
 func SetJWTSecret(secret string) {
-	if secret != "" {
-		jwtSecret = []byte(secret)
+	if secret == "" {
+		log.Fatal("JWT_SECRET must be set")
 	}
+	jwtSecret = []byte(secret)
 }
 
 type Claims struct {
@@ -68,7 +70,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 			return jwtSecret, nil
 		})
-		if err != nil || !token.Valid {
+		if err != nil || token == nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
@@ -98,6 +100,13 @@ func RoleMiddleware(roles ...UserRole) gin.HandlerFunc {
 }
 
 func GetUserID(c *gin.Context) string {
-	uid, _ := c.Get("user_id")
-	return uid.(string)
+	uid, exists := c.Get("user_id")
+	if !exists {
+		return ""
+	}
+	s, ok := uid.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }

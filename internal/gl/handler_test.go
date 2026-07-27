@@ -48,6 +48,29 @@ type mockService struct {
 	getUserFn               func(ctx context.Context, id string) (*User, error)
 	listUsersFn             func(ctx context.Context) ([]User, error)
 	authenticateFn          func(ctx context.Context, username, password string) (*User, error)
+	// COA methods
+	freezeAccountFn            func(ctx context.Context, code, reason string) error
+	unfreezeAccountFn          func(ctx context.Context, code, reason string) error
+	getAccountBalanceFn        func(ctx context.Context, code, periodID string) (*AccountBalance, error)
+	getAccountBalanceDrillDownFn func(ctx context.Context, code, periodID string) ([]JournalEntry, error)
+	getAccountUsageFn          func(ctx context.Context, code string) (*AccountUsage, error)
+	createApprovalRequestFn    func(ctx context.Context, req *ApprovalRequest) error
+	approveRequestFn           func(ctx context.Context, id, reviewerID, note string) error
+	rejectRequestFn            func(ctx context.Context, id, reviewerID, note string) error
+	getApprovalRequestsFn      func(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error)
+	createAccountVersionFn     func(ctx context.Context, reason string) (*AccountVersion, error)
+	getVersionFn               func(ctx context.Context, versionNumber string) (*AccountVersion, error)
+	listVersionsFn             func(ctx context.Context) ([]AccountVersion, error)
+	compareVersionsFn          func(ctx context.Context, v1, v2 string) (*VersionDiff, error)
+	createAccountAnalysisFn    func(ctx context.Context, analysis *AccountAnalysis) error
+	getAccountAnalysisFn       func(ctx context.Context, accountCode string) (*AccountAnalysis, error)
+	updateAccountAnalysisFn    func(ctx context.Context, analysis *AccountAnalysis) error
+	createAccountMappingFn     func(ctx context.Context, mapping *AccountMapping) error
+	getMappingByOldCodeFn      func(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error)
+	listMappingsFn             func(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error)
+	createIFRSMappingFn        func(ctx context.Context, mapping *IFRSMapping) error
+	getIFRSMappingFn           func(ctx context.Context, vasCode string) (*IFRSMapping, error)
+	listIFRSMappingsFn          func(ctx context.Context) ([]IFRSMapping, error)
 }
 
 func (m *mockService) CreateAccount(ctx context.Context, account *Account) error {
@@ -141,6 +164,75 @@ func (m *mockService) GetUser(ctx context.Context, id string) (*User, error) {
 func (m *mockService) ListUsers(ctx context.Context) ([]User, error) { return m.listUsersFn(ctx) }
 func (m *mockService) Authenticate(ctx context.Context, username, password string) (*User, error) {
 	return m.authenticateFn(ctx, username, password)
+}
+
+// ─── COA delegate methods ────────────────────────────────────────
+
+func (m *mockService) FreezeAccount(ctx context.Context, code, reason string) error {
+	return m.freezeAccountFn(ctx, code, reason)
+}
+func (m *mockService) UnfreezeAccount(ctx context.Context, code, reason string) error {
+	return m.unfreezeAccountFn(ctx, code, reason)
+}
+func (m *mockService) GetAccountBalance(ctx context.Context, code, periodID string) (*AccountBalance, error) {
+	return m.getAccountBalanceFn(ctx, code, periodID)
+}
+func (m *mockService) GetAccountBalanceDrillDown(ctx context.Context, code, periodID string) ([]JournalEntry, error) {
+	return m.getAccountBalanceDrillDownFn(ctx, code, periodID)
+}
+func (m *mockService) GetAccountUsage(ctx context.Context, code string) (*AccountUsage, error) {
+	return m.getAccountUsageFn(ctx, code)
+}
+func (m *mockService) CreateApprovalRequest(ctx context.Context, req *ApprovalRequest) error {
+	return m.createApprovalRequestFn(ctx, req)
+}
+func (m *mockService) ApproveRequest(ctx context.Context, id, reviewerID, note string) error {
+	return m.approveRequestFn(ctx, id, reviewerID, note)
+}
+func (m *mockService) RejectRequest(ctx context.Context, id, reviewerID, note string) error {
+	return m.rejectRequestFn(ctx, id, reviewerID, note)
+}
+func (m *mockService) GetApprovalRequests(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error) {
+	return m.getApprovalRequestsFn(ctx, status)
+}
+func (m *mockService) CreateAccountVersion(ctx context.Context, reason string) (*AccountVersion, error) {
+	return m.createAccountVersionFn(ctx, reason)
+}
+func (m *mockService) GetVersion(ctx context.Context, versionNumber string) (*AccountVersion, error) {
+	return m.getVersionFn(ctx, versionNumber)
+}
+func (m *mockService) ListVersions(ctx context.Context) ([]AccountVersion, error) {
+	return m.listVersionsFn(ctx)
+}
+func (m *mockService) CompareVersions(ctx context.Context, v1, v2 string) (*VersionDiff, error) {
+	return m.compareVersionsFn(ctx, v1, v2)
+}
+func (m *mockService) CreateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error {
+	return m.createAccountAnalysisFn(ctx, analysis)
+}
+func (m *mockService) GetAccountAnalysis(ctx context.Context, accountCode string) (*AccountAnalysis, error) {
+	return m.getAccountAnalysisFn(ctx, accountCode)
+}
+func (m *mockService) UpdateAccountAnalysis(ctx context.Context, analysis *AccountAnalysis) error {
+	return m.updateAccountAnalysisFn(ctx, analysis)
+}
+func (m *mockService) CreateAccountMapping(ctx context.Context, mapping *AccountMapping) error {
+	return m.createAccountMappingFn(ctx, mapping)
+}
+func (m *mockService) GetMappingByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error) {
+	return m.getMappingByOldCodeFn(ctx, sourceRegime, oldCode)
+}
+func (m *mockService) ListMappings(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error) {
+	return m.listMappingsFn(ctx, sourceRegime, targetRegime)
+}
+func (m *mockService) CreateIFRSMapping(ctx context.Context, mapping *IFRSMapping) error {
+	return m.createIFRSMappingFn(ctx, mapping)
+}
+func (m *mockService) GetIFRSMapping(ctx context.Context, vasCode string) (*IFRSMapping, error) {
+	return m.getIFRSMappingFn(ctx, vasCode)
+}
+func (m *mockService) ListIFRSMappings(ctx context.Context) ([]IFRSMapping, error) {
+	return m.listIFRSMappingsFn(ctx)
 }
 
 func setupTestRouter(h *Handler) *gin.Engine {
@@ -1260,5 +1352,320 @@ func TestGetCurrentUserHandler(t *testing.T) {
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+}
+
+// ─── COA: Freeze/Unfreeze Handler Tests ──────────────────────────
+
+func TestFreezeAccountHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success freeze", func(t *testing.T) {
+		ms.freezeAccountFn = func(_ context.Context, code, reason string) error {
+			assert.Equal(t, "1111", code)
+			assert.Equal(t, "audit hold", reason)
+			return nil
+		}
+		body := `{"reason":"audit hold"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/accounts/1111/freeze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - already frozen", func(t *testing.T) {
+		ms.freezeAccountFn = func(_ context.Context, _, _ string) error {
+			return ErrAccountAlreadyFrozen
+		}
+		body := `{"reason":"test"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/accounts/1111/freeze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+
+	t.Run("fail - not found", func(t *testing.T) {
+		ms.freezeAccountFn = func(_ context.Context, _, _ string) error {
+			return ErrAccountNotFound
+		}
+		body := `{"reason":"test"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/accounts/9999/freeze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+}
+
+func TestUnfreezeAccountHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success unfreeze", func(t *testing.T) {
+		ms.unfreezeAccountFn = func(_ context.Context, code, reason string) error {
+			return nil
+		}
+		body := `{"reason":"resolved"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/accounts/1111/unfreeze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - not frozen", func(t *testing.T) {
+		ms.unfreezeAccountFn = func(_ context.Context, _, _ string) error {
+			return ErrAccountNotFrozen
+		}
+		body := `{"reason":"test"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/accounts/1111/unfreeze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+}
+
+// ─── COA: Balance/Drill-down Handler Tests ───────────────────────
+
+func TestGetAccountBalanceHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success get balance", func(t *testing.T) {
+		ms.getAccountBalanceFn = func(_ context.Context, code, periodID string) (*AccountBalance, error) {
+			return &AccountBalance{AccountCode: "1111", ClosingBalance: 500000}, nil
+		}
+		req := httptest.NewRequest("GET", "/api/v1/coa/accounts/1111/balance?period_id=P-2026-07", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - missing period_id", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/coa/accounts/1111/balance", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestGetAccountUsageHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success get usage", func(t *testing.T) {
+		ms.getAccountUsageFn = func(_ context.Context, code string) (*AccountUsage, error) {
+			return &AccountUsage{AccountCode: "1111", EntryCount: 5}, nil
+		}
+		req := httptest.NewRequest("GET", "/api/v1/coa/accounts/1111/usage", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+// ─── COA: Approval Handler Tests ─────────────────────────────────
+
+func TestCreateApprovalRequestHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success create approval", func(t *testing.T) {
+		ms.createApprovalRequestFn = func(_ context.Context, req *ApprovalRequest) error {
+			return nil
+		}
+		body := `{"entity_type":"ACCOUNT","entity_id":"1111","request_type":"FREEZE","reason":"audit"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusCreated, w.Code)
+	})
+}
+
+func TestApproveRequestHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success approve", func(t *testing.T) {
+		ms.approveRequestFn = func(_ context.Context, id, reviewerID, note string) error {
+			return nil
+		}
+		body := `{"note":"approved"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals/APPR-001/approve", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - self approval", func(t *testing.T) {
+		ms.approveRequestFn = func(_ context.Context, _, _, _ string) error {
+			return ErrSelfApproval
+		}
+		body := `{"note":"ok"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals/APPR-001/approve", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("fail - already processed", func(t *testing.T) {
+		ms.approveRequestFn = func(_ context.Context, _, _, _ string) error {
+			return ErrApprovalAlreadyProcessed
+		}
+		body := `{"note":"ok"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals/APPR-001/approve", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+}
+
+func TestRejectRequestHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success reject", func(t *testing.T) {
+		ms.rejectRequestFn = func(_ context.Context, id, reviewerID, note string) error {
+			return nil
+		}
+		body := `{"note":"needs revision"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals/APPR-001/reject", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - missing note", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/api/v1/coa/approvals/APPR-001/reject", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// ─── COA: Versioning Handler Tests ───────────────────────────────
+
+func TestCreateAccountVersionHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success create version", func(t *testing.T) {
+		ms.createAccountVersionFn = func(_ context.Context, reason string) (*AccountVersion, error) {
+			return &AccountVersion{VersionNumber: "v1", ChangeReason: reason}, nil
+		}
+		body := `{"reason":"year-end snapshot"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/versions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusCreated, w.Code)
+	})
+}
+
+func TestCompareVersionsHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success compare", func(t *testing.T) {
+		ms.compareVersionsFn = func(_ context.Context, v1, v2 string) (*VersionDiff, error) {
+			return &VersionDiff{VersionFrom: v1, VersionTo: v2}, nil
+		}
+		req := httptest.NewRequest("GET", "/api/v1/coa/versions/compare?from=v1&to=v2", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("fail - missing params", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/coa/versions/compare", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// ─── COA: Mapping Handler Tests ──────────────────────────────────
+
+func TestCreateAccountMappingHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success create mapping", func(t *testing.T) {
+		ms.createAccountMappingFn = func(_ context.Context, m *AccountMapping) error {
+			return nil
+		}
+		body := `{"source_regime":"TT200","target_regime":"TT99","old_code":"611","new_code":"632","mapping_type":"DIRECT"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/mappings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusCreated, w.Code)
+	})
+
+	t.Run("fail - duplicate", func(t *testing.T) {
+		ms.createAccountMappingFn = func(_ context.Context, m *AccountMapping) error {
+			return ErrMappingExists
+		}
+		body := `{"source_regime":"TT200","target_regime":"TT99","old_code":"611","new_code":"632","mapping_type":"DIRECT"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/mappings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+}
+
+// ─── COA: IFRS Mapping Handler Tests ─────────────────────────────
+
+func TestCreateIFRSMappingHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success create IFRS mapping", func(t *testing.T) {
+		ms.createIFRSMappingFn = func(_ context.Context, m *IFRSMapping) error {
+			return nil
+		}
+		body := `{"vas_code":"1111","ifrs_code":"IFRS-1100","adjustment_type":"RECLASSIFY"}`
+		req := httptest.NewRequest("POST", "/api/v1/coa/ifrs", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusCreated, w.Code)
+	})
+}
+
+func TestGetIFRSMappingHandler(t *testing.T) {
+	ms := &mockService{}
+	h := NewHandler(ms)
+	r := setupTestRouter(h)
+
+	t.Run("success get IFRS mapping", func(t *testing.T) {
+		ms.getIFRSMappingFn = func(_ context.Context, vasCode string) (*IFRSMapping, error) {
+			return &IFRSMapping{VASCode: "1111", IFRSCode: "IFRS-1100"}, nil
+		}
+		req := httptest.NewRequest("GET", "/api/v1/coa/ifrs/1111", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }
