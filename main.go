@@ -35,6 +35,7 @@ import (
 	"gotax/internal/db"
 	"gotax/internal/domain"
 	"gotax/internal/handler"
+	gotaxi18n "gotax/internal/i18n"
 	"gotax/internal/repository"
 	"gotax/internal/service"
 )
@@ -69,6 +70,9 @@ func main() {
 		c.JSON(200, gin.H{"message": "GoTax GL Server"})
 	})
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	i18nL := gotaxi18n.MustNew()
+	r.Use(handler.I18nMiddleware(i18nL))
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn != "" {
