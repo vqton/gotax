@@ -1,0 +1,39 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.test.exe
+go.work
+go.work.sum
+
+# Build
+/tmp/gotax-server
+/bin/
+/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temp migration runner scripts
+/tmp/run_migrate.go
+/tmp/check_db.go
+/tmp/fix_admin.go
+/tmp/gen_hash.go
+/tmp/setup_pg.go
