@@ -31,7 +31,12 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	_ "gotax/docs"
-	"gotax/internal/gl"
+	"gotax/internal/auth"
+	"gotax/internal/db"
+	"gotax/internal/domain"
+	"gotax/internal/handler"
+	"gotax/internal/repository"
+	"gotax/internal/service"
 )
 
 // @title           GoTax GL API
@@ -57,7 +62,7 @@ func main() {
 	ctx := context.Background()
 
 	secret := os.Getenv("JWT_SECRET")
-	gl.SetJWTSecret(secret)
+	auth.SetJWTSecret(secret)
 
 	r := gin.Default()
 	r.GET("/ping", func(c *gin.Context) {
@@ -67,59 +72,80 @@ func main() {
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn != "" {
-		log.Println("using PostgreSQL backend")
-		cfg := gl.DefaultPGConfig()
+		log.Println("using PostgreSQL backend (Clean Architecture)")
+		cfg := db.DefaultPGConfig()
 		cfg.DSN = dsn
 
-		pool, err := gl.NewPool(ctx, cfg)
+		pool, err := db.NewPool(ctx, cfg)
 		if err != nil {
 			log.Fatalf("connect to PostgreSQL: %v", err)
 		}
 		defer pool.Close()
 
-		if err := gl.RunMigrations(ctx, pool); err != nil {
+		if err := db.RunMigrations(ctx, pool); err != nil {
 			log.Fatalf("run migrations: %v", err)
 		}
 
-		accRepo := gl.NewPGAccountRepo(pool)
-		jeRepo := gl.NewPGJournalRepo(pool)
-		perRepo := gl.NewPGPeriodRepo(pool)
-		userRepo := gl.NewPGUserRepo(pool)
-		auditRepo := gl.NewPGAuditLogRepo(pool)
-		rateRepo := gl.NewPGExchangeRateRepo(pool)
-		templateRepo := gl.NewPGClosingTemplateRepo(pool)
+		accRepo := repository.NewPGAccountRepo(pool)
+		jeRepo := repository.NewPGJournalRepo(pool)
+		perRepo := repository.NewPGPeriodRepo(pool)
+		userRepo := repository.NewPGUserRepo(pool)
+		auditRepo := repository.NewPGAuditLogRepo(pool)
+		rateRepo := repository.NewPGExchangeRateRepo(pool)
+		templateRepo := repository.NewPGClosingTemplateRepo(pool)
 
-		svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil)
-		handler := gl.NewHandler(svc)
+		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil)
+		h := handler.NewHandler(svc)
 
-		authMW := gl.AuthMiddleware()
-		adminMW := gl.RoleMiddleware(gl.UserRoleAdmin, gl.UserRoleChiefAccountant)
+		companyRepo := repository.NewPGCompanyRepo(pool)
+		companySvc := service.NewCompanyService(companyRepo)
+		companyH := handler.NewCompanyHandler(companySvc)
 
-		gl.RegisterRoutes(r, handler, authMW, adminMW)
+		authMW := handler.AuthMiddleware()
+		adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
+
+		taxRepo := repository.NewPGTaxRepo(pool)
+		taxSvc := service.NewTaxService(taxRepo)
+		taxH := handler.NewTaxHandler(taxSvc)
+
+		handler.RegisterRoutesWithCompany(r, h, companyH, taxH, authMW, adminMW)
 		log.Println("GoTax GL server (PG) starting on :8080")
 		r.Run(":8080")
 		return
 	}
 
-	log.Println("using in-memory backend (no DATABASE_URL set)")
-	accRepo := gl.NewMemoryAccountRepo()
-	jeRepo := gl.NewMemoryJournalRepo()
+	log.Println("using in-memory backend (Clean Architecture)")
+	accRepo := repository.NewMemoryAccountRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
 	jeRepo.SetAccounts(accRepo.Accounts())
-	perRepo := gl.NewMemoryPeriodRepo()
-	userRepo := gl.NewMemoryUserRepo()
-	auditRepo := gl.NewMemoryAuditLogRepo()
-	rateRepo := gl.NewMemoryExchangeRateRepo()
-	templateRepo := gl.NewMemoryClosingTemplateRepo()
-	refreshRepo := gl.NewMemoryRefreshTokenRepo()
-	resetRepo := gl.NewMemoryPasswordResetTokenRepo()
+	perRepo := repository.NewMemoryPeriodRepo()
+	userRepo := repository.NewMemoryUserRepo()
+	auditRepo := repository.NewMemoryAuditLogRepo()
+	rateRepo := repository.NewMemoryExchangeRateRepo()
+	templateRepo := repository.NewMemoryClosingTemplateRepo()
+	approvalRepo := repository.NewMemoryApprovalRepo()
+	versionRepo := repository.NewMemoryAccountVersionRepo()
+	mappingRepo := repository.NewMemoryAccountMappingRepo()
+	analysisRepo := repository.NewMemoryAccountAnalysisRepo()
+	ifrsRepo := repository.NewMemoryIFRSMappingRepo()
+	refreshRepo := repository.NewMemoryRefreshTokenRepo()
+	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 
-	svc := gl.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, refreshRepo, resetRepo)
-	handler := gl.NewHandler(svc)
+	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo)
+	h := handler.NewHandler(svc)
 
-	authMW := gl.AuthMiddleware()
-	adminMW := gl.RoleMiddleware(gl.UserRoleAdmin, gl.UserRoleChiefAccountant)
+	companyRepo := repository.NewMemoryCompanyRepo()
+	companySvc := service.NewCompanyService(companyRepo)
+	companyH := handler.NewCompanyHandler(companySvc)
 
-	gl.RegisterRoutes(r, handler, authMW, adminMW)
-	log.Println("GoTax GL server (mem) starting on :8080")
+	authMW := handler.AuthMiddleware()
+	adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
+
+	taxRepo := repository.NewMemoryTaxRepo()
+	taxSvc := service.NewTaxService(taxRepo)
+	taxH := handler.NewTaxHandler(taxSvc)
+
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, authMW, adminMW)
+	log.Println("GoTax GL server (CA) starting on :8080")
 	r.Run(":8080")
 }

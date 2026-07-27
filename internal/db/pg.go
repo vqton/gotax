@@ -1,4 +1,4 @@
-package gl
+package db
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type PGConfig struct {
 func DefaultPGConfig() PGConfig {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://gotax:gotax@localhost:5432/gotax?sslmode=disable"
+		dsn = "postgres://postgres:1@172.21.208.1:5432/gotax?sslmode=disable"
 	}
 	return PGConfig{
 		DSN:             dsn,
@@ -61,6 +61,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 	migrations := []string{
 		filepath.Join(baseDir, "..", "..", "migrations", "002_gl_schema_circular99.sql"),
+		filepath.Join(baseDir, "..", "..", "migrations", "003_company_schema.sql"),
 	}
 
 	for _, path := range migrations {

@@ -1,0 +1,229 @@
+package domain
+
+import (
+	"context"
+	"time"
+)
+
+type AccountRepository interface {
+	Create(ctx context.Context, account *Account) error
+	GetByCode(ctx context.Context, code string) (*Account, error)
+	GetAll(ctx context.Context, activeOnly bool) ([]Account, error)
+	Update(ctx context.Context, account *Account) error
+	Delete(ctx context.Context, code string) error
+	GetChildren(ctx context.Context, parentCode string) ([]Account, error)
+}
+
+type JournalRepository interface {
+	Create(ctx context.Context, entry *JournalEntry) error
+	GetByID(ctx context.Context, id string) (*JournalEntry, error)
+	GetByPeriod(ctx context.Context, periodID string) ([]JournalEntry, error)
+	GetByDateRange(ctx context.Context, from, to time.Time) ([]JournalEntry, error)
+	GetByStatus(ctx context.Context, status JournalEntryStatus) ([]JournalEntry, error)
+	GetByVoucherType(ctx context.Context, voucherType VoucherType) ([]JournalEntry, error)
+	UpdateStatus(ctx context.Context, id string, status JournalEntryStatus) error
+	Update(ctx context.Context, entry *JournalEntry) error
+	Approve(ctx context.Context, id, approvedBy string) error
+	Review(ctx context.Context, id, reviewedBy string) error
+	GetLinesByEntryID(ctx context.Context, entryID string) ([]JournalLine, error)
+	GetBalance(ctx context.Context, accountCode string, periodID string) (*AccountBalance, error)
+	GetTrialBalance(ctx context.Context, periodID string) ([]AccountBalance, error)
+	GetFinancialStatement(ctx context.Context, periodID string, accountTypes []AccountType) ([]AccountBalance, error)
+}
+
+type PeriodRepository interface {
+	Create(ctx context.Context, period *Period) error
+	GetByID(ctx context.Context, id string) (*Period, error)
+	GetByYearMonth(ctx context.Context, year, month int) (*Period, error)
+	GetAll(ctx context.Context) ([]Period, error)
+	UpdateStatus(ctx context.Context, id string, status PeriodStatus) error
+	GetOpenPeriod(ctx context.Context) (*Period, error)
+}
+
+type UserRepository interface {
+	Create(ctx context.Context, user *User) error
+	GetByID(ctx context.Context, id string) (*User, error)
+	GetByUsername(ctx context.Context, username string) (*User, error)
+	GetAll(ctx context.Context) ([]User, error)
+	Update(ctx context.Context, user *User) error
+	Delete(ctx context.Context, id string) error
+}
+
+type RefreshTokenRepository interface {
+	Create(ctx context.Context, token *RefreshToken) error
+	GetByID(ctx context.Context, id string) (*RefreshToken, error)
+	GetByUserID(ctx context.Context, userID string) ([]RefreshToken, error)
+	GetByHash(ctx context.Context, hash string) (*RefreshToken, error)
+	Revoke(ctx context.Context, id string) error
+	RevokeAllByUserID(ctx context.Context, userID string) error
+}
+
+type PasswordResetTokenRepository interface {
+	Create(ctx context.Context, token *PasswordResetToken) error
+	GetByID(ctx context.Context, id string) (*PasswordResetToken, error)
+	MarkUsed(ctx context.Context, id string) error
+}
+
+type AuditLogRepository interface {
+	Create(ctx context.Context, entry *AuditEntry) error
+	GetByEntity(ctx context.Context, entityType, entityID string) ([]AuditEntry, error)
+	GetByUser(ctx context.Context, userID string) ([]AuditEntry, error)
+	GetByDateRange(ctx context.Context, from, to time.Time) ([]AuditEntry, error)
+	GetAll(ctx context.Context, limit int) ([]AuditEntry, error)
+}
+
+type ExchangeRateRepository interface {
+	Create(ctx context.Context, rate *ExchangeRate) error
+	GetByCurrencyAndDate(ctx context.Context, currencyCode string, rateDate time.Time) (*ExchangeRate, error)
+	GetByDateRange(ctx context.Context, from, to time.Time) ([]ExchangeRate, error)
+	GetAll(ctx context.Context) ([]ExchangeRate, error)
+	Delete(ctx context.Context, id string) error
+}
+
+type ClosingTemplateRepository interface {
+	Create(ctx context.Context, template *ClosingTemplate) error
+	GetByID(ctx context.Context, id string) (*ClosingTemplate, error)
+	GetAll(ctx context.Context) ([]ClosingTemplate, error)
+	Update(ctx context.Context, template *ClosingTemplate) error
+	Delete(ctx context.Context, id string) error
+}
+
+type ApprovalRepository interface {
+	Create(ctx context.Context, req *ApprovalRequest) error
+	GetByID(ctx context.Context, id string) (*ApprovalRequest, error)
+	GetByStatus(ctx context.Context, status ApprovalStatus) ([]ApprovalRequest, error)
+	GetByEntity(ctx context.Context, entityType, entityID string) ([]ApprovalRequest, error)
+	UpdateStatus(ctx context.Context, id string, status ApprovalStatus, reviewedBy, reviewNote string) error
+	GetAll(ctx context.Context) ([]ApprovalRequest, error)
+}
+
+type AccountVersionRepository interface {
+	Create(ctx context.Context, version *AccountVersion) error
+	GetByVersionNumber(ctx context.Context, versionNumber string) (*AccountVersion, error)
+	GetLatest(ctx context.Context) (*AccountVersion, error)
+	GetAll(ctx context.Context) ([]AccountVersion, error)
+}
+
+type AccountMappingRepository interface {
+	Create(ctx context.Context, mapping *AccountMapping) error
+	GetByOldCode(ctx context.Context, sourceRegime, oldCode string) (*AccountMapping, error)
+	GetByRegime(ctx context.Context, sourceRegime, targetRegime string) ([]AccountMapping, error)
+	GetAll(ctx context.Context) ([]AccountMapping, error)
+}
+
+type AccountAnalysisRepository interface {
+	Create(ctx context.Context, analysis *AccountAnalysis) error
+	GetByAccount(ctx context.Context, accountCode string) (*AccountAnalysis, error)
+	Update(ctx context.Context, analysis *AccountAnalysis) error
+}
+
+type IFRSMappingRepository interface {
+	Create(ctx context.Context, mapping *IFRSMapping) error
+	GetByVASCode(ctx context.Context, vasCode string) (*IFRSMapping, error)
+	GetAll(ctx context.Context) ([]IFRSMapping, error)
+	Update(ctx context.Context, mapping *IFRSMapping) error
+}
+
+type CompanyRepository interface {
+	Create(ctx context.Context, company *Company) error
+	GetByID(ctx context.Context, id string) (*Company, error)
+	GetByTaxCode(ctx context.Context, tenantID, taxCode string) (*Company, error)
+	GetAll(ctx context.Context, tenantID string) ([]Company, error)
+	Update(ctx context.Context, company *Company) error
+	Deactivate(ctx context.Context, id, reason string) error
+	GetHierarchy(ctx context.Context, companyID string) ([]Company, error)
+
+	CreateBranch(ctx context.Context, branch *CompanyBranch) error
+	GetBranchByID(ctx context.Context, id string) (*CompanyBranch, error)
+	GetBranchesByCompany(ctx context.Context, companyID string) ([]CompanyBranch, error)
+	UpdateBranch(ctx context.Context, branch *CompanyBranch) error
+	DeactivateBranch(ctx context.Context, id string) error
+
+	CreateFiscalYear(ctx context.Context, fy *FiscalYear) error
+	GetFiscalYearByID(ctx context.Context, id string) (*FiscalYear, error)
+	GetFiscalYearsByCompany(ctx context.Context, companyID string) ([]FiscalYear, error)
+	GetFiscalYearByYear(ctx context.Context, companyID string, year int) (*FiscalYear, error)
+
+	CreatePeriod(ctx context.Context, period *PeriodV2) error
+	GetPeriodByID(ctx context.Context, id string) (*PeriodV2, error)
+	GetPeriodsByFiscalYear(ctx context.Context, fiscalYearID string) ([]PeriodV2, error)
+	GetPeriodsByCompany(ctx context.Context, companyID string) ([]PeriodV2, error)
+	GetOpenPeriod(ctx context.Context, companyID string) (*PeriodV2, error)
+	UpdatePeriodStatus(ctx context.Context, id string, status PeriodStatusV2, closedBy string) error
+	IncrementReopenCount(ctx context.Context, id string) error
+
+	CreateDepartment(ctx context.Context, dept *Department) error
+	GetDepartmentByID(ctx context.Context, id string) (*Department, error)
+	GetDepartmentsByCompany(ctx context.Context, companyID string) ([]Department, error)
+	UpdateDepartment(ctx context.Context, dept *Department) error
+
+	CreateEmployee(ctx context.Context, emp *Employee) error
+	GetEmployeeByID(ctx context.Context, id string) (*Employee, error)
+	GetEmployeesByCompany(ctx context.Context, companyID string) ([]Employee, error)
+	GetEmployeeByCode(ctx context.Context, companyID, code string) (*Employee, error)
+	UpdateEmployee(ctx context.Context, emp *Employee) error
+	DeactivateEmployee(ctx context.Context, id string) error
+
+	CreateBankAccount(ctx context.Context, ba *CompanyBankAccount) error
+	GetBankAccountByID(ctx context.Context, id string) (*CompanyBankAccount, error)
+	GetBankAccountsByCompany(ctx context.Context, companyID string) ([]CompanyBankAccount, error)
+	UpdateBankAccount(ctx context.Context, ba *CompanyBankAccount) error
+	DeactivateBankAccount(ctx context.Context, id string) error
+
+	CreateEInvoicePattern(ctx context.Context, inv *EInvoicePattern) error
+	GetEInvoicePatternByID(ctx context.Context, id string) (*EInvoicePattern, error)
+	GetEInvoicePatternsByCompany(ctx context.Context, companyID string) ([]EInvoicePattern, error)
+	UpdateEInvoicePattern(ctx context.Context, inv *EInvoicePattern) error
+
+	CreateDigitalSignature(ctx context.Context, sig *DigitalSignature) error
+	GetDigitalSignatureByID(ctx context.Context, id string) (*DigitalSignature, error)
+	GetDigitalSignaturesByCompany(ctx context.Context, companyID string) ([]DigitalSignature, error)
+	UpdateDigitalSignature(ctx context.Context, sig *DigitalSignature) error
+
+	CreateIntegrationProfile(ctx context.Context, prof *IntegrationProfile) error
+	GetIntegrationProfileByID(ctx context.Context, id string) (*IntegrationProfile, error)
+	GetIntegrationProfilesByCompany(ctx context.Context, companyID string) ([]IntegrationProfile, error)
+	GetIntegrationByType(ctx context.Context, companyID string, itype IntegrationType) (*IntegrationProfile, error)
+	UpdateIntegrationProfile(ctx context.Context, prof *IntegrationProfile) error
+}
+
+// ─── Tax Repository ─────────────────────────────────────────────
+
+type TaxRepository interface {
+	CreateDeclaration(ctx context.Context, d *TaxDeclaration) error
+	GetDeclarationByID(ctx context.Context, id string) (*TaxDeclaration, error)
+	GetDeclarations(ctx context.Context, filter TaxDeclarationFilter) ([]TaxDeclaration, error)
+	UpdateDeclaration(ctx context.Context, d *TaxDeclaration) error
+	UpdateDeclarationStatus(ctx context.Context, id string, status DeclarationStatus) error
+
+	CreateRate(ctx context.Context, r *TaxRate) error
+	GetRateByID(ctx context.Context, id string) (*TaxRate, error)
+	GetRates(ctx context.Context, filter TaxRateFilter) ([]TaxRate, error)
+	UpdateRate(ctx context.Context, r *TaxRate) error
+
+	CreatePayment(ctx context.Context, p *TaxPayment) error
+	GetPaymentByID(ctx context.Context, id string) (*TaxPayment, error)
+	GetPayments(ctx context.Context, filter PaymentFilter) ([]TaxPayment, error)
+	UpdatePayment(ctx context.Context, p *TaxPayment) error
+
+	CreateEInvoice(ctx context.Context, inv *EInvoice) error
+	GetEInvoiceByID(ctx context.Context, id string) (*EInvoice, error)
+	GetEInvoices(ctx context.Context, filter EInvoiceFilter) ([]EInvoice, error)
+	UpdateEInvoice(ctx context.Context, inv *EInvoice) error
+	UpdateEInvoiceStatus(ctx context.Context, id string, status EInvLifecycleStatus) error
+
+	CreateCalendarEntry(ctx context.Context, c *TaxCalendar) error
+	GetCalendarEntryByID(ctx context.Context, id string) (*TaxCalendar, error)
+	GetCalendarByPeriod(ctx context.Context, companyID string, periodYear, periodNumber int) ([]TaxCalendar, error)
+	GetCalendarByCompany(ctx context.Context, companyID string) ([]TaxCalendar, error)
+	UpdateCalendarStatus(ctx context.Context, id string, status CalendarStatus) error
+
+	CreateAlert(ctx context.Context, a *TaxAlert) error
+	GetAlertByID(ctx context.Context, id string) (*TaxAlert, error)
+	GetAlerts(ctx context.Context, companyID string, limit int) ([]TaxAlert, error)
+
+	CreateAuditCase(ctx context.Context, a *TaxAuditCase) error
+	GetAuditCaseByID(ctx context.Context, id string) (*TaxAuditCase, error)
+	GetAuditCases(ctx context.Context, companyID string) ([]TaxAuditCase, error)
+	UpdateAuditCase(ctx context.Context, a *TaxAuditCase) error
+}

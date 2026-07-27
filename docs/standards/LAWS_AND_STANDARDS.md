@@ -143,6 +143,31 @@
 
 ---
 
+## 9. Company-Related Laws & Regulations
+
+| Law/Decree/Circular | Key Requirement | Status |
+|---------------------|----------------|--------|
+| **Law on Enterprise 59/2025/QH15** | Legal entity types, registration, governance, capital, dissolution | **CURRENT** (effective 2025) |
+| **Decree 01/2021/ND-CP** | Business registration procedures, MSDN format, DPI processes | **CURRENT** |
+| **Decree 23/2025/ND-CP** | Digital signatures for enterprises: USB token, remote HSM, certification authority | **CURRENT** |
+| **Decree 123/2020/ND-CP** | E-invoice regulations: mandatory e-invoices, patterns, serials, GDT notification | **CURRENT** |
+| **Decree 04/2025/ND-CP** | Amendments to Decree 123/2020: expanded e-invoice scope, updated formats | **CURRENT** |
+| **Circular 78/2021/TT-BTC** | E-tax transaction (HTKK/iHTKK) requirements | **CURRENT** |
+| **Circular 39/2014/TT-BTC** | Expanded e-invoice (original) — partially superseded by Decree 123 | **SUPERSEDED** (partial) |
+| **Circular 24/2019/TT-NHNN** | Napas payment system standards, bank account verification | **CURRENT** |
+| **Decree 13/2023/ND-CP** | Personal data protection — applies to employee PII in company module | **CURRENT** |
+| **Decision 29/2026/QD-TTg** | VNeID mandatory for enterprise authentication | **CURRENT** |
+| **Circular 99/2025/TT-BTC Art. 4** | Accounting Policy Regulation (IGAP) requirement per company | **CURRENT** (from 01/01/2026) |
+| **Circular 99/2025/TT-BTC Art. 7** | Consistency of accounting policies, change allowed only at fiscal year boundary | **CURRENT** |
+| **Circular 99/2025/TT-BTC Art. 16** | Fiscal year regulations: 12-month minimum, short year allowed at setup | **CURRENT** |
+| **Circular 99/2025/TT-BTC Art. 17** | Financial statement requirements: B01-DN (Statement of Financial Position), B02-DN, B03-DN, B09-DN | **CURRENT** |
+| **Circular 99/2025/TT-BTC Art. 23** | Consolidation of financial statements (parent company + subsidiaries) | **CURRENT** |
+| **Circular 58/2026/TT-BTC** | Micro-enterprise accounting regime — eligibility criteria: <10 employees or <3B VND revenue | **CURRENT** (from 01/07/2026) |
+| **Circular 133/2016/TT-BTC** | SME accounting regime (optional for qualifying enterprises) | **ACTIVE** (optional) |
+| **Law on Tax Administration 108/2025/QH15** | Tax code registration, MST format, tax office assignment, tax filing deadlines | **CURRENT** |
+
+---
+
 ## 10. Superseded Documents (Archived)
 
 | File | Reason | Archived At |

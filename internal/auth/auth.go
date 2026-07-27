@@ -1,4 +1,4 @@
-package gl
+package auth
 
 import (
 	"crypto/hmac"
@@ -12,17 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
-)
 
-// ─── RSA Key Pair ───────────────────────────────────────────────
+	"gotax/internal/domain"
+)
 
 var (
 	jwtPrivateKey *rsa.PrivateKey
@@ -48,44 +45,24 @@ func SetJWTSecret(secret string) {
 	}
 }
 
-// ─── Claims ─────────────────────────────────────────────────────
-
 type Claims struct {
-	UserID   string   `json:"user_id"`
-	Username string   `json:"username"`
-	Role     UserRole `json:"role"`
-	TokenID  string   `json:"jti,omitempty"`
+	UserID   string         `json:"user_id"`
+	Username string         `json:"username"`
+	Role     domain.UserRole `json:"role"`
+	TokenID  string         `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
 
-// ─── Password Hashing ───────────────────────────────────────────
-
-func hashPassword(password string) (string, error) {
+func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err
 }
 
-func comparePassword(hash, password string) error {
+func ComparePassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-// ─── Token Generation ───────────────────────────────────────────
-
-func GenerateToken(user *User) (string, error) {
-	claims := Claims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte("fallback-secret"))
-}
-
-func GenerateAccessToken(user *User) (string, error) {
+func GenerateAccessToken(user *domain.User) (string, error) {
 	if jwtPrivateKey == nil {
 		return "", errors.New("JWT key pair not initialized")
 	}
@@ -123,8 +100,6 @@ func GeneratePasswordResetTokenRaw() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// ─── Token Parsing ──────────────────────────────────────────────
-
 func ParseAndValidateAccessToken(tokenStr string) (*Claims, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
@@ -139,8 +114,6 @@ func ParseAndValidateAccessToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
-// ─── Rate Limiter ───────────────────────────────────────────────
-
 type RateLimiter struct {
 	mu       sync.Mutex
 	attempts map[string]*attemptInfo
@@ -149,7 +122,7 @@ type RateLimiter struct {
 }
 
 type attemptInfo struct {
-	count   int
+	count       int
 	windowStart time.Time
 }
 
@@ -176,80 +149,6 @@ func (rl *RateLimiter) Allow(key string) bool {
 	info.count++
 	return true
 }
-
-// ─── Middlewares ─────────────────────────────────────────────────
-
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
-			return
-		}
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
-			return
-		}
-		claims, err := ParseAndValidateAccessToken(parts[1])
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
-		c.Set("user_id", claims.UserID)
-		c.Set("username", claims.Username)
-		c.Set("role", string(claims.Role))
-		c.Next()
-	}
-}
-
-func RoleMiddleware(roles ...UserRole) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		roleStr, exists := c.Get("role")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
-		}
-		role := UserRole(roleStr.(string))
-		for _, r := range roles {
-			if role == r {
-				c.Next()
-				return
-			}
-		}
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-	}
-}
-
-func GetUserID(c *gin.Context) string {
-	uid, exists := c.Get("user_id")
-	if !exists {
-		return ""
-	}
-	s, ok := uid.(string)
-	if !ok {
-		return ""
-	}
-	return s
-}
-
-func GetUserRole(c *gin.Context) UserRole {
-	roleStr, exists := c.Get("role")
-	if !exists {
-		return ""
-	}
-	return UserRole(roleStr.(string))
-}
-
-func GetUsername(c *gin.Context) string {
-	u, exists := c.Get("username")
-	if !exists {
-		return ""
-	}
-	return u.(string)
-}
-
-// ─── TOTP ───────────────────────────────────────────────────────
 
 func GenerateTOTPSecret() string {
 	b := make([]byte, 20)
@@ -290,7 +189,7 @@ func generateTOTP(key []byte, counter int64) string {
 	return fmt.Sprintf("%06d", code)
 }
 
-func CheckBackupCode(user *User, code string) bool {
+func CheckBackupCode(user *domain.User, code string) bool {
 	for i, bc := range user.BackupCodes {
 		if bc == code {
 			user.BackupCodes = append(user.BackupCodes[:i], user.BackupCodes[i+1:]...)
