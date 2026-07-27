@@ -976,6 +976,132 @@ func (r *MemoryIFRSMappingRepo) Update(_ context.Context, m *IFRSMapping) error 
 	return nil
 }
 
+// ─── Auth: In-Memory Refresh Token Repository ───────────────────
+
+type MemoryRefreshTokenRepo struct {
+	mu   sync.RWMutex
+	data map[string]*RefreshToken
+	seq  int
+}
+
+func NewMemoryRefreshTokenRepo() *MemoryRefreshTokenRepo {
+	return &MemoryRefreshTokenRepo{data: make(map[string]*RefreshToken)}
+}
+
+func (r *MemoryRefreshTokenRepo) Create(_ context.Context, token *RefreshToken) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	token.ID = fmt.Sprintf("RT-%04d", r.seq)
+	token.CreatedAt = time.Now()
+	r.data[token.ID] = token
+	return nil
+}
+
+func (r *MemoryRefreshTokenRepo) GetByID(_ context.Context, id string) (*RefreshToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.data[id]
+	if !ok {
+		return nil, ErrInvalidRefreshToken
+	}
+	return t, nil
+}
+
+func (r *MemoryRefreshTokenRepo) GetByHash(_ context.Context, hash string) (*RefreshToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.data {
+		if t.TokenHash == hash {
+			return t, nil
+		}
+	}
+	return nil, ErrInvalidRefreshToken
+}
+
+func (r *MemoryRefreshTokenRepo) GetByUserID(_ context.Context, userID string) ([]RefreshToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []RefreshToken
+	for _, t := range r.data {
+		if t.UserID == userID {
+			result = append(result, *t)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result, nil
+}
+
+func (r *MemoryRefreshTokenRepo) Revoke(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.data[id]
+	if !ok {
+		return ErrInvalidRefreshToken
+	}
+	now := time.Now()
+	t.RevokedAt = &now
+	return nil
+}
+
+func (r *MemoryRefreshTokenRepo) RevokeAllByUserID(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for _, t := range r.data {
+		if t.UserID == userID {
+			t.RevokedAt = &now
+		}
+	}
+	return nil
+}
+
+// ─── Auth: In-Memory Password Reset Token Repository ────────────
+
+type MemoryPasswordResetTokenRepo struct {
+	mu   sync.RWMutex
+	data map[string]*PasswordResetToken
+	seq  int
+}
+
+func NewMemoryPasswordResetTokenRepo() *MemoryPasswordResetTokenRepo {
+	return &MemoryPasswordResetTokenRepo{data: make(map[string]*PasswordResetToken)}
+}
+
+func (r *MemoryPasswordResetTokenRepo) Create(_ context.Context, token *PasswordResetToken) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	token.ID = fmt.Sprintf("PRT-%04d", r.seq)
+	token.CreatedAt = time.Now()
+	r.data[token.ID] = token
+	return nil
+}
+
+func (r *MemoryPasswordResetTokenRepo) GetByID(_ context.Context, id string) (*PasswordResetToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.data[id]
+	if !ok {
+		return nil, ErrInvalidPasswordResetToken
+	}
+	return t, nil
+}
+
+func (r *MemoryPasswordResetTokenRepo) MarkUsed(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.data[id]
+	if !ok {
+		return ErrInvalidPasswordResetToken
+	}
+	now := time.Now()
+	t.UsedAt = &now
+	return nil
+}
+
 var _ AccountRepository = (*MemoryAccountRepo)(nil)
 var _ JournalRepository = (*MemoryJournalRepo)(nil)
 var _ PeriodRepository = (*MemoryPeriodRepo)(nil)
@@ -988,3 +1114,5 @@ var _ AccountVersionRepository = (*MemoryAccountVersionRepo)(nil)
 var _ AccountMappingRepository = (*MemoryAccountMappingRepo)(nil)
 var _ AccountAnalysisRepository = (*MemoryAccountAnalysisRepo)(nil)
 var _ IFRSMappingRepository = (*MemoryIFRSMappingRepo)(nil)
+var _ RefreshTokenRepository = (*MemoryRefreshTokenRepo)(nil)
+var _ PasswordResetTokenRepository = (*MemoryPasswordResetTokenRepo)(nil)

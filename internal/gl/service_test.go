@@ -409,7 +409,7 @@ func newTestServiceWithCOA(
 	analysisRepo AccountAnalysisRepository,
 	ifrsRepo IFRSMappingRepository,
 ) *service {
-	return NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo).(*service)
+	return NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, nil, nil).(*service)
 }
 
 // Compile checks: ensure mock types implement interfaces

@@ -52,6 +52,24 @@ type Service interface {
 	ListUsers(ctx context.Context) ([]User, error)
 	Authenticate(ctx context.Context, username, password string) (*User, error)
 
+	Login(ctx context.Context, username, password, ip string) (*AuthResult, error)
+	Verify2FA(ctx context.Context, tempToken, code string) (*AuthResult, error)
+	RefreshToken(ctx context.Context, refreshTokenStr string) (*TokenPair, error)
+	Logout(ctx context.Context, userID, refreshTokenStr string) error
+	LogoutAll(ctx context.Context, userID string) error
+
+	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
+	ForgotPassword(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword string) error
+
+	SetupTOTP(ctx context.Context, userID string) (*TOTPSetup, error)
+	ConfirmTOTP(ctx context.Context, userID, code string) error
+	DisableTOTP(ctx context.Context, userID, currentPassword, code string) error
+	GenerateBackupCodes(ctx context.Context, userID string) ([]string, error)
+
+	ListSessions(ctx context.Context, userID string) ([]Session, error)
+	RevokeSession(ctx context.Context, userID, sessionID string) error
+
 	// COA Extension Methods
 	GetAccountBalance(ctx context.Context, code string, periodID string) (*AccountBalance, error)
 	GetAccountBalanceDrillDown(ctx context.Context, code string, periodID string) ([]JournalEntry, error)
@@ -93,6 +111,9 @@ type service struct {
 	mappings   AccountMappingRepository
 	analysis   AccountAnalysisRepository
 	ifrs       IFRSMappingRepository
+	refresh    RefreshTokenRepository
+	reset      PasswordResetTokenRepository
+	limiter    *RateLimiter
 	now        func() time.Time
 }
 
@@ -109,6 +130,8 @@ func NewService(
 	mappingRepo AccountMappingRepository,
 	analysisRepo AccountAnalysisRepository,
 	ifrsRepo IFRSMappingRepository,
+	refreshRepo RefreshTokenRepository,
+	resetRepo PasswordResetTokenRepository,
 ) Service {
 	return &service{
 		accounts:  accRepo,
@@ -123,6 +146,9 @@ func NewService(
 		mappings:  mappingRepo,
 		analysis:  analysisRepo,
 		ifrs:      ifrsRepo,
+		refresh:   refreshRepo,
+		reset:     resetRepo,
+		limiter:   NewRateLimiter(5, 15*time.Minute),
 		now:       time.Now,
 	}
 }
@@ -463,6 +489,10 @@ func (s *service) ListUsers(ctx context.Context) ([]User, error) {
 }
 
 func (s *service) Authenticate(ctx context.Context, username, password string) (*User, error) {
+	return s.legacyLogin(ctx, username, password)
+}
+
+func (s *service) legacyLogin(ctx context.Context, username, password string) (*User, error) {
 	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
 		return nil, err
@@ -474,6 +504,413 @@ func (s *service) Authenticate(ctx context.Context, username, password string) (
 		return nil, err
 	}
 	return user, nil
+}
+
+// ─── Full Auth Flow ─────────────────────────────────────────────
+
+func (s *service) Login(ctx context.Context, username, password, ip string) (*AuthResult, error) {
+	if !s.limiter.Allow("login:" + username) {
+		return nil, ErrRateLimited
+	}
+
+	user, err := s.users.GetByUsername(ctx, username)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	if user.IsLocked() {
+		return nil, ErrAccountLocked
+	}
+
+	if !user.IsActive {
+		return nil, ErrAccountInactive
+	}
+
+	if err := comparePassword(user.PasswordHash, password); err != nil {
+		user.FailedAttempts++
+		if user.FailedAttempts >= MaxLoginAttempts {
+			until := s.now().Add(LockoutDuration)
+			user.LockedUntil = &until
+		}
+		s.users.Update(ctx, user)
+		return nil, ErrInvalidCredentials
+	}
+
+	user.FailedAttempts = 0
+	user.LockedUntil = nil
+	user.LastLoginAt = &[]time.Time{s.now()}[0]
+	user.LastLoginIP = ip
+	s.users.Update(ctx, user)
+
+	if user.TOTPEnabled {
+		tempToken, err := GenerateRefreshTokenRaw(user.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &AuthResult{
+			Requires2FA: true,
+			TempToken:   tempToken,
+			User:        user,
+		}, nil
+	}
+
+	accessToken, err := GenerateAccessToken(user)
+	if err != nil {
+		return nil, err
+	}
+
+	rawRefresh, err := GenerateRefreshTokenRaw(user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken := &RefreshToken{
+		UserID:    user.ID,
+		TokenHash: HashRefreshToken(rawRefresh),
+		IPAddress: ip,
+		ExpiresAt: s.now().Add(7 * 24 * time.Hour),
+	}
+	s.refresh.Create(ctx, refreshToken)
+
+	result := &AuthResult{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		ExpiresIn:    900,
+		TokenType:    "Bearer",
+		User:         user,
+	}
+
+	if user.IsPasswordExpired() {
+		result.PasswordExpired = true
+	}
+
+	return result, nil
+}
+
+func (s *service) Verify2FA(ctx context.Context, tempToken, code string) (*AuthResult, error) {
+	userID := tempToken
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	if !VerifyTOTP(user.TOTPSecret, code) {
+		return nil, ErrInvalid2FACode
+	}
+
+	accessToken, err := GenerateAccessToken(user)
+	if err != nil {
+		return nil, err
+	}
+
+	rawRefresh, err := GenerateRefreshTokenRaw(user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken := &RefreshToken{
+		UserID:    user.ID,
+		TokenHash: HashRefreshToken(rawRefresh),
+		ExpiresAt: s.now().Add(7 * 24 * time.Hour),
+	}
+	s.refresh.Create(ctx, refreshToken)
+
+	return &AuthResult{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		ExpiresIn:    900,
+		TokenType:    "Bearer",
+		User:         user,
+	}, nil
+}
+
+func (s *service) RefreshToken(ctx context.Context, rawRefresh string) (*TokenPair, error) {
+	hash := HashRefreshToken(rawRefresh)
+	found, err := s.refresh.GetByHash(ctx, hash)
+	if err != nil {
+		return nil, ErrInvalidRefreshToken
+	}
+	if found.RevokedAt != nil {
+		return nil, ErrRefreshTokenRevoked
+	}
+	if s.now().After(found.ExpiresAt) {
+		return nil, ErrRefreshTokenExpired
+	}
+	user, err := s.users.GetByID(ctx, found.UserID)
+	if err != nil {
+		return nil, err
+	}
+	accessToken, err := GenerateAccessToken(user)
+	if err != nil {
+		return nil, err
+	}
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		ExpiresIn:    900,
+		TokenType:    "Bearer",
+	}, nil
+}
+
+func (s *service) Logout(ctx context.Context, userID, rawRefresh string) error {
+	if rawRefresh == "" {
+		return nil
+	}
+	hash := HashRefreshToken(rawRefresh)
+	t, err := s.refresh.GetByHash(ctx, hash)
+	if err != nil {
+		return nil
+	}
+	if t.UserID != userID {
+		return nil
+	}
+	return s.refresh.Revoke(ctx, t.ID)
+}
+
+func (s *service) LogoutAll(ctx context.Context, userID string) error {
+	return s.refresh.RevokeAllByUserID(ctx, userID)
+}
+
+// ─── Password Management ────────────────────────────────────────
+
+func (s *service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if err := comparePassword(user.PasswordHash, currentPassword); err != nil {
+		return ErrInvalidCurrentPassword
+	}
+
+	if err := ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	newHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	if IsPasswordInHistory(user.PasswordHistory, newHash) {
+		return ErrPasswordReuse
+	}
+
+	user.PasswordHistory = append(user.PasswordHistory, user.PasswordHash)
+	if len(user.PasswordHistory) > PasswordHistorySize {
+		user.PasswordHistory = user.PasswordHistory[len(user.PasswordHistory)-PasswordHistorySize:]
+	}
+
+	user.PasswordHash = newHash
+	now := s.now()
+	user.PasswordChangedAt = &now
+	user.FailedAttempts = 0
+	user.LockedUntil = nil
+
+	return s.users.Update(ctx, user)
+}
+
+func (s *service) ForgotPassword(ctx context.Context, email string) error {
+	users, err := s.users.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, u := range users {
+		if u.Email == email {
+			raw, err := GeneratePasswordResetTokenRaw()
+			if err != nil {
+				return err
+			}
+			token := &PasswordResetToken{
+				UserID:    u.ID,
+				TokenHash: HashRefreshToken(raw),
+				ExpiresAt: s.now().Add(1 * time.Hour),
+			}
+			return s.reset.Create(ctx, token)
+		}
+	}
+	return nil
+}
+
+func (s *service) ResetPassword(ctx context.Context, rawToken, newPassword string) error {
+	tokens, err := s.reset.GetByID(ctx, rawToken)
+	if err != nil {
+		return ErrInvalidPasswordResetToken
+	}
+
+	if tokens.UsedAt != nil {
+		return ErrInvalidPasswordResetToken
+	}
+
+	if s.now().After(tokens.ExpiresAt) {
+		return ErrPasswordResetTokenExpired
+	}
+
+	if err := ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	user, err := s.users.GetByID(ctx, tokens.UserID)
+	if err != nil {
+		return err
+	}
+
+	newHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = newHash
+	now := s.now()
+	user.PasswordChangedAt = &now
+	user.FailedAttempts = 0
+	user.LockedUntil = nil
+	user.PasswordHistory = nil
+
+	if err := s.users.Update(ctx, user); err != nil {
+		return err
+	}
+
+	return s.reset.MarkUsed(ctx, tokens.ID)
+}
+
+// ─── TOTP ───────────────────────────────────────────────────────
+
+func (s *service) SetupTOTP(ctx context.Context, userID string) (*TOTPSetup, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.TOTPEnabled {
+		return nil, Err2FAAlreadyEnabled
+	}
+
+	secret := GenerateTOTPSecret()
+	qrURL := GenerateTOTPURL(user.Username, secret)
+
+	backupCodes := make([]string, 8)
+	for i := range backupCodes {
+		b, _ := GenerateRefreshTokenRaw(userID)
+		backupCodes[i] = b[:8]
+	}
+
+	user.TOTPSecret = secret
+	user.BackupCodes = backupCodes
+	s.users.Update(ctx, user)
+
+	return &TOTPSetup{
+		Secret:      secret,
+		QRCodeURL:   qrURL,
+		BackupCodes: backupCodes,
+	}, nil
+}
+
+func (s *service) ConfirmTOTP(ctx context.Context, userID, code string) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.TOTPEnabled {
+		return Err2FAAlreadyEnabled
+	}
+
+	if user.TOTPSecret == "" {
+		return Err2FANotSetup
+	}
+
+	if !VerifyTOTP(user.TOTPSecret, code) {
+		return ErrInvalid2FACode
+	}
+
+	user.TOTPEnabled = true
+	return s.users.Update(ctx, user)
+}
+
+func (s *service) DisableTOTP(ctx context.Context, userID, currentPassword, code string) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.TOTPEnabled {
+		return Err2FANotSetup
+	}
+
+	if err := comparePassword(user.PasswordHash, currentPassword); err != nil {
+		return ErrInvalidCurrentPassword
+	}
+
+	if !VerifyTOTP(user.TOTPSecret, code) {
+		validBackup := false
+		for _, bc := range user.BackupCodes {
+			if bc == code {
+				validBackup = true
+				break
+			}
+		}
+		if !validBackup {
+			return ErrInvalid2FACode
+		}
+	}
+
+	user.TOTPEnabled = false
+	user.TOTPSecret = ""
+	user.BackupCodes = nil
+	return s.users.Update(ctx, user)
+}
+
+func (s *service) GenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	backupCodes := make([]string, 8)
+	for i := range backupCodes {
+		b, _ := GenerateRefreshTokenRaw(userID)
+		backupCodes[i] = b[:8]
+	}
+
+	user.BackupCodes = backupCodes
+	s.users.Update(ctx, user)
+	return backupCodes, nil
+}
+
+// ─── Sessions ───────────────────────────────────────────────────
+
+func (s *service) ListSessions(ctx context.Context, userID string) ([]Session, error) {
+	tokens, err := s.refresh.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []Session
+	for _, t := range tokens {
+		isCurrent := t.RevokedAt == nil && s.now().Before(t.ExpiresAt)
+		sessions = append(sessions, Session{
+			ID:           t.ID,
+			Device:       t.DeviceInfo,
+			IP:           t.IPAddress,
+			CreatedAt:    t.CreatedAt,
+			LastActivity: t.CreatedAt,
+			IsCurrent:    isCurrent,
+		})
+	}
+	return sessions, nil
+}
+
+func (s *service) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	token, err := s.refresh.GetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if token.UserID != userID {
+		return ErrInvalidRefreshToken
+	}
+	return s.refresh.Revoke(ctx, sessionID)
 }
 
 // ─── COA: Account Freeze/Unfreeze ───────────────────────────────────────────

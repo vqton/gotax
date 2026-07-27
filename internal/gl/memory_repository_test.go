@@ -266,7 +266,7 @@ func TestFullWorkflow(t *testing.T) {
 	mappingRepo := NewMemoryAccountMappingRepo()
 	analysisRepo := NewMemoryAccountAnalysisRepo()
 	ifrsRepo := NewMemoryIFRSMappingRepo()
-	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, verRepo, mappingRepo, analysisRepo, ifrsRepo)
+	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, verRepo, mappingRepo, analysisRepo, ifrsRepo, nil, nil)
 	ctx := context.Background()
 
 	perRepo.Create(ctx, &Period{Year: 2026, Month: 7, StartDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), Status: PeriodOpen})

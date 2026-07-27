@@ -73,6 +73,21 @@ type UserRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+type RefreshTokenRepository interface {
+	Create(ctx context.Context, token *RefreshToken) error
+	GetByID(ctx context.Context, id string) (*RefreshToken, error)
+	GetByUserID(ctx context.Context, userID string) ([]RefreshToken, error)
+	GetByHash(ctx context.Context, hash string) (*RefreshToken, error)
+	Revoke(ctx context.Context, id string) error
+	RevokeAllByUserID(ctx context.Context, userID string) error
+}
+
+type PasswordResetTokenRepository interface {
+	Create(ctx context.Context, token *PasswordResetToken) error
+	GetByID(ctx context.Context, id string) (*PasswordResetToken, error)
+	MarkUsed(ctx context.Context, id string) error
+}
+
 type AuditLogRepository interface {
 	Create(ctx context.Context, entry *AuditEntry) error
 	GetByEntity(ctx context.Context, entityType, entityID string) ([]AuditEntry, error)

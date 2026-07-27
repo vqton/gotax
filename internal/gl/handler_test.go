@@ -71,6 +71,21 @@ type mockService struct {
 	createIFRSMappingFn        func(ctx context.Context, mapping *IFRSMapping) error
 	getIFRSMappingFn           func(ctx context.Context, vasCode string) (*IFRSMapping, error)
 	listIFRSMappingsFn          func(ctx context.Context) ([]IFRSMapping, error)
+	// Auth methods
+	loginFn           func(ctx context.Context, username, password, ip string) (*AuthResult, error)
+	verify2FAFn       func(ctx context.Context, tempToken, code string) (*AuthResult, error)
+	refreshTokenFn    func(ctx context.Context, refreshTokenStr string) (*TokenPair, error)
+	logoutFn          func(ctx context.Context, userID, refreshTokenStr string) error
+	logoutAllFn       func(ctx context.Context, userID string) error
+	changePasswordFn  func(ctx context.Context, userID, currentPassword, newPassword string) error
+	forgotPasswordFn  func(ctx context.Context, email string) error
+	resetPasswordFn   func(ctx context.Context, token, newPassword string) error
+	setupTOTPFn       func(ctx context.Context, userID string) (*TOTPSetup, error)
+	confirmTOTPFn     func(ctx context.Context, userID, code string) error
+	disableTOTPFn     func(ctx context.Context, userID, currentPassword, code string) error
+	generateBackupCodesFn func(ctx context.Context, userID string) ([]string, error)
+	listSessionsFn    func(ctx context.Context, userID string) ([]Session, error)
+	revokeSessionFn   func(ctx context.Context, userID, sessionID string) error
 }
 
 func (m *mockService) CreateAccount(ctx context.Context, account *Account) error {
@@ -233,6 +248,49 @@ func (m *mockService) GetIFRSMapping(ctx context.Context, vasCode string) (*IFRS
 }
 func (m *mockService) ListIFRSMappings(ctx context.Context) ([]IFRSMapping, error) {
 	return m.listIFRSMappingsFn(ctx)
+}
+
+func (m *mockService) Login(ctx context.Context, username, password, ip string) (*AuthResult, error) {
+	return m.loginFn(ctx, username, password, ip)
+}
+func (m *mockService) Verify2FA(ctx context.Context, tempToken, code string) (*AuthResult, error) {
+	return m.verify2FAFn(ctx, tempToken, code)
+}
+func (m *mockService) RefreshToken(ctx context.Context, refreshTokenStr string) (*TokenPair, error) {
+	return m.refreshTokenFn(ctx, refreshTokenStr)
+}
+func (m *mockService) Logout(ctx context.Context, userID, refreshTokenStr string) error {
+	return m.logoutFn(ctx, userID, refreshTokenStr)
+}
+func (m *mockService) LogoutAll(ctx context.Context, userID string) error {
+	return m.logoutAllFn(ctx, userID)
+}
+func (m *mockService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	return m.changePasswordFn(ctx, userID, currentPassword, newPassword)
+}
+func (m *mockService) ForgotPassword(ctx context.Context, email string) error {
+	return m.forgotPasswordFn(ctx, email)
+}
+func (m *mockService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	return m.resetPasswordFn(ctx, token, newPassword)
+}
+func (m *mockService) SetupTOTP(ctx context.Context, userID string) (*TOTPSetup, error) {
+	return m.setupTOTPFn(ctx, userID)
+}
+func (m *mockService) ConfirmTOTP(ctx context.Context, userID, code string) error {
+	return m.confirmTOTPFn(ctx, userID, code)
+}
+func (m *mockService) DisableTOTP(ctx context.Context, userID, currentPassword, code string) error {
+	return m.disableTOTPFn(ctx, userID, currentPassword, code)
+}
+func (m *mockService) GenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
+	return m.generateBackupCodesFn(ctx, userID)
+}
+func (m *mockService) ListSessions(ctx context.Context, userID string) ([]Session, error) {
+	return m.listSessionsFn(ctx, userID)
+}
+func (m *mockService) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	return m.revokeSessionFn(ctx, userID, sessionID)
 }
 
 func setupTestRouter(h *Handler) *gin.Engine {
@@ -1278,8 +1336,14 @@ func TestLoginHandler(t *testing.T) {
 	r := setupTestRouter(h)
 
 	t.Run("success login", func(t *testing.T) {
-		ms.authenticateFn = func(_ context.Context, username, password string) (*User, error) {
-			return &User{ID: "USR-001", Username: "admin", Role: UserRoleAdmin}, nil
+		ms.loginFn = func(_ context.Context, username, password, ip string) (*AuthResult, error) {
+			return &AuthResult{
+				AccessToken:  "test-access-token",
+				RefreshToken: "test-refresh-token",
+				ExpiresIn:    900,
+				TokenType:    "Bearer",
+				User:         &User{ID: "USR-001", Username: "admin", Role: UserRoleAdmin},
+			}, nil
 		}
 
 		body := `{"username":"admin","password":"secret"}`
@@ -1291,7 +1355,7 @@ func TestLoginHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		var resp map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.NotEmpty(t, resp["token"])
+		assert.NotEmpty(t, resp["access_token"])
 	})
 
 	t.Run("fail - bad request body", func(t *testing.T) {
@@ -1304,8 +1368,8 @@ func TestLoginHandler(t *testing.T) {
 	})
 
 	t.Run("fail - invalid credentials", func(t *testing.T) {
-		ms.authenticateFn = func(_ context.Context, username, password string) (*User, error) {
-			return nil, errors.New("invalid credentials")
+		ms.loginFn = func(_ context.Context, username, password, ip string) (*AuthResult, error) {
+			return nil, ErrInvalidCredentials
 		}
 
 		body := `{"username":"admin","password":"wrong"}`

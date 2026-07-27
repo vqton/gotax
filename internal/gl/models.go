@@ -102,6 +102,27 @@ var (
 	ErrInvalidUserRole             = errors.New("invalid user role")
 	ErrUsernameRequired            = errors.New("username is required")
 	ErrPasswordRequired            = errors.New("password is required")
+	ErrPasswordTooShort            = errors.New("password must be at least 12 characters")
+	ErrPasswordNoUpper            = errors.New("password must contain an uppercase letter")
+	ErrPasswordNoLower            = errors.New("password must contain a lowercase letter")
+	ErrPasswordNoDigit            = errors.New("password must contain a digit")
+	ErrPasswordNoSpecial          = errors.New("password must contain a special character")
+	ErrPasswordReuse              = errors.New("password has been used recently")
+	ErrPasswordExpired            = errors.New("password has expired, please change it")
+	ErrInvalidCurrentPassword     = errors.New("current password is incorrect")
+	ErrInvalidCredentials         = errors.New("invalid credentials")
+	ErrAccountLocked              = errors.New("account is locked due to too many attempts")
+	ErrRefreshTokenExpired        = errors.New("refresh token has expired")
+	ErrRefreshTokenRevoked        = errors.New("refresh token has been revoked")
+	ErrInvalidRefreshToken        = errors.New("invalid refresh token")
+	ErrPasswordResetTokenExpired  = errors.New("password reset token has expired")
+	ErrInvalidPasswordResetToken  = errors.New("invalid password reset token")
+	Err2FARequired                = errors.New("two-factor authentication is required")
+	ErrInvalid2FACode             = errors.New("invalid two-factor authentication code")
+	Err2FANotSetup                = errors.New("two-factor authentication is not set up")
+	Err2FAAlreadyEnabled          = errors.New("two-factor authentication is already enabled")
+	ErrRateLimited                = errors.New("too many requests, please try again later")
+	ErrSessionExpired             = errors.New("session has expired")
 )
 
 type AccountStatus string
@@ -382,15 +403,24 @@ func (b *AccountBalance) Calculate() {
 }
 
 type User struct {
-	ID           string   `json:"id"`
-	Username     string   `json:"username"`
-	PasswordHash string   `json:"-"`
-	FullName     string   `json:"full_name"`
-	Email        string   `json:"email,omitempty"`
-	Role         UserRole `json:"role"`
-	IsActive     bool     `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                string     `json:"id"`
+	Username          string     `json:"username"`
+	PasswordHash      string     `json:"-"`
+	FullName          string     `json:"full_name"`
+	Email             string     `json:"email,omitempty"`
+	Role              UserRole   `json:"role"`
+	IsActive          bool       `json:"is_active"`
+	FailedAttempts    int        `json:"-"`
+	LockedUntil       *time.Time `json:"-"`
+	PasswordChangedAt *time.Time `json:"password_changed_at"`
+	PasswordHistory   []string   `json:"-"`
+	TOTPSecret        string     `json:"-"`
+	TOTPEnabled       bool       `json:"totp_enabled"`
+	BackupCodes       []string   `json:"-"`
+	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
+	LastLoginIP       string     `json:"-"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func (u *User) Validate() error {
@@ -403,6 +433,162 @@ func (u *User) Validate() error {
 		return ErrInvalidUserRole
 	}
 	return nil
+}
+
+func (u *User) IsLocked() bool {
+	if u.LockedUntil == nil {
+		return false
+	}
+	return time.Now().Before(*u.LockedUntil)
+}
+
+func (u *User) IsPasswordExpired() bool {
+	if u.PasswordChangedAt == nil {
+		return true
+	}
+	return time.Now().After(u.PasswordChangedAt.Add(PasswordMaxAge))
+}
+
+// ─── Auth Models ────────────────────────────────────────────────
+
+type RefreshToken struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	TokenHash  string     `json:"-"`
+	DeviceInfo string     `json:"device_info,omitempty"`
+	IPAddress  string     `json:"ip_address,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
+type PasswordResetToken struct {
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	TokenHash string     `json:"-"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type TOTPSetup struct {
+	Secret      string   `json:"secret"`
+	QRCodeURL   string   `json:"qr_code_url"`
+	BackupCodes []string `json:"backup_codes"`
+}
+
+type Session struct {
+	ID           string    `json:"id"`
+	Device       string    `json:"device"`
+	IP           string    `json:"ip"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastActivity time.Time `json:"last_activity"`
+	IsCurrent    bool      `json:"is_current"`
+}
+
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	TokenType    string `json:"token_type"`
+}
+
+type AuthResult struct {
+	AccessToken     string `json:"access_token,omitempty"`
+	RefreshToken    string `json:"refresh_token,omitempty"`
+	ExpiresIn       int    `json:"expires_in,omitempty"`
+	TokenType       string `json:"token_type,omitempty"`
+	User            *User  `json:"user,omitempty"`
+	Requires2FA     bool   `json:"requires_2fa,omitempty"`
+	TempToken       string `json:"temp_token,omitempty"`
+	PasswordExpired bool   `json:"password_expired,omitempty"`
+}
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+type TOTPVerifyRequest struct {
+	TempToken string `json:"temp_token"`
+	TOTPCode  string `json:"totp_code"`
+}
+
+type TOTPConfirmRequest struct {
+	TOTPCode string `json:"totp_code"`
+}
+
+type TOTPDisableRequest struct {
+	CurrentPassword string `json:"current_password"`
+	TOTPCode        string `json:"totp_code"`
+}
+
+// ─── Password Policy ────────────────────────────────────────────
+
+var PasswordMaxAge = 90 * 24 * time.Hour
+var PasswordMinLength = 12
+var PasswordHistorySize = 10
+var PasswordRequireUpper = true
+var PasswordRequireLower = true
+var PasswordRequireDigit = true
+var PasswordRequireSpecial = true
+
+var MaxLoginAttempts = 5
+var LockoutDuration = 30 * time.Minute
+
+func ValidatePassword(password string) error {
+	if len(password) < PasswordMinLength {
+		return ErrPasswordTooShort
+	}
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, c := range password {
+		switch {
+		case unicode.IsUpper(c):
+			hasUpper = true
+		case unicode.IsLower(c):
+			hasLower = true
+		case unicode.IsDigit(c):
+			hasDigit = true
+		case unicode.IsPunct(c) || unicode.IsSymbol(c):
+			hasSpecial = true
+		}
+	}
+	if PasswordRequireUpper && !hasUpper {
+		return ErrPasswordNoUpper
+	}
+	if PasswordRequireLower && !hasLower {
+		return ErrPasswordNoLower
+	}
+	if PasswordRequireDigit && !hasDigit {
+		return ErrPasswordNoDigit
+	}
+	if PasswordRequireSpecial && !hasSpecial {
+		return ErrPasswordNoSpecial
+	}
+	return nil
+}
+
+func IsPasswordInHistory(history []string, newHash string) bool {
+	for _, h := range history {
+		if h == newHash {
+			return true
+		}
+	}
+	return false
 }
 
 type AuditEntry struct {

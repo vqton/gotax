@@ -18,7 +18,14 @@ func NewHandler(svc Service) *Handler {
 }
 
 func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
-	r.POST("/api/v1/auth/login", h.Login)
+	auth := r.Group("/api/v1/auth")
+	{
+		auth.POST("/login", h.Login)
+		auth.POST("/refresh", h.RefreshToken)
+		auth.POST("/forgot-password", h.ForgotPassword)
+		auth.POST("/reset-password", h.ResetPassword)
+		auth.POST("/totp/verify", h.Verify2FA)
+	}
 
 	v1 := r.Group("/api/v1", authMW)
 	{
@@ -123,42 +130,220 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			}
 		}
 
+		auth := v1.Group("/auth")
+		{
+			auth.POST("/change-password", h.ChangePassword)
+			auth.POST("/logout", h.Logout)
+			auth.POST("/logout-all", h.LogoutAll)
+			auth.POST("/totp/setup", h.SetupTOTP)
+			auth.POST("/totp/confirm", h.ConfirmTOTP)
+			auth.POST("/totp/disable", h.DisableTOTP)
+			auth.POST("/backup-codes", h.GenerateBackupCodes)
+			auth.GET("/sessions", h.ListSessions)
+			auth.DELETE("/sessions/:id", h.RevokeSession)
+		}
+
 		v1.GET("/me", h.GetCurrentUser)
 	}
 }
 
-// Login authenticates user and returns JWT token
-// @Summary      Login
-// @Description  Authenticate with username/password, receive JWT
-// @Tags         auth
-// @Accept       json
-// @Produce      json
-// @Param        request body object{username=string,password=string} true "Credentials"
-// @Success      200 {object} map[string]interface{} "token + user"
-// @Failure      400 {object} map[string]interface{} "bad request"
-// @Failure      401 {object} map[string]interface{} "invalid credentials"
-// @Router       /auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
+	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	user, err := h.svc.Authenticate(c.Request.Context(), req.Username, req.Password)
+	ip := c.ClientIP()
+	result, err := h.svc.Login(c.Request.Context(), req.Username, req.Password, ip)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		switch {
+		case errors.Is(err, ErrRateLimited):
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrAccountLocked):
+			c.JSON(http.StatusLocked, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrAccountInactive):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrInvalidCredentials):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrPasswordExpired):
+			c.JSON(http.StatusOK, gin.H{"password_expired": true, "user": result.User})
+		default:
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		}
 		return
 	}
-	token, err := GenerateToken(user)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "user": user})
+	c.JSON(http.StatusOK, result)
 }
+
+func (h *Handler) RefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token required"})
+		return
+	}
+	pair, err := h.svc.RefreshToken(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, pair)
+}
+
+func (h *Handler) ChangePassword(c *gin.Context) {
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	userID := GetUserID(c)
+	if err := h.svc.ChangePassword(c.Request.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidCurrentPassword):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrPasswordReuse):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "password changed"})
+}
+
+func (h *Handler) ForgotPassword(c *gin.Context) {
+	var req ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email required"})
+		return
+	}
+	if err := h.svc.ForgotPassword(c.Request.Context(), req.Email); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "if email exists, reset link sent"})
+}
+
+func (h *Handler) ResetPassword(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.ResetPassword(c.Request.Context(), req.Token, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidPasswordResetToken):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrPasswordResetTokenExpired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
+}
+
+func (h *Handler) SetupTOTP(c *gin.Context) {
+	userID := GetUserID(c)
+	setup, err := h.svc.SetupTOTP(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, setup)
+}
+
+func (h *Handler) ConfirmTOTP(c *gin.Context) {
+	var req TOTPConfirmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "totp_code required"})
+		return
+	}
+	userID := GetUserID(c)
+	if err := h.svc.ConfirmTOTP(c.Request.Context(), userID, req.TOTPCode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "2FA enabled"})
+}
+
+func (h *Handler) Verify2FA(c *gin.Context) {
+	var req TOTPVerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "temp_token and totp_code required"})
+		return
+	}
+	result, err := h.svc.Verify2FA(c.Request.Context(), req.TempToken, req.TOTPCode)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) DisableTOTP(c *gin.Context) {
+	var req TOTPDisableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "current_password and totp_code required"})
+		return
+	}
+	userID := GetUserID(c)
+	if err := h.svc.DisableTOTP(c.Request.Context(), userID, req.CurrentPassword, req.TOTPCode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "2FA disabled"})
+}
+
+func (h *Handler) GenerateBackupCodes(c *gin.Context) {
+	userID := GetUserID(c)
+	codes, err := h.svc.GenerateBackupCodes(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"backup_codes": codes})
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	c.ShouldBindJSON(&req)
+	userID := GetUserID(c)
+	h.svc.Logout(c.Request.Context(), userID, req.RefreshToken)
+	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+}
+
+func (h *Handler) LogoutAll(c *gin.Context) {
+	userID := GetUserID(c)
+	h.svc.LogoutAll(c.Request.Context(), userID)
+	c.JSON(http.StatusOK, gin.H{"message": "logged out from all devices"})
+}
+
+func (h *Handler) ListSessions(c *gin.Context) {
+	userID := GetUserID(c)
+	sessions, err := h.svc.ListSessions(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sessions)
+}
+
+func (h *Handler) RevokeSession(c *gin.Context) {
+	userID := GetUserID(c)
+	sessionID := c.Param("id")
+	if err := h.svc.RevokeSession(c.Request.Context(), userID, sessionID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "session revoked"})
+}
+
+// CreateAccount creates a new account
 
 // CreateAccount creates a new account
 // @Summary      Create account
