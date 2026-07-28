@@ -879,10 +879,10 @@ func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID
 			WHERE company_id=$1 AND from_bank_acc_id=$2 AND payment_date < $3 AND status IN ('CONFIRMED','SUBMITTED')
 			UNION ALL
 			SELECT 'debit' AS txn_type, amount FROM cash_receipts
-			WHERE company_id=$1 AND bank_account_id=$2 AND receipt_date < $3 AND status='POSTED'
+			WHERE company_id=$1 AND cash_account_id=$2 AND receipt_date < $3 AND status='POSTED'
 			UNION ALL
 			SELECT 'debit' AS txn_type, amount FROM cash_payments
-			WHERE company_id=$1 AND bank_account_id=$2 AND payment_date < $3 AND status='POSTED'
+			WHERE company_id=$1 AND cash_account_id=$2 AND payment_date < $3 AND status='POSTED'
 		) t`,
 		companyID, bankAccountID, fromDate).Scan(&opening)
 	if err != nil {
@@ -895,20 +895,20 @@ func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID
 		FROM (
 			SELECT payment_date AS transaction_date, id AS ref_id,
 				beneficiary_name || ' - ' || payment_content AS description,
-				0 AS debit_amount, amount AS credit_amount, amount AS balance,
-				order_number AS reference
+				0 AS debit_amount, amount AS credit_amount, 0 AS balance,
+				'' AS reference
 			FROM payment_orders
 			WHERE company_id=$1 AND from_bank_acc_id=$2 AND payment_date>=$3 AND payment_date<=$4 AND status IN ('CONFIRMED','SUBMITTED')
 			UNION ALL
 			SELECT receipt_date, id, counterparty_name || ' - ' || reason AS description,
-				amount, 0, amount, voucher_no
+				amount, 0, 0, voucher_no
 			FROM cash_receipts
-			WHERE company_id=$1 AND bank_account_id=$2 AND receipt_date>=$3 AND receipt_date<=$4 AND status='POSTED'
+			WHERE company_id=$1 AND cash_account_id=$2 AND receipt_date>=$3 AND receipt_date<=$4 AND status='POSTED'
 			UNION ALL
 			SELECT payment_date, id, payee_name || ' - ' || reason AS description,
-				0, amount, amount, voucher_no
+				0, amount, 0, voucher_no
 			FROM cash_payments
-			WHERE company_id=$1 AND bank_account_id=$2 AND payment_date>=$3 AND payment_date<=$4 AND status='POSTED'
+			WHERE company_id=$1 AND cash_account_id=$2 AND payment_date>=$3 AND payment_date<=$4 AND status='POSTED'
 		) t ORDER BY transaction_date, reference`,
 		companyID, bankAccountID, fromDate, toDate)
 	if err != nil {
@@ -953,14 +953,14 @@ func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID
 func (r *PGBankRepo) GetBalance(ctx context.Context, companyID, bankAccountID string) (float64, error) {
 	var total float64
 	err := r.pool.QueryRow(ctx,
-		`SELECT COALESCE((
+		`		SELECT COALESCE((
 			SELECT SUM(amount) FROM cash_receipts
-			WHERE company_id=$1 AND bank_account_id=$2 AND status='POSTED'
+			WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
 		), 0) - COALESCE((
 			SELECT SUM(amount) FROM (
 				SELECT amount FROM payment_orders WHERE company_id=$1 AND from_bank_acc_id=$2 AND status IN ('CONFIRMED','SUBMITTED')
 				UNION ALL
-				SELECT amount FROM cash_payments WHERE company_id=$1 AND bank_account_id=$2 AND status='POSTED'
+				SELECT amount FROM cash_payments WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
 			) t
 		), 0)`,
 		companyID, bankAccountID).Scan(&total)
