@@ -116,7 +116,7 @@ func main() {
 		cashH := handler.NewCashHandler(svc)
 		bankRepo := repository.NewPGBankRepo(pool)
 		bankSvc := service.NewBankService(bankRepo)
-		bankH := handler.NewBankHandler(bankSvc)
+		bankH := handler.NewBankHandler(bankSvc, companySvc)
 
 		handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, authMW, adminMW)
 		log.Println("GoTax GL server (PG) starting on :8080")
@@ -159,7 +159,7 @@ func main() {
 	cashH := handler.NewCashHandler(svc)
 	bankRepo := repository.NewMemoryBankRepo()
 	bankSvc := service.NewBankService(bankRepo)
-	bankH := handler.NewBankHandler(bankSvc)
+	bankH := handler.NewBankHandler(bankSvc, companySvc)
 
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, authMW, adminMW)
 	log.Println("GoTax GL server (CA) starting on :8080")

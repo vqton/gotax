@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"gotax/internal/domain"
 	"gotax/internal/service"
 	"net/http"
@@ -9,12 +10,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type BankHandler struct {
-	svc *service.BankService
+type BankAccountProvider interface {
+	GetBankAccount(ctx context.Context, id string) (*domain.CompanyBankAccount, error)
 }
 
-func NewBankHandler(svc *service.BankService) *BankHandler {
-	return &BankHandler{svc: svc}
+type BankHandler struct {
+	svc         *service.BankService
+	baProvider  BankAccountProvider
+}
+
+func NewBankHandler(svc *service.BankService, baProvider BankAccountProvider) *BankHandler {
+	return &BankHandler{svc: svc, baProvider: baProvider}
 }
 
 func RegisterBankRoutes(r *gin.Engine, h *BankHandler, authMW gin.HandlerFunc) {
@@ -45,6 +51,7 @@ func RegisterBankRoutes(r *gin.Engine, h *BankHandler, authMW gin.HandlerFunc) {
 			orders.POST("", h.CreatePaymentOrder)
 			orders.GET("", h.ListPaymentOrders)
 			orders.GET("/:id", h.GetPaymentOrder)
+			orders.PUT("/:id", h.UpdatePaymentOrder)
 			orders.POST("/:id/submit", h.SubmitPaymentOrder)
 			orders.POST("/:id/approve", h.ApprovePaymentOrder)
 			orders.POST("/:id/reject", h.RejectPaymentOrder)
@@ -313,6 +320,21 @@ func (h *BankHandler) RejectPaymentOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
 }
 
+func (h *BankHandler) UpdatePaymentOrder(c *gin.Context) {
+	id := c.Param("id")
+	var po domain.PaymentOrder
+	if err := c.ShouldBindJSON(&po); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	po.ID = id
+	if err := h.svc.UpdatePaymentOrder(c.Request.Context(), &po); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, po)
+}
+
 // ─── Payment Batches ────────────────────────────────────────────────────
 
 func (h *BankHandler) CreateBatch(c *gin.Context) {
@@ -518,6 +540,12 @@ func (h *BankHandler) GetBankLedger(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if h.baProvider != nil {
+		if ba, err := h.baProvider.GetBankAccount(c.Request.Context(), bankAccountID); err == nil {
+			ledger.BankAccountNo = ba.AccountNumber
+			ledger.Currency = ba.Currency
+		}
 	}
 	c.JSON(http.StatusOK, ledger)
 }

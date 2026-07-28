@@ -23,7 +23,7 @@ func setupBankTest(t *testing.T) (*gin.Engine, *service.BankService, context.Con
 
 	bankRepo := repository.NewMemoryBankRepo()
 	bankSvc := service.NewBankService(bankRepo)
-	bankH := NewBankHandler(bankSvc)
+	bankH := NewBankHandler(bankSvc, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {

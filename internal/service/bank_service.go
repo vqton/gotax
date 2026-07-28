@@ -70,6 +70,7 @@ func (s *BankService) CompleteReconciliation(ctx context.Context, id, completedB
 	if rc.Status == domain.ReconCompleted {
 		return domain.ErrReconAlreadyCompleted
 	}
+	rc.Difference = rc.ClosingBalance - rc.StatementBalance
 	if rc.Difference != 0 {
 		return domain.ErrReconDifferenceNotZero
 	}
