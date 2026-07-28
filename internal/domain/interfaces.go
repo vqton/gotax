@@ -262,3 +262,38 @@ type OpeningBalanceRepository interface {
 	GetMigrationByID(ctx context.Context, id string) (*BalanceMigration, error)
 	ListMigrations(ctx context.Context, companyID string) ([]BalanceMigration, error)
 }
+
+// ─── Cash Repository ───────────────────────────────────────────────────
+
+type CashRepository interface {
+	CreateReceipt(ctx context.Context, r *CashReceipt) error
+	GetReceipt(ctx context.Context, id string) (*CashReceipt, error)
+	ListReceipts(ctx context.Context, filter CashReceiptFilter) ([]CashReceipt, int, error)
+	UpdateReceipt(ctx context.Context, r *CashReceipt) error
+	DeleteReceipt(ctx context.Context, id string) error
+	LastReceiptNo(ctx context.Context, companyID, year string) (string, error)
+
+	CreatePayment(ctx context.Context, p *CashPayment) error
+	GetPayment(ctx context.Context, id string) (*CashPayment, error)
+	ListPayments(ctx context.Context, filter CashPaymentFilter) ([]CashPayment, int, error)
+	UpdatePayment(ctx context.Context, p *CashPayment) error
+	DeletePayment(ctx context.Context, id string) error
+	LastPaymentNo(ctx context.Context, companyID, year string) (string, error)
+
+	CreateTransfer(ctx context.Context, t *CashTransfer) error
+	GetTransfer(ctx context.Context, id string) (*CashTransfer, error)
+	ListTransfers(ctx context.Context, companyID string) ([]CashTransfer, error)
+
+	GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*CashBook, error)
+	GetBalance(ctx context.Context, companyID, accountID string) (float64, error)
+
+	CreatePettyCashFund(ctx context.Context, f *PettyCashFund) error
+	GetPettyCashFund(ctx context.Context, id string) (*PettyCashFund, error)
+	ListPettyCashFunds(ctx context.Context, companyID string) ([]PettyCashFund, error)
+	UpdatePettyCashFund(ctx context.Context, f *PettyCashFund) error
+
+	CreateInventory(ctx context.Context, inv *CashInventory) error
+	GetInventory(ctx context.Context, id string) (*CashInventory, error)
+	ListInventories(ctx context.Context, companyID string) ([]CashInventory, error)
+	UpdateInventory(ctx context.Context, inv *CashInventory) error
+}

@@ -32,8 +32,9 @@ func setupService(t *testing.T) (Service, context.Context) {
 	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
+	cashRepo := repository.NewMemoryCashRepo()
 	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo,
-		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo)
+		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
 	return svc, context.Background()
 }
 
@@ -681,6 +682,405 @@ func TestGetPeriodByYearMonth(t *testing.T) {
 	p, err := svc.GetPeriodByYearMonth(ctx, 2025, 6)
 	require.NoError(t, err)
 	assert.Equal(t, "P-2025-06", p.ID)
+}
+
+// ─── Cash Module Tests ──────────────────────────────────────────────
+
+func TestCreateCashReceipt_Success(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Cash sales",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		CounterpartName: "Nguyen Van A",
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	err := svc.CreateCashReceipt(ctx, r)
+	require.NoError(t, err)
+	assert.NotEmpty(t, r.ID)
+	assert.NotEmpty(t, r.VoucherNo)
+	assert.Equal(t, domain.CashDraft, r.Status)
+}
+
+func TestCreateCashReceipt_ValidationError(t *testing.T) {
+	svc, ctx := setupService(t)
+	r := &domain.CashReceipt{Amount: 0}
+	err := svc.CreateCashReceipt(ctx, r)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "positive")
+}
+
+func TestSubmitCashReceipt(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Test",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+
+	err := svc.SubmitCashReceipt(ctx, r.ID, "user1")
+	require.NoError(t, err)
+	got, _ := svc.GetCashReceipt(ctx, r.ID)
+	assert.Equal(t, domain.CashSubmitted, got.Status)
+}
+
+func TestSubmitCashReceipt_AlreadyPosted(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Test",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	err := svc.SubmitCashReceipt(ctx, r.ID, "user1")
+	require.Error(t, err)
+}
+
+func TestApproveCashReceipt(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Test",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+
+	err := svc.ApproveCashReceipt(ctx, r.ID, "user2")
+	require.NoError(t, err)
+	got, _ := svc.GetCashReceipt(ctx, r.ID)
+	assert.Equal(t, domain.CashApproved, got.Status)
+}
+
+func TestApproveCashReceipt_SelfApproval(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Test",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+
+	err := svc.ApproveCashReceipt(ctx, r.ID, "user1")
+	require.ErrorIs(t, err, domain.ErrSelfCashApproval)
+}
+
+func TestRejectCashReceipt(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Test",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+
+	err := svc.RejectCashReceipt(ctx, r.ID, "user2")
+	require.NoError(t, err)
+	got, _ := svc.GetCashReceipt(ctx, r.ID)
+	assert.Equal(t, domain.CashRejected, got.Status)
+
+	err = svc.SubmitCashReceipt(ctx, r.ID, "user1")
+	require.NoError(t, err)
+	got, _ = svc.GetCashReceipt(ctx, r.ID)
+	assert.Equal(t, domain.CashSubmitted, got.Status)
+}
+
+func TestCashFullLifecycle(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 2000000, AmountVND: 2000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Full life cycle",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	got, err := svc.GetCashReceipt(ctx, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.CashPosted, got.Status)
+	assert.NotEmpty(t, got.GLJournalID)
+
+	bal, err := svc.GetCashBalance(ctx, "CMP001", "1111")
+	require.NoError(t, err)
+	assert.Equal(t, 2000000.0, bal)
+}
+
+func TestCreateCashPayment_Success(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "3311", domain.AccountTypeLiability)
+
+	p := &domain.CashPayment{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "3311", CreditAccountID: "1111",
+		Amount: 500000, AmountVND: 500000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Supplier payment",
+		PaymentType: domain.PaymentSupplier, PayeeType: domain.CounterpartSupplier,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	err := svc.CreateCashPayment(ctx, p)
+	require.NoError(t, err)
+	assert.NotEmpty(t, p.ID)
+	assert.Equal(t, domain.CashDraft, p.Status)
+}
+
+func TestPostCashPayment_UpdatesBalance(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "3311", domain.AccountTypeLiability)
+
+	// first add cash
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 2000000, AmountVND: 2000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Add cash",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	p := &domain.CashPayment{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "3311", CreditAccountID: "1111",
+		Amount: 500000, AmountVND: 500000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Pay supplier",
+		PaymentType: domain.PaymentSupplier, PayeeType: domain.CounterpartSupplier,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashPayment(ctx, p))
+	require.NoError(t, svc.SubmitCashPayment(ctx, p.ID, "user1"))
+	require.NoError(t, svc.ApproveCashPayment(ctx, p.ID, "user2"))
+	require.NoError(t, svc.PostCashPayment(ctx, p.ID, "user2"))
+
+	got, _ := svc.GetCashPayment(ctx, p.ID)
+	assert.Equal(t, domain.CashPosted, got.Status)
+
+	bal, _ := svc.GetCashBalance(ctx, "CMP001", "1111")
+	assert.Equal(t, 1500000.0, bal)
+}
+
+func TestListCashReceipts(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r1 := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 100000, AmountVND: 100000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "R1",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	r2 := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 200000, AmountVND: 200000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-02", Reason: "R2",
+		ReceiptType: domain.ReceiptOther, CounterpartType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r1))
+	require.NoError(t, svc.CreateCashReceipt(ctx, r2))
+
+	list, total, err := svc.ListCashReceipts(ctx, domain.CashReceiptFilter{CompanyID: "CMP001", Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, list, 2)
+}
+
+func TestCreateCashTransfer(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "1121", domain.AccountTypeAsset)
+
+	tf := &domain.CashTransfer{
+		CompanyID: "CMP001", TransferDate: "2026-07-01",
+		FromAccountID: "1121", ToAccountID: "1111",
+		Amount: 10000000, Currency: "VND", ExchangeRate: 1,
+		Reason: "Rut tien NH ve quy", TransferType: domain.TransferBankWithdrawal,
+	}
+	err := svc.CreateCashTransfer(ctx, tf)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tf.ID)
+}
+
+func TestCashBookReport(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 5000000, AmountVND: 5000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Sales",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	cb, err := svc.GetCashBook(ctx, "CMP001", "VND", "1111", "2026-07-01", "2026-07-31")
+	require.NoError(t, err)
+	assert.Equal(t, 5000000.0, cb.TotalReceipts)
+	assert.Equal(t, 5000000.0, cb.ClosingBalance)
+	assert.Equal(t, 0.0, cb.OpeningBalance)
+	assert.Len(t, cb.Entries, 1)
+}
+
+func TestCreatePettyCashFund(t *testing.T) {
+	svc, ctx := setupService(t)
+	f := &domain.PettyCashFund{
+		CompanyID: "CMP001", FundCode: "PC001", FundName: "Quy tam ung van phong",
+		CustodianID: "EMP001", InitialAmount: 5000000, CurrentBalance: 5000000,
+		Currency: "VND", Status: domain.PettyCashActive,
+	}
+	err := svc.CreatePettyCashFund(ctx, f)
+	require.NoError(t, err)
+	assert.NotEmpty(t, f.ID)
+}
+
+func TestCreateCashInventory(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 10000000, AmountVND: 10000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Sales",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	inv := &domain.CashInventory{
+		CompanyID: "CMP001", InventoryDate: "2026-07-15",
+		CashAccountID: "1111", Currency: "VND",
+		BookBalance: 10000000, ActualBalance: 10000000,
+		Difference: 0, DifferenceType: "none",
+		Denominations: []domain.DenominationDetail{
+			{Denomination: 500000, Count: 20, Subtotal: 10000000},
+		},
+		Status: domain.CashInventoryDraft,
+	}
+	err := svc.CreateCashInventory(ctx, inv)
+	require.NoError(t, err)
+	assert.NotEmpty(t, inv.ID)
+}
+
+func TestCashInventoryDiscrepancy(t *testing.T) {
+	svc, ctx := setupService(t)
+	createTestAccount(t, svc, ctx, "1111", domain.AccountTypeAsset)
+	createTestAccount(t, svc, ctx, "5111", domain.AccountTypeRevenue)
+
+	r := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 10000000, AmountVND: 10000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "Sales",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, r))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, r.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, r.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, r.ID, "user2"))
+
+	inv := &domain.CashInventory{
+		CompanyID: "CMP001", InventoryDate: "2026-07-15",
+		CashAccountID: "1111", Currency: "VND",
+		BookBalance: 10000000, ActualBalance: 9500000,
+		Difference: -500000, DifferenceType: "shortage",
+		Status: domain.CashInventoryDraft,
+	}
+	err := svc.CreateCashInventory(ctx, inv)
+	require.NoError(t, err)
+	assert.Equal(t, "shortage", inv.DifferenceType)
+}
+
+func createTestAccount(t *testing.T, svc Service, ctx context.Context, code string, atype domain.AccountType) {
+	t.Helper()
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{
+		Code: code, Name: "Test "+code, Type: atype, IsActive: true,
+	}))
 }
 
 func TestGetAllPeriods(t *testing.T) {

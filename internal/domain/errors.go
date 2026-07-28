@@ -139,6 +139,33 @@ var (
 	ErrInvalidTaxCode              = errors.New("invalid tax code format")
 )
 
+// Cash module errors
+var (
+	ErrCashReceiptNotFound    = errors.New("cash receipt not found")
+	ErrCashPaymentNotFound    = errors.New("cash payment not found")
+	ErrCashTransferNotFound   = errors.New("cash transfer not found")
+	ErrCashBookNotFound       = errors.New("cash book not found")
+	ErrPettyCashFundNotFound  = errors.New("petty cash fund not found")
+	ErrCashInventoryNotFound  = errors.New("cash inventory not found")
+	ErrVoucherNoExists        = errors.New("voucher number already exists")
+	ErrCashNotApproved        = errors.New("voucher not approved")
+	ErrCashAlreadyPosted      = errors.New("voucher already posted")
+	ErrCashAlreadyApproved    = errors.New("voucher already approved")
+	ErrCashAlreadyRejected    = errors.New("voucher already rejected")
+	ErrCashInvalidStatus      = errors.New("invalid voucher status transition")
+	ErrCashAmountRequired     = errors.New("cash amount must be positive")
+	ErrCashAccountInvalid     = errors.New("cash account must be 111x")
+	ErrCashImbalance          = errors.New("debit and credit must balance")
+	ErrCashInsufficientBalance = errors.New("insufficient cash balance")
+	ErrFundAlreadyClosed      = errors.New("petty cash fund already closed")
+	ErrFundNotActive          = errors.New("petty cash fund not active")
+	ErrInventoryCompleted     = errors.New("cash inventory already completed")
+	ErrCurrencyMismatch       = errors.New("currency mismatch")
+	ErrExchangeRateRequired   = errors.New("exchange rate required for foreign currency")
+	ErrApprovalRequired       = errors.New("voucher must be approved before posting")
+	ErrSelfCashApproval       = errors.New("cannot self-approve cash voucher")
+)
+
 // Tax module errors
 var (
 	ErrDeclarationNotFound       = errors.New("tax declaration not found")

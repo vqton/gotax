@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -1505,5 +1506,509 @@ func (r *MemoryTaxRepo) UpdateAuditCase(_ context.Context, a *domain.TaxAuditCas
 	}
 	cp := *a
 	r.auditCases[a.ID] = &cp
+	return nil
+}
+
+// ─── Cash ────────────────────────────────────────────────────────
+
+type MemoryCashRepo struct {
+	mu          sync.RWMutex
+	receipts    map[string]*domain.CashReceipt
+	payments    map[string]*domain.CashPayment
+	transfers   map[string]*domain.CashTransfer
+	funds       map[string]*domain.PettyCashFund
+	inventories map[string]*domain.CashInventory
+	receiptCnt  int
+	paymentCnt  int
+}
+
+func NewMemoryCashRepo() *MemoryCashRepo {
+	return &MemoryCashRepo{
+		receipts:    make(map[string]*domain.CashReceipt),
+		payments:    make(map[string]*domain.CashPayment),
+		transfers:   make(map[string]*domain.CashTransfer),
+		funds:       make(map[string]*domain.PettyCashFund),
+		inventories: make(map[string]*domain.CashInventory),
+	}
+}
+
+func (r *MemoryCashRepo) nextReceiptID() string {
+	r.receiptCnt++
+	return time.Now().Format("20060102150405") + "-CR" + formatInt(r.receiptCnt)
+}
+
+func (r *MemoryCashRepo) nextPaymentID() string {
+	r.paymentCnt++
+	return time.Now().Format("20060102150405") + "-CP" + formatInt(r.paymentCnt)
+}
+
+// ── Receipts ─────────────────────────────────────────────────────
+
+func (r *MemoryCashRepo) CreateReceipt(_ context.Context, e *domain.CashReceipt) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *e
+	if cp.ID == "" {
+		cp.ID = r.nextReceiptID()
+	}
+	r.receipts[cp.ID] = &cp
+	e.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetReceipt(_ context.Context, id string) (*domain.CashReceipt, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.receipts[id]
+	if !ok {
+		return nil, domain.ErrCashReceiptNotFound
+	}
+	cp := *e
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListReceipts(_ context.Context, filter domain.CashReceiptFilter) ([]domain.CashReceipt, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var matched []domain.CashReceipt
+	for _, e := range r.receipts {
+		if filter.CompanyID != "" && e.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.ReceiptType != "" && e.ReceiptType != filter.ReceiptType {
+			continue
+		}
+		if filter.Currency != "" && e.Currency != filter.Currency {
+			continue
+		}
+		if filter.Status != "" && e.Status != filter.Status {
+			continue
+		}
+		if filter.FromDate != "" && e.VoucherDate < filter.FromDate {
+			continue
+		}
+		if filter.ToDate != "" && e.VoucherDate > filter.ToDate {
+			continue
+		}
+		matched = append(matched, *e)
+	}
+	total := len(matched)
+	if filter.Offset > 0 && filter.Offset < len(matched) {
+		matched = matched[filter.Offset:]
+	}
+	if filter.Limit > 0 && filter.Limit < len(matched) {
+		matched = matched[:filter.Limit]
+	}
+	return matched, total, nil
+}
+
+func (r *MemoryCashRepo) UpdateReceipt(_ context.Context, e *domain.CashReceipt) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.receipts[e.ID]; !ok {
+		return domain.ErrCashReceiptNotFound
+	}
+	cp := *e
+	r.receipts[e.ID] = &cp
+	return nil
+}
+
+func (r *MemoryCashRepo) DeleteReceipt(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.receipts[id]; !ok {
+		return domain.ErrCashReceiptNotFound
+	}
+	delete(r.receipts, id)
+	return nil
+}
+
+func (r *MemoryCashRepo) LastReceiptNo(_ context.Context, companyID, year string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var last string
+	prefix := "R-" + year + "-"
+	for _, e := range r.receipts {
+		if e.CompanyID == companyID && len(e.VoucherNo) >= len(prefix) && e.VoucherNo[:len(prefix)] == prefix {
+			if e.VoucherNo > last {
+				last = e.VoucherNo
+			}
+		}
+	}
+	return last, nil
+}
+
+// ── Payments ─────────────────────────────────────────────────────
+
+func (r *MemoryCashRepo) CreatePayment(_ context.Context, p *domain.CashPayment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *p
+	if cp.ID == "" {
+		cp.ID = r.nextPaymentID()
+	}
+	r.payments[cp.ID] = &cp
+	p.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetPayment(_ context.Context, id string) (*domain.CashPayment, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.payments[id]
+	if !ok {
+		return nil, domain.ErrCashPaymentNotFound
+	}
+	cp := *p
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListPayments(_ context.Context, filter domain.CashPaymentFilter) ([]domain.CashPayment, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var matched []domain.CashPayment
+	for _, p := range r.payments {
+		if filter.CompanyID != "" && p.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.PaymentType != "" && p.PaymentType != filter.PaymentType {
+			continue
+		}
+		if filter.Currency != "" && p.Currency != filter.Currency {
+			continue
+		}
+		if filter.Status != "" && p.Status != filter.Status {
+			continue
+		}
+		if filter.FromDate != "" && p.VoucherDate < filter.FromDate {
+			continue
+		}
+		if filter.ToDate != "" && p.VoucherDate > filter.ToDate {
+			continue
+		}
+		matched = append(matched, *p)
+	}
+	total := len(matched)
+	if filter.Offset > 0 && filter.Offset < len(matched) {
+		matched = matched[filter.Offset:]
+	}
+	if filter.Limit > 0 && filter.Limit < len(matched) {
+		matched = matched[:filter.Limit]
+	}
+	return matched, total, nil
+}
+
+func (r *MemoryCashRepo) UpdatePayment(_ context.Context, p *domain.CashPayment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.payments[p.ID]; !ok {
+		return domain.ErrCashPaymentNotFound
+	}
+	cp := *p
+	r.payments[p.ID] = &cp
+	return nil
+}
+
+func (r *MemoryCashRepo) DeletePayment(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.payments[id]; !ok {
+		return domain.ErrCashPaymentNotFound
+	}
+	delete(r.payments, id)
+	return nil
+}
+
+func (r *MemoryCashRepo) LastPaymentNo(_ context.Context, companyID, year string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var last string
+	prefix := "P-" + year + "-"
+	for _, p := range r.payments {
+		if p.CompanyID == companyID && len(p.VoucherNo) >= len(prefix) && p.VoucherNo[:len(prefix)] == prefix {
+			if p.VoucherNo > last {
+				last = p.VoucherNo
+			}
+		}
+	}
+	return last, nil
+}
+
+// ── Transfers ────────────────────────────────────────────────────
+
+func (r *MemoryCashRepo) CreateTransfer(_ context.Context, t *domain.CashTransfer) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *t
+	if cp.ID == "" {
+		cp.ID = time.Now().Format("20060102150405") + "-CT" + formatInt(r.receiptCnt)
+		r.receiptCnt++
+	}
+	r.transfers[cp.ID] = &cp
+	t.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetTransfer(_ context.Context, id string) (*domain.CashTransfer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.transfers[id]
+	if !ok {
+		return nil, domain.ErrCashTransferNotFound
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListTransfers(_ context.Context, companyID string) ([]domain.CashTransfer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.CashTransfer
+	for _, t := range r.transfers {
+		if companyID != "" && t.CompanyID != companyID {
+			continue
+		}
+		out = append(out, *t)
+	}
+	return out, nil
+}
+
+// ── Cash Book ────────────────────────────────────────────────────
+
+func (r *MemoryCashRepo) GetCashBook(_ context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var openingBalance float64
+	for _, e := range r.receipts {
+		if e.CompanyID != companyID || e.Status != domain.CashPosted {
+			continue
+		}
+		if currency != "" && e.Currency != currency {
+			continue
+		}
+		if accountID != "" && e.CashAccountID != accountID {
+			continue
+		}
+		if e.VoucherDate < fromDate {
+			openingBalance += e.AmountVND
+		}
+	}
+	for _, p := range r.payments {
+		if p.CompanyID != companyID || p.Status != domain.CashPosted {
+			continue
+		}
+		if currency != "" && p.Currency != currency {
+			continue
+		}
+		if accountID != "" && p.CashAccountID != accountID {
+			continue
+		}
+		if p.VoucherDate < fromDate {
+			openingBalance -= p.AmountVND
+		}
+	}
+
+	var entries []domain.CashBookEntry
+	var totalReceipts, totalPayments float64
+
+	for _, e := range r.receipts {
+		if e.CompanyID != companyID || e.Status != domain.CashPosted {
+			continue
+		}
+		if currency != "" && e.Currency != currency {
+			continue
+		}
+		if accountID != "" && e.CashAccountID != accountID {
+			continue
+		}
+		if e.VoucherDate < fromDate || e.VoucherDate > toDate {
+			continue
+		}
+		totalReceipts += e.AmountVND
+		entries = append(entries, domain.CashBookEntry{
+			VoucherDate:   e.VoucherDate,
+			VoucherType:   "RECEIPT",
+			VoucherNo:     e.VoucherNo,
+			Description:   e.Reason,
+			ReceiptAmount: e.AmountVND,
+			RefID:         e.ID,
+		})
+	}
+	for _, p := range r.payments {
+		if p.CompanyID != companyID || p.Status != domain.CashPosted {
+			continue
+		}
+		if currency != "" && p.Currency != currency {
+			continue
+		}
+		if accountID != "" && p.CashAccountID != accountID {
+			continue
+		}
+		if p.VoucherDate < fromDate || p.VoucherDate > toDate {
+			continue
+		}
+		totalPayments += p.AmountVND
+		entries = append(entries, domain.CashBookEntry{
+			VoucherDate:   p.VoucherDate,
+			VoucherType:   "PAYMENT",
+			VoucherNo:     p.VoucherNo,
+			Description:   p.Reason,
+			PaymentAmount: p.AmountVND,
+			RefID:         p.ID,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].VoucherDate < entries[j].VoucherDate
+	})
+
+	runningBalance := openingBalance
+	for i := range entries {
+		entries[i].LineNo = i + 1
+		runningBalance += entries[i].ReceiptAmount - entries[i].PaymentAmount
+		entries[i].RunningBalance = runningBalance
+	}
+
+	closingBalance := openingBalance + totalReceipts - totalPayments
+
+	return &domain.CashBook{
+		CompanyID:      companyID,
+		Currency:       currency,
+		AccountID:      accountID,
+		FromDate:       fromDate,
+		ToDate:         toDate,
+		OpeningBalance: openingBalance,
+		TotalReceipts:  totalReceipts,
+		TotalPayments:  totalPayments,
+		ClosingBalance: closingBalance,
+		Entries:        entries,
+	}, nil
+}
+
+func (r *MemoryCashRepo) GetBalance(_ context.Context, companyID, accountID string) (float64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var balance float64
+	for _, e := range r.receipts {
+		if e.CompanyID == companyID && e.CashAccountID == accountID && e.Status == domain.CashPosted {
+			balance += e.AmountVND
+		}
+	}
+	for _, p := range r.payments {
+		if p.CompanyID == companyID && p.CashAccountID == accountID && p.Status == domain.CashPosted {
+			balance -= p.AmountVND
+		}
+	}
+	return balance, nil
+}
+
+// ── Petty Cash Funds ─────────────────────────────────────────────
+
+func (r *MemoryCashRepo) CreatePettyCashFund(_ context.Context, f *domain.PettyCashFund) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *f
+	if cp.ID == "" {
+		cp.ID = time.Now().Format("20060102150405")
+	}
+	r.funds[cp.ID] = &cp
+	f.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetPettyCashFund(_ context.Context, id string) (*domain.PettyCashFund, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	f, ok := r.funds[id]
+	if !ok {
+		return nil, domain.ErrPettyCashFundNotFound
+	}
+	cp := *f
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListPettyCashFunds(_ context.Context, companyID string) ([]domain.PettyCashFund, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.PettyCashFund
+	for _, f := range r.funds {
+		if companyID != "" && f.CompanyID != companyID {
+			continue
+		}
+		out = append(out, *f)
+	}
+	return out, nil
+}
+
+func (r *MemoryCashRepo) UpdatePettyCashFund(_ context.Context, f *domain.PettyCashFund) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.funds[f.ID]; !ok {
+		return domain.ErrPettyCashFundNotFound
+	}
+	cp := *f
+	r.funds[f.ID] = &cp
+	return nil
+}
+
+// ── Cash Inventory ───────────────────────────────────────────────
+
+func (r *MemoryCashRepo) CreateInventory(_ context.Context, inv *domain.CashInventory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *inv
+	if cp.ID == "" {
+		cp.ID = time.Now().Format("20060102150405")
+	}
+	if cp.Denominations != nil {
+		cp.Denominations = make([]domain.DenominationDetail, len(inv.Denominations))
+		copy(cp.Denominations, inv.Denominations)
+	}
+	r.inventories[cp.ID] = &cp
+	inv.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetInventory(_ context.Context, id string) (*domain.CashInventory, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	inv, ok := r.inventories[id]
+	if !ok {
+		return nil, domain.ErrCashInventoryNotFound
+	}
+	cp := *inv
+	if inv.Denominations != nil {
+		cp.Denominations = make([]domain.DenominationDetail, len(inv.Denominations))
+		copy(cp.Denominations, inv.Denominations)
+	}
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListInventories(_ context.Context, companyID string) ([]domain.CashInventory, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.CashInventory
+	for _, inv := range r.inventories {
+		if companyID != "" && inv.CompanyID != companyID {
+			continue
+		}
+		out = append(out, *inv)
+	}
+	return out, nil
+}
+
+func (r *MemoryCashRepo) UpdateInventory(_ context.Context, inv *domain.CashInventory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.inventories[inv.ID]; !ok {
+		return domain.ErrCashInventoryNotFound
+	}
+	cp := *inv
+	if inv.Denominations != nil {
+		cp.Denominations = make([]domain.DenominationDetail, len(inv.Denominations))
+		copy(cp.Denominations, inv.Denominations)
+	}
+	r.inventories[inv.ID] = &cp
 	return nil
 }

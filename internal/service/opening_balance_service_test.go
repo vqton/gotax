@@ -30,8 +30,9 @@ func setupOBService(t *testing.T) (Service, context.Context) {
 	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
 
+	cashRepo := repository.NewMemoryCashRepo()
 	svc := NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo,
-		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo)
+		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
 	return svc, context.Background()
 }
 

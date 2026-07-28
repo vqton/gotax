@@ -40,10 +40,12 @@ func setupTest(t *testing.T) (*gin.Engine, service.Service, context.Context) {
 	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
+	cashRepo := repository.NewMemoryCashRepo()
 	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo,
-		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo)
+		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
 
 	h := NewHandler(svc)
+	cashH := NewCashHandler(svc)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -53,6 +55,7 @@ func setupTest(t *testing.T) (*gin.Engine, service.Service, context.Context) {
 	})
 	noopMW := func(c *gin.Context) { c.Next() }
 	RegisterRoutes(r, h, noopMW, noopMW)
+	RegisterCashRoutes(r, cashH, noopMW)
 
 	return r, svc, context.Background()
 }
@@ -588,5 +591,442 @@ func TestChangePassword(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
+	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Cash Receipts ───────────────────────────────────────────────────
+
+func TestCreateCashReceipt(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","cash_account_id":"1111","debit_account_id":"1111","credit_account_id":"5111","amount":1000000,"currency":"VND","exchange_rate":1,"voucher_date":"2026-07-15","reason":"payment received","receipt_type":"SALES","counterpart_type":"CUSTOMER"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+	var rc domain.CashReceipt
+	json.Unmarshal(w.Body.Bytes(), &rc)
+	assert.Equal(t, "CMP001", rc.CompanyID)
+	assert.Equal(t, domain.CashDraft, rc.Status)
+}
+
+func TestCreateCashReceipt_ValidationError(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"","amount":0}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestGetCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/"+receipt.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetCashReceipt_NotFound(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/nonexistent", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 404, w.Code)
+}
+
+func TestListCashReceipts(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotNil(t, resp["data"])
+	assert.NotNil(t, resp["total"])
+}
+
+func TestListCashReceipts_MissingCompany(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestUpdateCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	body := `{"reason":"updated reason","amount":2000000}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/cash/receipts/"+receipt.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestDeleteCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/cash/receipts/"+receipt.ID, nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestSubmitApprovePostCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/submit", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/approve", nil)
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, 200, w2.Code)
+
+	w3 := httptest.NewRecorder()
+	req3, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/post", nil)
+	r.ServeHTTP(w3, req3)
+	assert.Equal(t, 200, w3.Code)
+
+	// verify posted
+	posted, _ := svc.GetCashReceipt(ctx, receipt.ID)
+	assert.Equal(t, domain.CashPosted, posted.Status)
+}
+
+func TestRejectCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user2",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	// submit first
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user2"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/reject", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	rejected, _ := svc.GetCashReceipt(ctx, receipt.ID)
+	assert.Equal(t, domain.CashRejected, rejected.Status)
+}
+
+// ─── Cash Payments ───────────────────────────────────────────────────
+
+func TestCreateCashPayment(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","cash_account_id":"1111","debit_account_id":"5111","credit_account_id":"1111","amount":500000,"currency":"VND","exchange_rate":1,"voucher_date":"2026-07-15","reason":"payment made","payment_type":"EXPENSE","payee_type":"OTHER"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/payments", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+	var pmt domain.CashPayment
+	json.Unmarshal(w.Body.Bytes(), &pmt)
+	assert.Equal(t, domain.CashDraft, pmt.Status)
+}
+
+func TestCreateCashPayment_ValidationError(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"","amount":0}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/payments", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestSubmitApprovePostCashPayment(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Expense", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true})
+
+	payment := &domain.CashPayment{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "5111", CreditAccountID: "1111",
+		Amount: 500000, AmountVND: 500000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		PaymentType: domain.PaymentExpense, PayeeType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashPayment(ctx, payment))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/submit", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/approve", nil)
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, 200, w2.Code)
+
+	w3 := httptest.NewRecorder()
+	req3, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/post", nil)
+	r.ServeHTTP(w3, req3)
+	assert.Equal(t, 200, w3.Code)
+
+	posted, _ := svc.GetCashPayment(ctx, payment.ID)
+	assert.Equal(t, domain.CashPosted, posted.Status)
+}
+
+// ─── Cash Book & Balance ────────────────────────────────────────────
+
+func TestGetCashBook(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/cash-book?company_id=CMP001&account_id=1111&from_date=2026-07-01&to_date=2026-07-31", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetCashBook_MissingParams(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/cash-book", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestGetCashBalance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/balance?company_id=CMP001&account_id=1111", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Petty Cash ──────────────────────────────────────────────────────
+
+func TestCreatePettyCashFund(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","fund_code":"PC001","fund_name":"Office Petty Cash","custodian_id":"EMP001","initial_amount":5000000,"currency":"VND"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/petty-cash", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+	var fund domain.PettyCashFund
+	json.Unmarshal(w.Body.Bytes(), &fund)
+	assert.Equal(t, "PC001", fund.FundCode)
+}
+
+func TestListPettyCashFunds(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	fund := &domain.PettyCashFund{
+		CompanyID: "CMP001", FundCode: "PC001", FundName: "Office Petty Cash",
+		CustodianID: "EMP001", InitialAmount: 5000000, CurrentBalance: 5000000,
+		Currency: "VND", Status: domain.PettyCashActive,
+	}
+	require.NoError(t, svc.CreatePettyCashFund(ctx, fund))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/petty-cash?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Cash Transfers ──────────────────────────────────────────────────
+
+func TestCreateCashTransfer(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","from_account_id":"1111","to_account_id":"1121","amount":2000000,"currency":"VND","transfer_date":"2026-07-15","reason":"transfer","transfer_type":"BANK_WITHDRAWAL"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/transfers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+}
+
+// ─── Cash Reports ────────────────────────────────────────────────────
+
+func TestCashBookReport(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/reports/cash-book?company_id=CMP001&account_id=1111&from_date=2026-07-01&to_date=2026-07-31", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestCashFlowStatement(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-01", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/reports/cash-flow?company_id=CMP001&account_id=1111&from_date=2026-07-01&to_date=2026-07-31", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Cash Inventory ──────────────────────────────────────────────────
+
+func TestCreateCashInventory(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","cash_account_id":"1111","inventory_date":"2026-07-15","book_balance":1000000,"actual_balance":1000000,"currency":"VND"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/inventory", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+}
+
+func TestListCashInventories(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	inv := &domain.CashInventory{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		InventoryDate: "2026-07-15", BookBalance: 1000000,
+		ActualBalance: 1000000, Currency: "VND",
+	}
+	require.NoError(t, svc.CreateCashInventory(ctx, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/inventory?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }

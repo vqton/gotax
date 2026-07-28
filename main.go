@@ -99,7 +99,8 @@ func main() {
 		templateRepo := repository.NewPGClosingTemplateRepo(pool)
 
 		obRepo := repository.NewPGOpeningBalanceRepo(pool)
-		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil, obRepo)
+		cashRepo := repository.NewPGCashRepo(pool)
+		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil, obRepo, cashRepo)
 		h := handler.NewHandler(svc)
 
 		companyRepo := repository.NewPGCompanyRepo(pool)
@@ -112,8 +113,9 @@ func main() {
 		taxRepo := repository.NewPGTaxRepo(pool)
 		taxSvc := service.NewTaxService(taxRepo)
 		taxH := handler.NewTaxHandler(taxSvc)
+		cashH := handler.NewCashHandler(svc)
 
-		handler.RegisterRoutesWithCompany(r, h, companyH, taxH, authMW, adminMW)
+		handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, authMW, adminMW)
 		log.Println("GoTax GL server (PG) starting on :8080")
 		r.Run(":8080")
 		return
@@ -137,7 +139,8 @@ func main() {
 	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
 
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
-	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo)
+	cashRepo := repository.NewMemoryCashRepo()
+	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
 	h := handler.NewHandler(svc)
 
 	companyRepo := repository.NewMemoryCompanyRepo()
@@ -150,8 +153,9 @@ func main() {
 	taxRepo := repository.NewMemoryTaxRepo()
 	taxSvc := service.NewTaxService(taxRepo)
 	taxH := handler.NewTaxHandler(taxSvc)
+	cashH := handler.NewCashHandler(svc)
 
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, authMW, adminMW)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, authMW, adminMW)
 	log.Println("GoTax GL server (CA) starting on :8080")
 	r.Run(":8080")
 }

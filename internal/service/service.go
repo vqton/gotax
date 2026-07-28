@@ -133,6 +133,41 @@ type Service interface {
 
 	ImportOpeningBalances(ctx context.Context, data []byte, companyID, periodID, createdBy string) (*OBImportResult, error)
 	GenerateOpeningBalancePDF(ctx context.Context, companyID, periodID string) ([]byte, error)
+
+	// Cash Module
+	CreateCashReceipt(ctx context.Context, r *domain.CashReceipt) error
+	GetCashReceipt(ctx context.Context, id string) (*domain.CashReceipt, error)
+	ListCashReceipts(ctx context.Context, filter domain.CashReceiptFilter) ([]domain.CashReceipt, int, error)
+	UpdateCashReceipt(ctx context.Context, r *domain.CashReceipt) error
+	DeleteCashReceipt(ctx context.Context, id string) error
+	SubmitCashReceipt(ctx context.Context, id, userID string) error
+	ApproveCashReceipt(ctx context.Context, id, approverID string) error
+	RejectCashReceipt(ctx context.Context, id, reviewerID string) error
+	PostCashReceipt(ctx context.Context, id, userID string) error
+
+	CreateCashPayment(ctx context.Context, p *domain.CashPayment) error
+	GetCashPayment(ctx context.Context, id string) (*domain.CashPayment, error)
+	ListCashPayments(ctx context.Context, filter domain.CashPaymentFilter) ([]domain.CashPayment, int, error)
+	UpdateCashPayment(ctx context.Context, p *domain.CashPayment) error
+	DeleteCashPayment(ctx context.Context, id string) error
+	SubmitCashPayment(ctx context.Context, id, userID string) error
+	ApproveCashPayment(ctx context.Context, id, approverID string) error
+	RejectCashPayment(ctx context.Context, id, reviewerID string) error
+	PostCashPayment(ctx context.Context, id, userID string) error
+
+	CreateCashTransfer(ctx context.Context, t *domain.CashTransfer) error
+	GetCashTransfers(ctx context.Context, companyID string) ([]domain.CashTransfer, error)
+
+	GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error)
+	GetCashBalance(ctx context.Context, companyID, accountID string) (float64, error)
+
+	CreatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error
+	GetPettyCashFund(ctx context.Context, id string) (*domain.PettyCashFund, error)
+	ListPettyCashFunds(ctx context.Context, companyID string) ([]domain.PettyCashFund, error)
+
+	CreateCashInventory(ctx context.Context, inv *domain.CashInventory) error
+	GetCashInventory(ctx context.Context, id string) (*domain.CashInventory, error)
+	ListCashInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error)
 }
 
 type service struct {
@@ -151,6 +186,7 @@ type service struct {
 	refresh   domain.RefreshTokenRepository
 	reset     domain.PasswordResetTokenRepository
 	ob        domain.OpeningBalanceRepository
+	cash      domain.CashRepository
 	limiter   *auth.RateLimiter
 	now       func() time.Time
 }
@@ -171,6 +207,7 @@ func NewService(
 	refreshRepo domain.RefreshTokenRepository,
 	resetRepo domain.PasswordResetTokenRepository,
 	obRepo domain.OpeningBalanceRepository,
+	cashRepo domain.CashRepository,
 ) Service {
 	return &service{
 		accounts:  accRepo,
@@ -188,6 +225,7 @@ func NewService(
 		refresh:   refreshRepo,
 		reset:     resetRepo,
 		ob:        obRepo,
+		cash:      cashRepo,
 		limiter:   auth.NewRateLimiter(5, 15*time.Minute),
 		now:       time.Now,
 	}
@@ -1233,4 +1271,505 @@ func (s *service) GetIFRSMapping(ctx context.Context, vasCode string) (*domain.I
 
 func (s *service) ListIFRSMappings(ctx context.Context) ([]domain.IFRSMapping, error) {
 	return s.ifrs.GetAll(ctx)
+}
+
+// ─── Cash Module ────────────────────────────────────────────────────
+
+// ─── Cash Receipts ──────────────────────────────────────────────────
+
+func (s *service) CreateCashReceipt(ctx context.Context, r *domain.CashReceipt) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.Currency == "VND" {
+		r.ExchangeRate = 1
+		r.AmountVND = r.Amount
+	} else {
+		r.AmountVND = r.Amount * r.ExchangeRate
+	}
+	now := s.now()
+	nowStr := now.Format("2006-01-02 15:04:05")
+	r.Status = domain.CashDraft
+	r.CreatedAt = nowStr
+	r.UpdatedAt = nowStr
+
+	year := now.Format("2006")
+	if len(r.VoucherDate) >= 4 {
+		year = r.VoucherDate[:4]
+	}
+	lastNo, err := s.cash.LastReceiptNo(ctx, r.CompanyID, year)
+	var seq int
+	if err == nil && lastNo != "" {
+		parts := strings.Split(lastNo, "-")
+		n := parts[len(parts)-1]
+		seq, _ = strconv.Atoi(n)
+	}
+	seq++
+	r.VoucherNo = fmt.Sprintf("R-%s-%04d", year, seq)
+
+	return s.cash.CreateReceipt(ctx, r)
+}
+
+func (s *service) GetCashReceipt(ctx context.Context, id string) (*domain.CashReceipt, error) {
+	return s.cash.GetReceipt(ctx, id)
+}
+
+func (s *service) ListCashReceipts(ctx context.Context, filter domain.CashReceiptFilter) ([]domain.CashReceipt, int, error) {
+	return s.cash.ListReceipts(ctx, filter)
+}
+
+func (s *service) UpdateCashReceipt(ctx context.Context, r *domain.CashReceipt) error {
+	existing, err := s.cash.GetReceipt(ctx, r.ID)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.CashDraft {
+		return fmt.Errorf("can only update draft receipts")
+	}
+	r.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.UpdateReceipt(ctx, r)
+}
+
+func (s *service) DeleteCashReceipt(ctx context.Context, id string) error {
+	existing, err := s.cash.GetReceipt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.CashDraft {
+		return fmt.Errorf("can only delete draft receipts")
+	}
+	return s.cash.DeleteReceipt(ctx, id)
+}
+
+func (s *service) SubmitCashReceipt(ctx context.Context, id, userID string) error {
+	r, err := s.cash.GetReceipt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.Status != domain.CashDraft && r.Status != domain.CashRejected {
+		return fmt.Errorf("cannot submit receipt in status %s", r.Status)
+	}
+	r.Status = domain.CashSubmitted
+	r.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.UpdateReceipt(ctx, r)
+}
+
+func (s *service) ApproveCashReceipt(ctx context.Context, id, approverID string) error {
+	r, err := s.cash.GetReceipt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.CashApproved) {
+		return fmt.Errorf("cannot approve receipt in status %s", r.Status)
+	}
+	if r.CreatedBy == approverID {
+		return domain.ErrSelfCashApproval
+	}
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	r.Status = domain.CashApproved
+	r.ApprovedBy = approverID
+	r.ApprovedAt = nowStr
+	r.UpdatedAt = nowStr
+	return s.cash.UpdateReceipt(ctx, r)
+}
+
+func (s *service) RejectCashReceipt(ctx context.Context, id, reviewerID string) error {
+	r, err := s.cash.GetReceipt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.CashRejected) {
+		return fmt.Errorf("cannot reject receipt in status %s", r.Status)
+	}
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	r.Status = domain.CashRejected
+	r.UpdatedAt = nowStr
+	return s.cash.UpdateReceipt(ctx, r)
+}
+
+func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error {
+	r, err := s.cash.GetReceipt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.CashPosted) {
+		return fmt.Errorf("cannot post receipt in status %s", r.Status)
+	}
+
+	entryDate, err := time.Parse("2006-01-02", r.VoucherDate)
+	if err != nil {
+		return fmt.Errorf("invalid voucher date: %w", err)
+	}
+
+	rate := r.ExchangeRate
+	if r.Currency == "VND" {
+		rate = 1
+	}
+	entry := &domain.JournalEntry{
+		EntryDate:    entryDate,
+		Description:  r.Reason,
+		CurrencyCode: r.Currency,
+		ExchangeRate: rate,
+		VoucherType:  domain.VoucherTypeReceipt,
+		Lines: []domain.JournalLine{
+			{AccountCode: r.CashAccountID, DebitAmount: r.AmountVND},
+			{AccountCode: r.CreditAccountID, CreditAmount: r.AmountVND},
+		},
+	}
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	if err := s.journals.Create(ctx, entry); err != nil {
+		return err
+	}
+
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	r.Status = domain.CashPosted
+	r.PostedBy = userID
+	r.PostedAt = nowStr
+	r.GLJournalID = entry.ID
+	r.UpdatedAt = nowStr
+	return s.cash.UpdateReceipt(ctx, r)
+}
+
+// ─── Cash Payments ──────────────────────────────────────────────────
+
+func (s *service) CreateCashPayment(ctx context.Context, p *domain.CashPayment) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if p.Currency == "VND" {
+		p.ExchangeRate = 1
+		p.AmountVND = p.Amount
+	} else {
+		p.AmountVND = p.Amount * p.ExchangeRate
+	}
+	now := s.now()
+	nowStr := now.Format("2006-01-02 15:04:05")
+	p.Status = domain.CashDraft
+	p.CreatedAt = nowStr
+	p.UpdatedAt = nowStr
+
+	year := now.Format("2006")
+	if len(p.VoucherDate) >= 4 {
+		year = p.VoucherDate[:4]
+	}
+	lastNo, err := s.cash.LastPaymentNo(ctx, p.CompanyID, year)
+	var seq int
+	if err == nil && lastNo != "" {
+		parts := strings.Split(lastNo, "-")
+		n := parts[len(parts)-1]
+		seq, _ = strconv.Atoi(n)
+	}
+	seq++
+	p.VoucherNo = fmt.Sprintf("P-%s-%04d", year, seq)
+
+	return s.cash.CreatePayment(ctx, p)
+}
+
+func (s *service) GetCashPayment(ctx context.Context, id string) (*domain.CashPayment, error) {
+	return s.cash.GetPayment(ctx, id)
+}
+
+func (s *service) ListCashPayments(ctx context.Context, filter domain.CashPaymentFilter) ([]domain.CashPayment, int, error) {
+	return s.cash.ListPayments(ctx, filter)
+}
+
+func (s *service) UpdateCashPayment(ctx context.Context, p *domain.CashPayment) error {
+	existing, err := s.cash.GetPayment(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.CashDraft {
+		return fmt.Errorf("can only update draft payments")
+	}
+	p.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.UpdatePayment(ctx, p)
+}
+
+func (s *service) DeleteCashPayment(ctx context.Context, id string) error {
+	existing, err := s.cash.GetPayment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.CashDraft {
+		return fmt.Errorf("can only delete draft payments")
+	}
+	return s.cash.DeletePayment(ctx, id)
+}
+
+func (s *service) SubmitCashPayment(ctx context.Context, id, userID string) error {
+	p, err := s.cash.GetPayment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p.Status != domain.CashDraft && p.Status != domain.CashRejected {
+		return fmt.Errorf("cannot submit payment in status %s", p.Status)
+	}
+	p.Status = domain.CashSubmitted
+	p.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.UpdatePayment(ctx, p)
+}
+
+func (s *service) ApproveCashPayment(ctx context.Context, id, approverID string) error {
+	p, err := s.cash.GetPayment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !p.Status.ValidTransition(domain.CashApproved) {
+		return fmt.Errorf("cannot approve payment in status %s", p.Status)
+	}
+	if p.CreatedBy == approverID {
+		return domain.ErrSelfCashApproval
+	}
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	p.Status = domain.CashApproved
+	p.ApprovedBy = approverID
+	p.ApprovedAt = nowStr
+	p.UpdatedAt = nowStr
+	return s.cash.UpdatePayment(ctx, p)
+}
+
+func (s *service) RejectCashPayment(ctx context.Context, id, reviewerID string) error {
+	p, err := s.cash.GetPayment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !p.Status.ValidTransition(domain.CashRejected) {
+		return fmt.Errorf("cannot reject payment in status %s", p.Status)
+	}
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	p.Status = domain.CashRejected
+	p.UpdatedAt = nowStr
+	return s.cash.UpdatePayment(ctx, p)
+}
+
+func (s *service) PostCashPayment(ctx context.Context, id, userID string) error {
+	p, err := s.cash.GetPayment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !p.Status.ValidTransition(domain.CashPosted) {
+		return fmt.Errorf("cannot post payment in status %s", p.Status)
+	}
+
+	entryDate, err := time.Parse("2006-01-02", p.VoucherDate)
+	if err != nil {
+		return fmt.Errorf("invalid voucher date: %w", err)
+	}
+
+	rate := p.ExchangeRate
+	if p.Currency == "VND" {
+		rate = 1
+	}
+	entry := &domain.JournalEntry{
+		EntryDate:    entryDate,
+		Description:  p.Reason,
+		CurrencyCode: p.Currency,
+		ExchangeRate: rate,
+		VoucherType:  domain.VoucherTypePayment,
+		Lines: []domain.JournalLine{
+			{AccountCode: p.DebitAccountID, DebitAmount: p.AmountVND},
+			{AccountCode: p.CashAccountID, CreditAmount: p.AmountVND},
+		},
+	}
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	if err := s.journals.Create(ctx, entry); err != nil {
+		return err
+	}
+
+	nowStr := s.now().Format("2006-01-02 15:04:05")
+	p.Status = domain.CashPosted
+	p.PostedBy = userID
+	p.PostedAt = nowStr
+	p.GLJournalID = entry.ID
+	p.UpdatedAt = nowStr
+	return s.cash.UpdatePayment(ctx, p)
+}
+
+// ─── Cash Transfers ─────────────────────────────────────────────────
+
+func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer) error {
+	if t.Amount <= 0 {
+		return domain.ErrCashAmountRequired
+	}
+	if t.FromAccountID == "" || t.ToAccountID == "" {
+		return domain.ErrCashAccountInvalid
+	}
+	if t.Reason == "" {
+		return domain.ErrJournalEntryNoDescription
+	}
+	if t.Currency == "" {
+		t.Currency = "VND"
+	}
+	rate := t.ExchangeRate
+	if t.Currency != "VND" && rate <= 0 {
+		return domain.ErrExchangeRateRequired
+	}
+	if t.Currency == "VND" {
+		rate = 1
+	}
+
+	now := s.now()
+	nowStr := now.Format("2006-01-02 15:04:05")
+	amountVND := t.Amount * rate
+
+	// create receipt voucher
+	receipt := &domain.CashReceipt{
+		CompanyID:       t.CompanyID,
+		VoucherDate:     t.TransferDate,
+		CashAccountID:   t.ToAccountID,
+		Currency:        t.Currency,
+		ExchangeRate:    rate,
+		Amount:          t.Amount,
+		AmountVND:       amountVND,
+		DebitAccountID:  t.ToAccountID,
+		CreditAccountID: t.FromAccountID,
+		Reason:          t.Reason,
+		Status:          domain.CashDraft,
+		CreatedAt:       nowStr,
+		UpdatedAt:       nowStr,
+	}
+	if err := s.cash.CreateReceipt(ctx, receipt); err != nil {
+		return err
+	}
+
+	// create payment voucher
+	payment := &domain.CashPayment{
+		CompanyID:       t.CompanyID,
+		VoucherDate:     t.TransferDate,
+		CashAccountID:   t.FromAccountID,
+		Currency:        t.Currency,
+		ExchangeRate:    rate,
+		Amount:          t.Amount,
+		AmountVND:       amountVND,
+		DebitAccountID:  t.ToAccountID,
+		CreditAccountID: t.FromAccountID,
+		Reason:          t.Reason,
+		Status:          domain.CashDraft,
+		CreatedAt:       nowStr,
+		UpdatedAt:       nowStr,
+	}
+	if err := s.cash.CreatePayment(ctx, payment); err != nil {
+		return err
+	}
+
+	// create single journal entry for the transfer
+	entryDate, _ := time.Parse("2006-01-02", t.TransferDate)
+	entry := &domain.JournalEntry{
+		EntryDate:    entryDate,
+		Description:  t.Reason,
+		CurrencyCode: t.Currency,
+		ExchangeRate: rate,
+		VoucherType:  domain.VoucherTypeOther,
+		Lines: []domain.JournalLine{
+			{AccountCode: t.ToAccountID, DebitAmount: amountVND},
+			{AccountCode: t.FromAccountID, CreditAmount: amountVND},
+		},
+	}
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	if err := s.journals.Create(ctx, entry); err != nil {
+		return err
+	}
+
+	// post both vouchers with same journal entry
+	receipt.Status = domain.CashPosted
+	receipt.PostedAt = nowStr
+	receipt.GLJournalID = entry.ID
+	if err := s.cash.UpdateReceipt(ctx, receipt); err != nil {
+		return err
+	}
+
+	payment.Status = domain.CashPosted
+	payment.PostedAt = nowStr
+	payment.GLJournalID = entry.ID
+	if err := s.cash.UpdatePayment(ctx, payment); err != nil {
+		return err
+	}
+
+	// create transfer record
+	t.ID = fmt.Sprintf("TRF-%d", now.UnixNano())
+	t.Status = domain.CashPosted
+	t.SourceVoucherID = receipt.ID
+	t.DestVoucherID = payment.ID
+	t.CreatedAt = nowStr
+	t.PostedAt = nowStr
+
+	return s.cash.CreateTransfer(ctx, t)
+}
+
+func (s *service) GetCashTransfers(ctx context.Context, companyID string) ([]domain.CashTransfer, error) {
+	return s.cash.ListTransfers(ctx, companyID)
+}
+
+// ─── Cash Book & Balance ────────────────────────────────────────────
+
+func (s *service) GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error) {
+	return s.cash.GetCashBook(ctx, companyID, currency, accountID, fromDate, toDate)
+}
+
+func (s *service) GetCashBalance(ctx context.Context, companyID, accountID string) (float64, error) {
+	return s.cash.GetBalance(ctx, companyID, accountID)
+}
+
+// ─── Petty Cash ─────────────────────────────────────────────────────
+
+func (s *service) CreatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error {
+	if f.FundCode == "" {
+		return fmt.Errorf("fund code required")
+	}
+	if f.FundName == "" {
+		return fmt.Errorf("fund name required")
+	}
+	if f.CustodianID == "" {
+		return fmt.Errorf("custodian required")
+	}
+	if f.InitialAmount < 0 {
+		return fmt.Errorf("initial amount must be non-negative")
+	}
+	if f.Currency == "" {
+		f.Currency = "VND"
+	}
+	f.CurrentBalance = f.InitialAmount
+	f.Status = domain.PettyCashActive
+	f.CreatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.CreatePettyCashFund(ctx, f)
+}
+
+func (s *service) GetPettyCashFund(ctx context.Context, id string) (*domain.PettyCashFund, error) {
+	return s.cash.GetPettyCashFund(ctx, id)
+}
+
+func (s *service) ListPettyCashFunds(ctx context.Context, companyID string) ([]domain.PettyCashFund, error) {
+	return s.cash.ListPettyCashFunds(ctx, companyID)
+}
+
+// ─── Cash Inventory ─────────────────────────────────────────────────
+
+func (s *service) CreateCashInventory(ctx context.Context, inv *domain.CashInventory) error {
+	if inv.InventoryDate == "" {
+		return fmt.Errorf("inventory date required")
+	}
+	if inv.CashAccountID == "" {
+		return fmt.Errorf("cash account required")
+	}
+	if inv.Currency == "" {
+		inv.Currency = "VND"
+	}
+	inv.Difference = inv.ActualBalance - inv.BookBalance
+	inv.Status = domain.CashInventoryDraft
+	inv.CreatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.CreateInventory(ctx, inv)
+}
+
+func (s *service) GetCashInventory(ctx context.Context, id string) (*domain.CashInventory, error) {
+	return s.cash.GetInventory(ctx, id)
+}
+
+func (s *service) ListCashInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error) {
+	return s.cash.ListInventories(ctx, companyID)
 }
