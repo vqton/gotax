@@ -109,8 +109,10 @@ func RegisterCompanyRoutes(r *gin.Engine, h *CompanyHandler, authMW gin.HandlerF
 		get.DELETE("/bank-accounts/:id", h.DeactivateBankAccount)
 
 		get.GET("/einvoice-patterns/:id", h.GetEInvoicePattern)
+		get.PUT("/einvoice-patterns/:id", h.UpdateEInvoicePattern)
 
 		get.GET("/digital-signatures/:id", h.GetDigitalSignature)
+		get.PUT("/digital-signatures/:id", h.UpdateDigitalSignature)
 
 		get.GET("/integrations/:id", h.GetIntegrationProfile)
 		get.PUT("/integrations/:id", h.UpdateIntegrationProfile)
@@ -583,6 +585,21 @@ func (h *CompanyHandler) ListEInvoicePatterns(c *gin.Context) {
 	c.JSON(http.StatusOK, invs)
 }
 
+func (h *CompanyHandler) UpdateEInvoicePattern(c *gin.Context) {
+	id := c.Param("id")
+	var inv domain.EInvoicePattern
+	if err := c.ShouldBindJSON(&inv); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	inv.ID = id
+	if err := h.svc.UpdateEInvoicePattern(c.Request.Context(), &inv); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, inv)
+}
+
 // ─── Digital Signature ─────────────────────────────────────────────
 
 func (h *CompanyHandler) RegisterDigitalSignature(c *gin.Context) {
@@ -618,6 +635,21 @@ func (h *CompanyHandler) ListDigitalSignatures(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, sigs)
+}
+
+func (h *CompanyHandler) UpdateDigitalSignature(c *gin.Context) {
+	id := c.Param("id")
+	var sig domain.DigitalSignature
+	if err := c.ShouldBindJSON(&sig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	sig.ID = id
+	if err := h.svc.UpdateDigitalSignature(c.Request.Context(), &sig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sig)
 }
 
 // ─── Integration ───────────────────────────────────────────────────

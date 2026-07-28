@@ -54,10 +54,12 @@ type CompanyService interface {
 	DeactivateBankAccount(ctx context.Context, id string) error
 
 	RegisterEInvoicePattern(ctx context.Context, inv *domain.EInvoicePattern) error
+	UpdateEInvoicePattern(ctx context.Context, inv *domain.EInvoicePattern) error
 	GetEInvoicePattern(ctx context.Context, id string) (*domain.EInvoicePattern, error)
 	ListEInvoicePatterns(ctx context.Context, companyID string) ([]domain.EInvoicePattern, error)
 
 	RegisterDigitalSignature(ctx context.Context, sig *domain.DigitalSignature) error
+	UpdateDigitalSignature(ctx context.Context, sig *domain.DigitalSignature) error
 	GetDigitalSignature(ctx context.Context, id string) (*domain.DigitalSignature, error)
 	ListDigitalSignatures(ctx context.Context, companyID string) ([]domain.DigitalSignature, error)
 
@@ -394,6 +396,10 @@ func (s *companyService) ListEInvoicePatterns(ctx context.Context, companyID str
 	return s.repo.GetEInvoicePatternsByCompany(ctx, companyID)
 }
 
+func (s *companyService) UpdateEInvoicePattern(ctx context.Context, inv *domain.EInvoicePattern) error {
+	return s.repo.UpdateEInvoicePattern(ctx, inv)
+}
+
 func (s *companyService) RegisterDigitalSignature(ctx context.Context, sig *domain.DigitalSignature) error {
 	if sig.SerialNumber == "" {
 		return fmt.Errorf("serial number is required")
@@ -402,6 +408,10 @@ func (s *companyService) RegisterDigitalSignature(ctx context.Context, sig *doma
 		return fmt.Errorf("valid from and valid to dates are required")
 	}
 	return s.repo.CreateDigitalSignature(ctx, sig)
+}
+
+func (s *companyService) UpdateDigitalSignature(ctx context.Context, sig *domain.DigitalSignature) error {
+	return s.repo.UpdateDigitalSignature(ctx, sig)
 }
 
 func (s *companyService) GetDigitalSignature(ctx context.Context, id string) (*domain.DigitalSignature, error) {
@@ -433,6 +443,7 @@ func (s *companyService) UpdateIntegrationProfile(ctx context.Context, p *domain
 	return s.repo.UpdateIntegrationProfile(ctx, p)
 }
 
-func (s *companyService) TestIntegration(_ context.Context, _ string) error {
-	return nil
+func (s *companyService) TestIntegration(ctx context.Context, id string) error {
+	_, err := s.repo.GetIntegrationProfileByID(ctx, id)
+	return err
 }

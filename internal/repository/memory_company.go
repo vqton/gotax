@@ -117,7 +117,7 @@ func (r *MemoryCompanyRepo) Deactivate(_ context.Context, id, reason string) err
 	if !ok {
 		return domain.ErrCompanyNotFound
 	}
-	c.Status = domain.CompanyStatusActive
+	c.Status = domain.CompanyStatusDissolved
 	c.UpdatedAt = time.Now()
 	return nil
 }
@@ -126,11 +126,21 @@ func (r *MemoryCompanyRepo) GetHierarchy(_ context.Context, companyID string) ([
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var out []domain.Company
-	for _, c := range r.companies {
-		if c.ParentCompanyID == companyID || c.ID == companyID {
+	visited := map[string]bool{}
+	var walk func(id string)
+	walk = func(id string) {
+		if visited[id] { return }
+		visited[id] = true
+		if c, ok := r.companies[id]; ok {
 			out = append(out, *c)
+			for _, child := range r.companies {
+				if child.ParentCompanyID == id && !visited[child.ID] {
+					walk(child.ID)
+				}
+			}
 		}
 	}
+	walk(companyID)
 	return out, nil
 }
 
@@ -146,6 +156,7 @@ func (r *MemoryCompanyRepo) CreateBranch(_ context.Context, b *domain.CompanyBra
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.branches[cp.ID] = &cp
+	b.ID = cp.ID
 	return nil
 }
 
@@ -208,6 +219,7 @@ func (r *MemoryCompanyRepo) CreateFiscalYear(_ context.Context, fy *domain.Fisca
 	}
 	cp.CreatedAt = time.Now()
 	r.fys[cp.ID] = &cp
+	fy.ID = cp.ID
 	return nil
 }
 
@@ -254,6 +266,7 @@ func (r *MemoryCompanyRepo) CreatePeriod(_ context.Context, p *domain.PeriodV2) 
 		cp.ID = r.nextID("PER")
 	}
 	r.periods[cp.ID] = &cp
+	p.ID = cp.ID
 	return nil
 }
 
@@ -340,6 +353,7 @@ func (r *MemoryCompanyRepo) CreateDepartment(_ context.Context, d *domain.Depart
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.depts[cp.ID] = &cp
+	d.ID = cp.ID
 	return nil
 }
 
@@ -391,6 +405,7 @@ func (r *MemoryCompanyRepo) CreateEmployee(_ context.Context, e *domain.Employee
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.employees[cp.ID] = &cp
+	e.ID = cp.ID
 	return nil
 }
 
@@ -465,6 +480,7 @@ func (r *MemoryCompanyRepo) CreateBankAccount(_ context.Context, ba *domain.Comp
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.bankAccs[cp.ID] = &cp
+	ba.ID = cp.ID
 	return nil
 }
 
@@ -528,6 +544,7 @@ func (r *MemoryCompanyRepo) CreateEInvoicePattern(_ context.Context, inv *domain
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.eInvoices[cp.ID] = &cp
+	inv.ID = cp.ID
 	return nil
 }
 
@@ -579,6 +596,7 @@ func (r *MemoryCompanyRepo) CreateDigitalSignature(_ context.Context, sig *domai
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.sigs[cp.ID] = &cp
+	sig.ID = cp.ID
 	return nil
 }
 
@@ -630,6 +648,7 @@ func (r *MemoryCompanyRepo) CreateIntegrationProfile(_ context.Context, prof *do
 	cp.CreatedAt = time.Now()
 	cp.UpdatedAt = cp.CreatedAt
 	r.integrs[cp.ID] = &cp
+	prof.ID = cp.ID
 	return nil
 }
 

@@ -509,7 +509,7 @@ type Company struct {
 
 func (c *Company) Validate() error {
 	if c.TaxCode=="" { return ErrCompanyCodeRequired }
-	if len(c.TaxCode)!=10&&len(c.TaxCode)!=13 { return ErrInvalidTaxCodeFormat }
+	if len(c.TaxCode)!=10&&len(c.TaxCode)!=13&&len(c.TaxCode)!=14 { return ErrInvalidTaxCodeFormat }
 	if c.LegalNameVN=="" { return ErrCompanyNameRequired }
 	switch c.LegalForm{case LegalFormLLC1Member,LegalFormLLC2Members,LegalFormJSC,LegalFormSoleProp,LegalFormPartnership,LegalFormFO,LegalFormRO:default: return ErrCompanyInvalidLegalForm}
 	switch c.AccountingRegime{case RegimeTT99,RegimeTT133,RegimeTT58:default: return ErrCompanyInvalidRegime}
