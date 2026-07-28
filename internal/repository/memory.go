@@ -343,6 +343,52 @@ func (r *MemoryJournalRepo) GetFinancialStatement(_ context.Context, periodID st
 	return out, nil
 }
 
+func (r *MemoryJournalRepo) GetAccountUsage(_ context.Context, accountCode string) (*domain.AccountUsage, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	u := &domain.AccountUsage{AccountCode: accountCode}
+	for _, e := range r.data {
+		if e.Status != domain.JournalEntryPosted {
+			continue
+		}
+		for _, l := range e.Lines {
+			if l.AccountCode != accountCode {
+				continue
+			}
+			u.EntryCount++
+			u.TotalDebit += l.DebitAmount
+			u.TotalCredit += l.CreditAmount
+			ds := e.EntryDate.Format("2006-01-02")
+			if ds > u.LastUsedDate {
+				u.LastUsedDate = ds
+			}
+		}
+	}
+	return u, nil
+}
+
+func (r *MemoryJournalRepo) GetPostedEntriesByAccount(_ context.Context, periodID, accountCode string) ([]domain.JournalEntry, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.JournalEntry
+	for _, e := range r.data {
+		if e.PeriodID != periodID || e.Status != domain.JournalEntryPosted {
+			continue
+		}
+		found := false
+		for _, l := range e.Lines {
+			if l.AccountCode == accountCode {
+				found = true
+				break
+			}
+		}
+		if found {
+			out = append(out, *e)
+		}
+	}
+	return out, nil
+}
+
 // ─── Period ─────────────────────────────────────────────────────────
 
 type MemoryPeriodRepo struct {

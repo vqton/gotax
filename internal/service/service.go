@@ -1015,50 +1015,14 @@ func (s *service) GetAccountBalanceDrillDown(ctx context.Context, code string, p
 	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
 		return nil, err
 	}
-	all, err := s.journals.GetByPeriod(ctx, periodID)
-	if err != nil {
-		return nil, err
-	}
-	var result []domain.JournalEntry
-	for _, e := range all {
-		if e.Status != domain.JournalEntryPosted {
-			continue
-		}
-		for _, l := range e.Lines {
-			if l.AccountCode == code {
-				result = append(result, e)
-				break
-			}
-		}
-	}
-	return result, nil
+	return s.journals.GetPostedEntriesByAccount(ctx, periodID, code)
 }
 
 func (s *service) GetAccountUsage(ctx context.Context, code string) (*domain.AccountUsage, error) {
 	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
 		return nil, err
 	}
-	all, err := s.journals.GetByDateRange(ctx, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), s.now())
-	if err != nil {
-		return nil, err
-	}
-	usage := &domain.AccountUsage{AccountCode: code}
-	for _, e := range all {
-		if e.Status != domain.JournalEntryPosted {
-			continue
-		}
-		for _, l := range e.Lines {
-			if l.AccountCode == code {
-				usage.EntryCount++
-				usage.TotalDebit += l.DebitAmount
-				usage.TotalCredit += l.CreditAmount
-				if e.EntryDate.Format("2006-01-02") > usage.LastUsedDate {
-					usage.LastUsedDate = e.EntryDate.Format("2006-01-02")
-				}
-			}
-		}
-	}
-	return usage, nil
+	return s.journals.GetAccountUsage(ctx, code)
 }
 
 // ─── COA: Approval ─────────────────────────────────────────────────

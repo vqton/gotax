@@ -21,6 +21,127 @@ func NewPGAccountRepo(pool *pgxpool.Pool) *PGAccountRepo {
 	return &PGAccountRepo{pool: pool}
 }
 
+// ─── Refresh Token ───────────────────────────────────────────────────────────
+
+type PGRefreshTokenRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGRefreshTokenRepo(pool *pgxpool.Pool) *PGRefreshTokenRepo {
+	return &PGRefreshTokenRepo{pool: pool}
+}
+
+func (r *PGRefreshTokenRepo) Create(ctx context.Context, t *domain.RefreshToken) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO refresh_tokens (id, user_id, token_hash, device_info, ip_address, expires_at, created_at, revoked_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		t.ID, t.UserID, t.TokenHash, nullStr(t.DeviceInfo), nullStr(t.IPAddress),
+		t.ExpiresAt, t.CreatedAt, nullTimePtr(t.RevokedAt))
+	return err
+}
+
+func (r *PGRefreshTokenRepo) GetByID(ctx context.Context, id string) (*domain.RefreshToken, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, token_hash, COALESCE(device_info,''), COALESCE(ip_address,''), expires_at, created_at, revoked_at
+		 FROM refresh_tokens WHERE id=$1`, id)
+	var t domain.RefreshToken
+	var revokedAt *time.Time
+	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.DeviceInfo, &t.IPAddress, &t.ExpiresAt, &t.CreatedAt, &revokedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.RevokedAt = revokedAt
+	return &t, nil
+}
+
+func (r *PGRefreshTokenRepo) GetByUserID(ctx context.Context, userID string) ([]domain.RefreshToken, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, user_id, token_hash, COALESCE(device_info,''), COALESCE(ip_address,''), expires_at, created_at, revoked_at
+		 FROM refresh_tokens WHERE user_id=$1 ORDER BY created_at`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRefreshTokens(rows)
+}
+
+func (r *PGRefreshTokenRepo) GetByHash(ctx context.Context, hash string) (*domain.RefreshToken, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, token_hash, COALESCE(device_info,''), COALESCE(ip_address,''), expires_at, created_at, revoked_at
+		 FROM refresh_tokens WHERE token_hash=$1`, hash)
+	var t domain.RefreshToken
+	var revokedAt *time.Time
+	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.DeviceInfo, &t.IPAddress, &t.ExpiresAt, &t.CreatedAt, &revokedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.RevokedAt = revokedAt
+	return &t, nil
+}
+
+func (r *PGRefreshTokenRepo) Revoke(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE refresh_tokens SET revoked_at=NOW() WHERE id=$1`, id)
+	return err
+}
+
+func (r *PGRefreshTokenRepo) RevokeAllByUserID(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL`, userID)
+	return err
+}
+
+func scanRefreshTokens(rows pgx.Rows) ([]domain.RefreshToken, error) {
+	var out []domain.RefreshToken
+	for rows.Next() {
+		var t domain.RefreshToken
+		var revokedAt *time.Time
+		if err := rows.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.DeviceInfo, &t.IPAddress, &t.ExpiresAt, &t.CreatedAt, &revokedAt); err != nil {
+			return nil, err
+		}
+		t.RevokedAt = revokedAt
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// ─── Password Reset Token ───────────────────────────────────────────────────
+
+type PGPasswordResetTokenRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGPasswordResetTokenRepo(pool *pgxpool.Pool) *PGPasswordResetTokenRepo {
+	return &PGPasswordResetTokenRepo{pool: pool}
+}
+
+func (r *PGPasswordResetTokenRepo) Create(ctx context.Context, t *domain.PasswordResetToken) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at, used_at)
+		 VALUES ($1,$2,$3,$4,$5,$6)`,
+		t.ID, t.UserID, t.TokenHash, t.ExpiresAt, t.CreatedAt, nullTimePtr(t.UsedAt))
+	return err
+}
+
+func (r *PGPasswordResetTokenRepo) GetByID(ctx context.Context, id string) (*domain.PasswordResetToken, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, token_hash, expires_at, created_at, used_at
+		 FROM password_reset_tokens WHERE id=$1`, id)
+	var t domain.PasswordResetToken
+	var usedAt *time.Time
+	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.CreatedAt, &usedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.UsedAt = usedAt
+	return &t, nil
+}
+
+func (r *PGPasswordResetTokenRepo) MarkUsed(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE password_reset_tokens SET used_at=NOW() WHERE id=$1`, id)
+	return err
+}
+
+// ─── Account ─────────────────────────────────────────────────────────────────
+
 func (r *PGAccountRepo) Create(ctx context.Context, a *domain.Account) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO accounts (code, name, name2, type, parent_code, is_active, is_foreign, detail_by, is_parent, note)
@@ -33,7 +154,7 @@ func (r *PGAccountRepo) Create(ctx context.Context, a *domain.Account) error {
 func (r *PGAccountRepo) GetByCode(ctx context.Context, code string) (*domain.Account, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT code, name, COALESCE(name2,''), type, COALESCE(parent_code,''), is_active, is_foreign,
-		        COALESCE(detail_by,''), is_parent, 0, COALESCE(note,'')
+		        COALESCE(detail_by,''), is_parent, status, COALESCE(freeze_reason,''), arrears_days, COALESCE(note,'')
 		 FROM accounts WHERE code=$1`, code)
 	return scanAccount(row)
 }
@@ -42,11 +163,11 @@ func (r *PGAccountRepo) GetAll(ctx context.Context, activeOnly bool) ([]domain.A
 	var query string
 	if activeOnly {
 		query = `SELECT code, name, COALESCE(name2,''), type, COALESCE(parent_code,''), is_active, is_foreign,
-		                COALESCE(detail_by,''), is_parent, 0, COALESCE(note,'')
+		                COALESCE(detail_by,''), is_parent, status, COALESCE(freeze_reason,''), arrears_days, COALESCE(note,'')
 		         FROM accounts WHERE is_active=true ORDER BY code`
 	} else {
 		query = `SELECT code, name, COALESCE(name2,''), type, COALESCE(parent_code,''), is_active, is_foreign,
-		                COALESCE(detail_by,''), is_parent, 0, COALESCE(note,'')
+		                COALESCE(detail_by,''), is_parent, status, COALESCE(freeze_reason,''), arrears_days, COALESCE(note,'')
 		         FROM accounts ORDER BY code`
 	}
 	rows, err := r.pool.Query(ctx, query)
@@ -74,7 +195,7 @@ func (r *PGAccountRepo) Delete(ctx context.Context, code string) error {
 func (r *PGAccountRepo) GetChildren(ctx context.Context, parentCode string) ([]domain.Account, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT code, name, COALESCE(name2,''), type, COALESCE(parent_code,''), is_active, is_foreign,
-		        COALESCE(detail_by,''), is_parent, 0, COALESCE(note,'')
+		        COALESCE(detail_by,''), is_parent, status, COALESCE(freeze_reason,''), arrears_days, COALESCE(note,'')
 		 FROM accounts WHERE parent_code=$1 ORDER BY code`, parentCode)
 	if err != nil {
 		return nil, err
@@ -261,13 +382,14 @@ func (r *PGJournalRepo) GetBalance(ctx context.Context, accountCode, periodID st
 
 func (r *PGJournalRepo) GetTrialBalance(ctx context.Context, periodID string) ([]domain.AccountBalance, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT l.account_code, $1 AS period_id,
+		`SELECT l.account_code, $1 AS period_id, a.type,
 		        COALESCE(SUM(l.debit_amount),0) AS period_debit,
 		        COALESCE(SUM(l.credit_amount),0) AS period_credit
 		 FROM journal_lines l
 		 JOIN journal_entries e ON l.entry_id = e.id
+		 JOIN accounts a ON l.account_code = a.code
 		 WHERE e.period_id=$1 AND e.status='POSTED'
-		 GROUP BY l.account_code
+		 GROUP BY l.account_code, a.type
 		 ORDER BY l.account_code`, periodID)
 	if err != nil {
 		return nil, err
@@ -276,7 +398,7 @@ func (r *PGJournalRepo) GetTrialBalance(ctx context.Context, periodID string) ([
 	var balances []domain.AccountBalance
 	for rows.Next() {
 		var b domain.AccountBalance
-		if err := rows.Scan(&b.AccountCode, &b.PeriodID, &b.PeriodDebit, &b.PeriodCredit); err != nil {
+		if err := rows.Scan(&b.AccountCode, &b.PeriodID, &b.AccountType, &b.PeriodDebit, &b.PeriodCredit); err != nil {
 			return nil, err
 		}
 		balances = append(balances, b)
@@ -315,6 +437,39 @@ func (r *PGJournalRepo) GetFinancialStatement(ctx context.Context, periodID stri
 		balances = append(balances, b)
 	}
 	return balances, nil
+}
+
+func (r *PGJournalRepo) GetAccountUsage(ctx context.Context, accountCode string) (*domain.AccountUsage, error) {
+	var u domain.AccountUsage
+	u.AccountCode = accountCode
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(COUNT(*),0), COALESCE(SUM(l.debit_amount),0), COALESCE(SUM(l.credit_amount),0),
+		        COALESCE(MAX(e.entry_date)::TEXT,'')
+		 FROM journal_lines l
+		 JOIN journal_entries e ON l.entry_id = e.id
+		 WHERE l.account_code=$1 AND e.status='POSTED'`, accountCode).Scan(
+		&u.EntryCount, &u.TotalDebit, &u.TotalCredit, &u.LastUsedDate)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (r *PGJournalRepo) GetPostedEntriesByAccount(ctx context.Context, periodID, accountCode string) ([]domain.JournalEntry, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT e.id, e.company_id, e.entry_number, e.voucher_type, e.entry_date, e.accounting_date,
+		        e.period_id, e.description, e.status, e.currency_code, e.exchange_rate,
+		        e.created_by, COALESCE(e.reviewed_by,''), COALESCE(e.approved_by,''),
+		        e.created_at, e.posted_at, e.approved_at
+		 FROM journal_entries e
+		 JOIN journal_lines l ON l.entry_id = e.id
+		 WHERE e.period_id=$1 AND e.status='POSTED' AND l.account_code=$2
+		 ORDER BY e.entry_date`, periodID, accountCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJournalEntries(rows)
 }
 
 // ─── Period ──────────────────────────────────────────────────────────────────
@@ -670,15 +825,16 @@ type scannable interface {
 
 func scanAccount(row scannable) (*domain.Account, error) {
 	a := &domain.Account{}
-	var detailBy, parentCode, name2, note string
+	var detailBy, parentCode, name2, freezeReason, note string
 	err := row.Scan(&a.Code, &a.Name, &name2, &a.Type, &parentCode, &a.IsActive, &a.IsForeign,
-		&detailBy, &a.IsParent, &a.ArrearsDays, &note)
+		&detailBy, &a.IsParent, &a.Status, &freezeReason, &a.ArrearsDays, &note)
 	if err != nil {
 		return nil, err
 	}
 	a.Name2 = name2
 	a.ParentCode = parentCode
 	a.DetailBy = domain.DetailBy(detailBy)
+	a.FreezeReason = freezeReason
 	a.Note = note
 	return a, nil
 }
@@ -773,6 +929,27 @@ func nullStr(s string) interface{} {
 }
 
 func nullF64(f float64) interface{} {
+	if f == 0 {
+		return nil
+	}
+	return f
+}
+
+func nullTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func nullTimePtr(t *time.Time) interface{} {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	return *t
+}
+
+func nullFloat(f float64) interface{} {
 	if f == 0 {
 		return nil
 	}
@@ -1279,6 +1456,321 @@ func (r *PGTaxRepo) UpdateAuditCase(ctx context.Context, a *domain.TaxAuditCase)
 	_, err := r.pool.Exec(ctx,
 		`UPDATE tax_audit_cases SET status=$1, findings=$2, penalty_amount=$3, closed_at=$4 WHERE id=$5`,
 		string(a.Status), nullStr(a.Findings), a.PenaltyAmount, nullStr(a.ClosedAt), a.ID)
+	return err
+}
+
+// ─── COA: ApprovalRequest ─────────────────────────────────────────────────────
+
+type PGApprovalRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGApprovalRepo(pool *pgxpool.Pool) *PGApprovalRepo {
+	return &PGApprovalRepo{pool: pool}
+}
+
+func (r *PGApprovalRepo) Create(ctx context.Context, req *domain.ApprovalRequest) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO approval_requests (id, tenant_id, entity_type, entity_id, request_type, old_value, new_value, reason, status, requested_by, reviewed_by, review_note, expires_at, created_at, reviewed_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		req.ID, nullStr(req.TenantID), req.EntityType, req.EntityID, req.RequestType,
+		nullStr(req.OldValue), req.NewValue, req.Reason, string(req.Status),
+		req.RequestedBy, nullStr(req.ReviewedBy), nullStr(req.ReviewNote),
+		nullTime(req.ExpiresAt), req.CreatedAt, nullTimePtr(req.ReviewedAt))
+	return err
+}
+
+func (r *PGApprovalRepo) GetByID(ctx context.Context, id string) (*domain.ApprovalRequest, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, COALESCE(tenant_id,''), entity_type, entity_id, request_type, COALESCE(old_value,''), new_value, reason, status, requested_by, COALESCE(reviewed_by,''), COALESCE(review_note,''), expires_at, created_at, reviewed_at
+		 FROM approval_requests WHERE id=$1`, id)
+	var req domain.ApprovalRequest
+	var reviewedAt *time.Time
+	err := row.Scan(&req.ID, &req.TenantID, &req.EntityType, &req.EntityID, &req.RequestType,
+		&req.OldValue, &req.NewValue, &req.Reason, &req.Status, &req.RequestedBy,
+		&req.ReviewedBy, &req.ReviewNote, &req.ExpiresAt, &req.CreatedAt, &reviewedAt)
+	if err != nil {
+		return nil, err
+	}
+	req.ReviewedAt = reviewedAt
+	return &req, nil
+}
+
+func (r *PGApprovalRepo) GetByStatus(ctx context.Context, status domain.ApprovalStatus) ([]domain.ApprovalRequest, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, COALESCE(tenant_id,''), entity_type, entity_id, request_type, COALESCE(old_value,''), new_value, reason, status, requested_by, COALESCE(reviewed_by,''), COALESCE(review_note,''), expires_at, created_at, reviewed_at
+		 FROM approval_requests WHERE status=$1 ORDER BY created_at`, string(status))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanApprovalRequests(rows)
+}
+
+func (r *PGApprovalRepo) GetByEntity(ctx context.Context, entityType, entityID string) ([]domain.ApprovalRequest, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, COALESCE(tenant_id,''), entity_type, entity_id, request_type, COALESCE(old_value,''), new_value, reason, status, requested_by, COALESCE(reviewed_by,''), COALESCE(review_note,''), expires_at, created_at, reviewed_at
+		 FROM approval_requests WHERE entity_type=$1 AND entity_id=$2 ORDER BY created_at`, entityType, entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanApprovalRequests(rows)
+}
+
+func (r *PGApprovalRepo) UpdateStatus(ctx context.Context, id string, status domain.ApprovalStatus, reviewedBy, reviewNote string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE approval_requests SET status=$1, reviewed_by=$2, review_note=$3, reviewed_at=NOW() WHERE id=$4`,
+		string(status), nullStr(reviewedBy), nullStr(reviewNote), id)
+	return err
+}
+
+func (r *PGApprovalRepo) GetAll(ctx context.Context) ([]domain.ApprovalRequest, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, COALESCE(tenant_id,''), entity_type, entity_id, request_type, COALESCE(old_value,''), new_value, reason, status, requested_by, COALESCE(reviewed_by,''), COALESCE(review_note,''), expires_at, created_at, reviewed_at
+		 FROM approval_requests ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanApprovalRequests(rows)
+}
+
+func scanApprovalRequests(rows pgx.Rows) ([]domain.ApprovalRequest, error) {
+	var out []domain.ApprovalRequest
+	for rows.Next() {
+		var req domain.ApprovalRequest
+		var reviewedAt *time.Time
+		if err := rows.Scan(&req.ID, &req.TenantID, &req.EntityType, &req.EntityID, &req.RequestType,
+			&req.OldValue, &req.NewValue, &req.Reason, &req.Status, &req.RequestedBy,
+			&req.ReviewedBy, &req.ReviewNote, &req.ExpiresAt, &req.CreatedAt, &reviewedAt); err != nil {
+			return nil, err
+		}
+		req.ReviewedAt = reviewedAt
+		out = append(out, req)
+	}
+	return out, nil
+}
+
+// ─── COA: AccountVersion ─────────────────────────────────────────────────────
+
+type PGAccountVersionRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGAccountVersionRepo(pool *pgxpool.Pool) *PGAccountVersionRepo {
+	return &PGAccountVersionRepo{pool: pool}
+}
+
+func (r *PGAccountVersionRepo) Create(ctx context.Context, v *domain.AccountVersion) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO account_versions (id, version_number, snapshot, change_summary, change_reason, created_by, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		v.ID, v.VersionNumber, v.Snapshot, nullStr(v.ChangeSummary), nullStr(v.ChangeReason), nullStr(v.CreatedBy), v.CreatedAt)
+	return err
+}
+
+func (r *PGAccountVersionRepo) GetByVersionNumber(ctx context.Context, versionNumber string) (*domain.AccountVersion, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, version_number, snapshot, COALESCE(change_summary,''), COALESCE(change_reason,''), COALESCE(created_by,''), created_at
+		 FROM account_versions WHERE version_number=$1`, versionNumber)
+	var v domain.AccountVersion
+	err := row.Scan(&v.ID, &v.VersionNumber, &v.Snapshot, &v.ChangeSummary, &v.ChangeReason, &v.CreatedBy, &v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func (r *PGAccountVersionRepo) GetLatest(ctx context.Context) (*domain.AccountVersion, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, version_number, snapshot, COALESCE(change_summary,''), COALESCE(change_reason,''), COALESCE(created_by,''), created_at
+		 FROM account_versions ORDER BY version_number DESC LIMIT 1`)
+	var v domain.AccountVersion
+	err := row.Scan(&v.ID, &v.VersionNumber, &v.Snapshot, &v.ChangeSummary, &v.ChangeReason, &v.CreatedBy, &v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func (r *PGAccountVersionRepo) GetAll(ctx context.Context) ([]domain.AccountVersion, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, version_number, snapshot, COALESCE(change_summary,''), COALESCE(change_reason,''), COALESCE(created_by,''), created_at
+		 FROM account_versions ORDER BY version_number`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.AccountVersion
+	for rows.Next() {
+		var v domain.AccountVersion
+		if err := rows.Scan(&v.ID, &v.VersionNumber, &v.Snapshot, &v.ChangeSummary, &v.ChangeReason, &v.CreatedBy, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// ─── COA: AccountMapping ─────────────────────────────────────────────────────
+
+type PGAccountMappingRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGAccountMappingRepo(pool *pgxpool.Pool) *PGAccountMappingRepo {
+	return &PGAccountMappingRepo{pool: pool}
+}
+
+func (r *PGAccountMappingRepo) Create(ctx context.Context, m *domain.AccountMapping) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO account_mappings (id, source_regime, target_regime, old_code, new_code, mapping_type, split_ratio, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`,
+		m.ID, m.SourceRegime, m.TargetRegime, m.OldCode, m.NewCode, m.MappingType, nullFloat(m.SplitRatio))
+	return err
+}
+
+func (r *PGAccountMappingRepo) GetByOldCode(ctx context.Context, sourceRegime, oldCode string) (*domain.AccountMapping, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, source_regime, target_regime, old_code, new_code, mapping_type, COALESCE(split_ratio,0), created_at
+		 FROM account_mappings WHERE source_regime=$1 AND old_code=$2`, sourceRegime, oldCode)
+	var m domain.AccountMapping
+	err := row.Scan(&m.ID, &m.SourceRegime, &m.TargetRegime, &m.OldCode, &m.NewCode, &m.MappingType, &m.SplitRatio, &m.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *PGAccountMappingRepo) GetByRegime(ctx context.Context, sourceRegime, targetRegime string) ([]domain.AccountMapping, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, source_regime, target_regime, old_code, new_code, mapping_type, COALESCE(split_ratio,0), created_at
+		 FROM account_mappings WHERE source_regime=$1 AND target_regime=$2 ORDER BY old_code`, sourceRegime, targetRegime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAccountMappings(rows)
+}
+
+func (r *PGAccountMappingRepo) GetAll(ctx context.Context) ([]domain.AccountMapping, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, source_regime, target_regime, old_code, new_code, mapping_type, COALESCE(split_ratio,0), created_at
+		 FROM account_mappings ORDER BY source_regime, old_code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAccountMappings(rows)
+}
+
+func scanAccountMappings(rows pgx.Rows) ([]domain.AccountMapping, error) {
+	var out []domain.AccountMapping
+	for rows.Next() {
+		var m domain.AccountMapping
+		if err := rows.Scan(&m.ID, &m.SourceRegime, &m.TargetRegime, &m.OldCode, &m.NewCode, &m.MappingType, &m.SplitRatio, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// ─── COA: AccountAnalysis ────────────────────────────────────────────────────
+
+type PGAccountAnalysisRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGAccountAnalysisRepo(pool *pgxpool.Pool) *PGAccountAnalysisRepo {
+	return &PGAccountAnalysisRepo{pool: pool}
+}
+
+func (r *PGAccountAnalysisRepo) Create(ctx context.Context, a *domain.AccountAnalysis) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO account_analysis (account_code, cost_center_id, profit_center_id, department_id, project_id, custom_dim1, custom_dim2)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		a.AccountCode, nullStr(a.CostCenterID), nullStr(a.ProfitCenterID), nullStr(a.DepartmentID),
+		nullStr(a.ProjectID), nullStr(a.CustomDim1), nullStr(a.CustomDim2))
+	return err
+}
+
+func (r *PGAccountAnalysisRepo) GetByAccount(ctx context.Context, accountCode string) (*domain.AccountAnalysis, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT account_code, COALESCE(cost_center_id,''), COALESCE(profit_center_id,''), COALESCE(department_id,''), COALESCE(project_id,''), COALESCE(custom_dim1,''), COALESCE(custom_dim2,'')
+		 FROM account_analysis WHERE account_code=$1`, accountCode)
+	var a domain.AccountAnalysis
+	err := row.Scan(&a.AccountCode, &a.CostCenterID, &a.ProfitCenterID, &a.DepartmentID, &a.ProjectID, &a.CustomDim1, &a.CustomDim2)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *PGAccountAnalysisRepo) Update(ctx context.Context, a *domain.AccountAnalysis) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE account_analysis SET cost_center_id=$1, profit_center_id=$2, department_id=$3, project_id=$4, custom_dim1=$5, custom_dim2=$6
+		 WHERE account_code=$7`,
+		nullStr(a.CostCenterID), nullStr(a.ProfitCenterID), nullStr(a.DepartmentID), nullStr(a.ProjectID),
+		nullStr(a.CustomDim1), nullStr(a.CustomDim2), a.AccountCode)
+	return err
+}
+
+// ─── COA: IFRSMapping ────────────────────────────────────────────────────────
+
+type PGIFRSMappingRepo struct {
+	pool *pgxpool.Pool
+}
+
+func NewPGIFRSMappingRepo(pool *pgxpool.Pool) *PGIFRSMappingRepo {
+	return &PGIFRSMappingRepo{pool: pool}
+}
+
+func (r *PGIFRSMappingRepo) Create(ctx context.Context, m *domain.IFRSMapping) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO ifrs_mappings (id, vas_code, ifrs_code, ifrs_name, reclassification_rule, adjustment_type, is_active)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		m.ID, m.VASCode, m.IFRSCode, nullStr(m.IFRSName), nullStr(m.ReclassificationRule),
+		nullStr(m.AdjustmentType), m.IsActive)
+	return err
+}
+
+func (r *PGIFRSMappingRepo) GetByVASCode(ctx context.Context, vasCode string) (*domain.IFRSMapping, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, vas_code, ifrs_code, COALESCE(ifrs_name,''), COALESCE(reclassification_rule,''), COALESCE(adjustment_type,''), is_active
+		 FROM ifrs_mappings WHERE vas_code=$1`, vasCode)
+	var m domain.IFRSMapping
+	err := row.Scan(&m.ID, &m.VASCode, &m.IFRSCode, &m.IFRSName, &m.ReclassificationRule, &m.AdjustmentType, &m.IsActive)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *PGIFRSMappingRepo) GetAll(ctx context.Context) ([]domain.IFRSMapping, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, vas_code, ifrs_code, COALESCE(ifrs_name,''), COALESCE(reclassification_rule,''), COALESCE(adjustment_type,''), is_active
+		 FROM ifrs_mappings ORDER BY vas_code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.IFRSMapping
+	for rows.Next() {
+		var m domain.IFRSMapping
+		if err := rows.Scan(&m.ID, &m.VASCode, &m.IFRSCode, &m.IFRSName, &m.ReclassificationRule, &m.AdjustmentType, &m.IsActive); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func (r *PGIFRSMappingRepo) Update(ctx context.Context, m *domain.IFRSMapping) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE ifrs_mappings SET vas_code=$1, ifrs_code=$2, ifrs_name=$3, reclassification_rule=$4, adjustment_type=$5, is_active=$6 WHERE id=$7`,
+		m.VASCode, m.IFRSCode, nullStr(m.IFRSName), nullStr(m.ReclassificationRule), nullStr(m.AdjustmentType), m.IsActive, m.ID)
 	return err
 }
 

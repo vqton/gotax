@@ -25,6 +25,26 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id           VARCHAR(40) PRIMARY KEY,
+    user_id      UUID NOT NULL REFERENCES users(id),
+    token_hash   VARCHAR(64) NOT NULL,
+    device_info  VARCHAR(255),
+    ip_address   VARCHAR(45),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at   TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id         VARCHAR(40) PRIMARY KEY,
+    user_id    UUID NOT NULL REFERENCES users(id),
+    token_hash VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    used_at    TIMESTAMPTZ
+);
+
 -- ============================================================
 -- ACCOUNTING PERIOD
 -- ============================================================
@@ -57,6 +77,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     detail_by    VARCHAR(20)
                  CHECK (detail_by IN ('OBJECT', 'PROJECT', 'CONTRACT', 'COST_ITEM', 'DEPARTMENT')),
     is_parent    BOOLEAN NOT NULL DEFAULT FALSE,
+    status       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+                 CHECK (status IN ('ACTIVE','FROZEN','INACTIVE')),
+    freeze_reason TEXT,
+    arrears_days INTEGER NOT NULL DEFAULT 0,
     note         TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -65,6 +89,82 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_code);
 CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(type);
 CREATE INDEX IF NOT EXISTS idx_accounts_active ON accounts(is_active);
+
+-- ============================================================
+-- COA: Approval Requests
+-- ============================================================
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id            VARCHAR(30) PRIMARY KEY,
+    tenant_id     VARCHAR(20),
+    entity_type   VARCHAR(30) NOT NULL,
+    entity_id     VARCHAR(30) NOT NULL,
+    request_type  VARCHAR(30) NOT NULL,
+    old_value     TEXT,
+    new_value     TEXT NOT NULL,
+    reason        TEXT NOT NULL,
+    status        VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                  CHECK (status IN ('PENDING','APPROVED','REJECTED','CANCELLED','EXPIRED')),
+    requested_by  VARCHAR(30) NOT NULL,
+    reviewed_by   VARCHAR(30),
+    review_note   TEXT,
+    expires_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at   TIMESTAMPTZ
+);
+
+-- ============================================================
+-- COA: Account Versions (snapshots)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS account_versions (
+    id              VARCHAR(40) PRIMARY KEY,
+    version_number  VARCHAR(10) NOT NULL UNIQUE,
+    snapshot        JSONB NOT NULL,
+    change_summary  TEXT,
+    change_reason   TEXT,
+    created_by      VARCHAR(30),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- COA: Account Mappings (regime migration)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS account_mappings (
+    id              VARCHAR(40) PRIMARY KEY,
+    source_regime   VARCHAR(10) NOT NULL,
+    target_regime   VARCHAR(10) NOT NULL,
+    old_code        VARCHAR(20) NOT NULL,
+    new_code        VARCHAR(20) NOT NULL,
+    mapping_type    VARCHAR(10) NOT NULL DEFAULT 'DIRECT'
+                    CHECK (mapping_type IN ('DIRECT','MERGE','SPLIT','CUSTOM')),
+    split_ratio     NUMERIC(6,4),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- COA: Account Analysis Dimensions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS account_analysis (
+    account_code    VARCHAR(20) PRIMARY KEY REFERENCES accounts(code),
+    cost_center_id  VARCHAR(20),
+    profit_center_id VARCHAR(20),
+    department_id   VARCHAR(20),
+    project_id      VARCHAR(20),
+    custom_dim1     VARCHAR(50),
+    custom_dim2     VARCHAR(50)
+);
+
+-- ============================================================
+-- COA: IFRS Mappings (VAS-to-IFRS bridge)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ifrs_mappings (
+    id                   VARCHAR(40) PRIMARY KEY,
+    vas_code             VARCHAR(20) NOT NULL,
+    ifrs_code            VARCHAR(20) NOT NULL,
+    ifrs_name            VARCHAR(255),
+    reclassification_rule TEXT,
+    adjustment_type      VARCHAR(30),
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE
+);
 
 -- ============================================================
 -- EXCHANGE RATES (for multi-currency)

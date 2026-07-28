@@ -29,6 +29,8 @@ type JournalRepository interface {
 	GetBalance(ctx context.Context, accountCode string, periodID string) (*AccountBalance, error)
 	GetTrialBalance(ctx context.Context, periodID string) ([]AccountBalance, error)
 	GetFinancialStatement(ctx context.Context, periodID string, accountTypes []AccountType) ([]AccountBalance, error)
+	GetAccountUsage(ctx context.Context, accountCode string) (*AccountUsage, error)
+	GetPostedEntriesByAccount(ctx context.Context, periodID, accountCode string) ([]JournalEntry, error)
 }
 
 type PeriodRepository interface {

@@ -44,19 +44,21 @@ HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Se
 
 Every entity has both PG and memory repo. Adding a new entity means implementing the interface twice.
 
-## Domain
+## Domain — Model Files (SOLID: Single Responsibility)
 
-| Entity | Package | Belongs to |
-|--------|---------|-----------|
-| `Account` (code, name, type) | `domain` | — |
-| `JournalEntry` (lines[], status lifecycle) | `domain` | Period |
-| `Period` (year, month, open/closed) | `domain` | — |
-| `Company` (tax_code, legal_name_vn, accounting_regime) | `domain` | Tenant |
-| `FiscalYear` (year, start_month) | `domain` | Company |
-| `PeriodV2` (period_number, status) | `domain` | FiscalYear |
-| `CompanyBranch`, `Department`, `Employee`, `CompanyBankAccount`, `EInvoicePattern`, `DigitalSignature`, `IntegrationProfile` | `domain` | Company |
+`internal/domain/models*.go` — all `package domain`. Split by bounded context:
 
-Company domain uses `PeriodV2` (company-managed periods). GL core uses `Period` (global periods). Both coexist.
+| File | Lines | Contents |
+|------|-------|----------|
+| `models.go` | 344 | GL core (Account, JournalEntry, Period, AccountBalance) + Auth (User, RefreshToken, Session, TokenPair, AuthResult) + AuditEntry + ExchangeRate + ClosingTemplate + Password policy |
+| `models_coa.go` | 111 | ApprovalRequest, AccountVersion, AccountMapping, AccountAnalysis, IFRSMapping, AccountUsage, VersionDiff/AccountDiff/Change |
+| `models_company.go` | 245 | Company, Branch, FiscalYear, PeriodV2, Department, Employee, BankAccount, EInvoicePattern, DigitalSignature, IntegrationProfile, CompanyContext |
+| `models_bank.go` | 327 | Statement, Recon, PaymentOrder, Batch, Loan, TermDeposit, Filters, Reports |
+| `models_tax.go` | 482 | Declaration types, TaxRate, EInvoice lifecycle, TaxCalendar, AuditCase, Calc results, Filters |
+| `models_cash.go` | 331 | CashReceipt/Payment/Transfer, PettyCash, Inventory, AdvanceRequest/Settlement |
+| `models_ob.go` | 117 | OpeningBalance, OpeningBalanceDetail, CarryForwardLog, Circular99Mapping, BalanceMigration |
+
+No sub-packages. Adding a model = add to correct existing file or create new `models_*.go`.
 
 ## Auth
 
@@ -133,7 +135,7 @@ Test strategy at `docs/standards/TEST_STRATEGY.md`: test pyramid, Go idioms, cov
 - **`CompanyService` uses separate `CompanyRepository`** (not the GL service interface). Wired independently in main.go.
 - **Memory repos auto-generate IDs** — they copy the struct and generate an ID for the copy, then write it back to the original pointer (`c.ID = cp.ID`). Always use the same pointer after Create.
 - **`pg_company.go`** is a separate file from `pg.go` — both in `internal/repository/`. All PG repos are in those two files.
-- **No sub-packages** — everything in 6 `internal/` packages. Don't create more.
+- **Domain models split by bounded context** — 7 `models_*.go` files in `internal/domain/`. All same package, zero import changes when adding a model. Add to correct file or create new `models_*.go`.
 
 ## Tax Module — NOT PROD READY
 

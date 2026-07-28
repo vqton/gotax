@@ -100,7 +100,14 @@ func main() {
 
 		obRepo := repository.NewPGOpeningBalanceRepo(pool)
 		cashRepo := repository.NewPGCashRepo(pool)
-		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, nil, nil, nil, nil, nil, nil, nil, obRepo, cashRepo)
+		approvalRepo := repository.NewPGApprovalRepo(pool)
+		versionRepo := repository.NewPGAccountVersionRepo(pool)
+		mappingRepo := repository.NewPGAccountMappingRepo(pool)
+		analysisRepo := repository.NewPGAccountAnalysisRepo(pool)
+		ifrsRepo := repository.NewPGIFRSMappingRepo(pool)
+		refreshRepo := repository.NewPGRefreshTokenRepo(pool)
+		resetRepo := repository.NewPGPasswordResetTokenRepo(pool)
+		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
 		h := handler.NewHandler(svc)
 
 		companyRepo := repository.NewPGCompanyRepo(pool)
