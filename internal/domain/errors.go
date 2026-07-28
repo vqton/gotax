@@ -175,6 +175,42 @@ var (
 	ErrSettlementAlreadyPaid = errors.New("settlement already paid")
 )
 
+// Bank module errors
+var (
+	ErrBankStatementNotFound     = errors.New("bank statement not found")
+	ErrStatementLineNotFound     = errors.New("bank statement line not found")
+	ErrStatementAlreadyReconciled = errors.New("bank statement already reconciled")
+	ErrStatementPeriodOverlap    = errors.New("statement period overlaps with existing")
+	ErrReconciliationNotFound    = errors.New("bank reconciliation not found")
+	ErrReconAlreadyCompleted     = errors.New("reconciliation already completed")
+	ErrReconNotCompleted         = errors.New("reconciliation not completed")
+	ErrReconDifferenceNotZero    = errors.New("reconciliation difference is not zero")
+	ErrPaymentOrderNotFound      = errors.New("payment order not found")
+	ErrPaymentOrderNotDraft      = errors.New("payment order is not in draft status")
+	ErrCannotSelfApprovePayment  = errors.New("cannot self-approve payment order")
+	ErrPaymentOrderAlreadyProcessed = errors.New("payment order already processed")
+	ErrLoanAgreementNotFound     = errors.New("loan agreement not found")
+	ErrLoanDisbursementOverLimit = errors.New("total disbursement exceeds principal amount")
+	ErrLoanRepaymentNotFound     = errors.New("loan repayment not found")
+	ErrTermDepositNotFound       = errors.New("term deposit not found")
+	ErrDepositAlreadyMatured     = errors.New("deposit already matured")
+	ErrPaymentBatchNotFound      = errors.New("payment batch not found")
+	ErrBatchAlreadySubmitted     = errors.New("batch already submitted")
+
+	ErrBeneficiaryNameRequired  = errors.New("beneficiary name is required")
+	ErrBeneficiaryAccRequired   = errors.New("beneficiary account number is required")
+	ErrBeneficiaryBankRequired  = errors.New("beneficiary bank is required")
+	ErrFromBankAccRequired      = errors.New("source bank account is required")
+	ErrPaymentDateRequired      = errors.New("payment date is required")
+	ErrContractNoRequired       = errors.New("contract number is required")
+	ErrLoanPrincipalRequired    = errors.New("loan principal amount is required")
+	ErrInterestRateRequired     = errors.New("interest rate is required")
+	ErrLoanDateRequired         = errors.New("loan start and maturity dates are required")
+	ErrDepositAmountRequired    = errors.New("deposit amount is required")
+	ErrDepositMinTerm           = errors.New("minimum term is 7 days")
+	ErrDepositDateRequired      = errors.New("deposit start and maturity dates are required")
+)
+
 // Tax module errors
 var (
 	ErrDeclarationNotFound       = errors.New("tax declaration not found")

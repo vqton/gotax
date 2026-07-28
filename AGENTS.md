@@ -117,7 +117,9 @@ Test strategy at `docs/standards/TEST_STRATEGY.md`: test pyramid, Go idioms, cov
 - `company_handler_test.go` — same pattern, uses real `service.CompanyService` + `MemoryCompanyRepo`.
 - `service_test.go` — real in-memory repos, tests full journal lifecycle (draft→submit→approve→post→cancel), login/2FA/refresh/lockout, exchange rates, reports (trial balance, account balance, drill-down), COA ops.
 - `domain/models_test.go` — 22 struct validation tests for all domain models.
-- Test count: 112 across domain (22) + handler (56) + service (34) — all green.
+- Test count: 160 across domain (22) + handler (72) + service (66) — all green.
+- Bank module: Statements, Recon, Payment Orders, Batches, Loans, Term Deposits, Reports. 11 tables in `004_bank_module.sql`. PG + memory repos. `BankService` 35+ methods. `BankHandler` 16 endpoints. 16 handler tests.
+
 - Adding a new service method: add a field to `mockService` in `handler_test.go`? **No** — current tests use real service. Just add the method to service, repos, and write endpoint test in handler_test.go.
 
 ## Gotchas

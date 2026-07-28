@@ -263,6 +263,67 @@ type OpeningBalanceRepository interface {
 	ListMigrations(ctx context.Context, companyID string) ([]BalanceMigration, error)
 }
 
+// ─── Bank Repository ───────────────────────────────────────────────────
+
+type BankRepository interface {
+	// Statements
+	CreateStatement(ctx context.Context, s *BankStatement) error
+	GetStatement(ctx context.Context, id string) (*BankStatement, error)
+	ListStatements(ctx context.Context, companyID, bankAccountID string, limit, offset int) ([]BankStatement, int, error)
+	DeleteStatement(ctx context.Context, id string) error
+
+	CreateStatementLines(ctx context.Context, lines []BankStatementLine) error
+	GetStatementLines(ctx context.Context, statementID string) ([]BankStatementLine, error)
+	GetStatementLinesByStatus(ctx context.Context, statementID string, status MatchStatus) ([]BankStatementLine, error)
+	UpdateStatementLineMatch(ctx context.Context, lineID string, matchStatus MatchStatus, matchedLineID, matchedBy string) error
+
+	// Reconciliation
+	CreateReconciliation(ctx context.Context, r *BankReconciliation) error
+	GetReconciliation(ctx context.Context, id string) (*BankReconciliation, error)
+	ListReconciliations(ctx context.Context, companyID, bankAccountID string) ([]BankReconciliation, error)
+	UpdateReconciliation(ctx context.Context, r *BankReconciliation) error
+
+	CreateReconciliationMatch(ctx context.Context, m *BankReconciliationMatch) error
+	GetReconciliationMatches(ctx context.Context, reconID string) ([]BankReconciliationMatch, error)
+	DeleteReconciliationMatch(ctx context.Context, id string) error
+
+	// Payment Orders
+	CreatePaymentOrder(ctx context.Context, po *PaymentOrder) error
+	GetPaymentOrder(ctx context.Context, id string) (*PaymentOrder, error)
+	ListPaymentOrders(ctx context.Context, filter PaymentOrderFilter) ([]PaymentOrder, int, error)
+	UpdatePaymentOrder(ctx context.Context, po *PaymentOrder) error
+
+	CreatePaymentOrderBatch(ctx context.Context, b *PaymentOrderBatch) error
+	GetPaymentOrderBatch(ctx context.Context, id string) (*PaymentOrderBatch, error)
+	ListPaymentOrderBatches(ctx context.Context, companyID string) ([]PaymentOrderBatch, error)
+	UpdatePaymentOrderBatch(ctx context.Context, b *PaymentOrderBatch) error
+	AddOrdersToBatch(ctx context.Context, batchID string, orderIDs []string) error
+	GetBatchOrderIDs(ctx context.Context, batchID string) ([]string, error)
+
+	// Loans
+	CreateLoan(ctx context.Context, l *LoanAgreement) error
+	GetLoan(ctx context.Context, id string) (*LoanAgreement, error)
+	ListLoans(ctx context.Context, filter LoanFilter) ([]LoanAgreement, error)
+	UpdateLoan(ctx context.Context, l *LoanAgreement) error
+
+	CreateDisbursement(ctx context.Context, d *LoanDisbursement) error
+	GetDisbursements(ctx context.Context, loanID string) ([]LoanDisbursement, error)
+
+	CreateRepayment(ctx context.Context, r *LoanRepayment) error
+	GetRepayments(ctx context.Context, loanID string) ([]LoanRepayment, error)
+	UpdateRepayment(ctx context.Context, r *LoanRepayment) error
+
+	// Term Deposits
+	CreateDeposit(ctx context.Context, d *TermDeposit) error
+	GetDeposit(ctx context.Context, id string) (*TermDeposit, error)
+	ListDeposits(ctx context.Context, companyID string) ([]TermDeposit, error)
+	UpdateDeposit(ctx context.Context, d *TermDeposit) error
+
+	// Reports
+	GetBankLedger(ctx context.Context, companyID, bankAccountID, fromDate, toDate string) (*BankLedger, error)
+	GetBalance(ctx context.Context, companyID, bankAccountID string) (float64, error)
+}
+
 // ─── Cash Repository ───────────────────────────────────────────────────
 
 type CashRepository interface {
