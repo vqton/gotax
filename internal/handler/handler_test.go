@@ -636,7 +636,7 @@ func TestGetCashReceipt(t *testing.T) {
 	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/"+receipt.ID, nil)
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/"+receipt.ID+"?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
@@ -645,7 +645,7 @@ func TestGetCashReceipt(t *testing.T) {
 func TestGetCashReceipt_NotFound(t *testing.T) {
 	r, _, _ := setupTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/nonexistent", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/nonexistent?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 404, w.Code)
 }
@@ -697,7 +697,7 @@ func TestUpdateCashReceipt(t *testing.T) {
 
 	body := `{"reason":"updated reason","amount":2000000}`
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("PUT", "/api/v1/cash/receipts/"+receipt.ID, strings.NewReader(body))
+	req, _ := http.NewRequest("PUT", "/api/v1/cash/receipts/"+receipt.ID+"?company_id=CMP001", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
@@ -718,7 +718,7 @@ func TestDeleteCashReceipt(t *testing.T) {
 	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/api/v1/cash/receipts/"+receipt.ID, nil)
+	req, _ := http.NewRequest("DELETE", "/api/v1/cash/receipts/"+receipt.ID+"?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -740,17 +740,17 @@ func TestSubmitApprovePostCashReceipt(t *testing.T) {
 	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/submit", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/submit?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 
 	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/approve", nil)
+	req2, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/approve?company_id=CMP001", nil)
 	r.ServeHTTP(w2, req2)
 	assert.Equal(t, 200, w2.Code)
 
 	w3 := httptest.NewRecorder()
-	req3, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/post", nil)
+	req3, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/post?company_id=CMP001", nil)
 	r.ServeHTTP(w3, req3)
 	assert.Equal(t, 200, w3.Code)
 
@@ -776,7 +776,7 @@ func TestRejectCashReceipt(t *testing.T) {
 	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user2"))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/reject", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/cash/receipts/"+receipt.ID+"/reject?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 
@@ -816,6 +816,21 @@ func TestSubmitApprovePostCashPayment(t *testing.T) {
 	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
 	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Expense", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true})
 
+	// seed cash balance with a receipt first
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "seed",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
 	payment := &domain.CashPayment{
 		CompanyID: "CMP001", CashAccountID: "1111",
 		DebitAccountID: "5111", CreditAccountID: "1111",
@@ -828,17 +843,17 @@ func TestSubmitApprovePostCashPayment(t *testing.T) {
 	require.NoError(t, svc.CreateCashPayment(ctx, payment))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/submit", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/submit?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 
 	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/approve", nil)
+	req2, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/approve?company_id=CMP001", nil)
 	r.ServeHTTP(w2, req2)
 	assert.Equal(t, 200, w2.Code)
 
 	w3 := httptest.NewRecorder()
-	req3, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/post", nil)
+	req3, _ := http.NewRequest("POST", "/api/v1/cash/payments/"+payment.ID+"/post?company_id=CMP001", nil)
 	r.ServeHTTP(w3, req3)
 	assert.Equal(t, 200, w3.Code)
 

@@ -1437,6 +1437,7 @@ func (r *CashReceipt) Validate() error {
 	if r.Currency=="" { r.Currency="VND" }
 	if r.Currency!="VND"&&r.ExchangeRate<=0 { return ErrExchangeRateRequired }
 	if r.VoucherDate=="" { return ErrJournalEntryInvalidDate }
+	if _, err := time.Parse("2006-01-02", r.VoucherDate); err != nil { return ErrJournalEntryInvalidDate }
 	if r.Reason=="" { return ErrJournalEntryNoDescription }
 	if r.CashAccountID==""||r.DebitAccountID==""||r.CreditAccountID=="" { return ErrCashAccountInvalid }
 	return nil
@@ -1475,6 +1476,7 @@ func (p *CashPayment) Validate() error {
 	if p.Currency=="" { p.Currency="VND" }
 	if p.Currency!="VND"&&p.ExchangeRate<=0 { return ErrExchangeRateRequired }
 	if p.VoucherDate=="" { return ErrJournalEntryInvalidDate }
+	if _, err := time.Parse("2006-01-02", p.VoucherDate); err != nil { return ErrJournalEntryInvalidDate }
 	if p.Reason=="" { return ErrJournalEntryNoDescription }
 	if p.CashAccountID==""||p.DebitAccountID==""||p.CreditAccountID=="" { return ErrCashAccountInvalid }
 	return nil
@@ -1496,6 +1498,15 @@ type CashTransfer struct {
 	DestVoucherID   string       `json:"dest_voucher_id,omitempty"`
 	CreatedAt       string       `json:"created_at"`
 	PostedAt        string       `json:"posted_at,omitempty"`
+}
+
+func (t *CashTransfer) Validate() error {
+	if t.Amount <= 0 { return ErrCashAmountRequired }
+	if t.FromAccountID == "" || t.ToAccountID == "" { return ErrCashAccountInvalid }
+	if t.Reason == "" { return ErrJournalEntryNoDescription }
+	if t.Currency == "" { t.Currency = "VND" }
+	if t.Currency != "VND" && t.ExchangeRate <= 0 { return ErrExchangeRateRequired }
+	return nil
 }
 
 type CashBookEntry struct {

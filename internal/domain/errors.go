@@ -154,7 +154,7 @@ var (
 	ErrCashAlreadyRejected    = errors.New("voucher already rejected")
 	ErrCashInvalidStatus      = errors.New("invalid voucher status transition")
 	ErrCashAmountRequired     = errors.New("cash amount must be positive")
-	ErrCashAccountInvalid     = errors.New("cash account must be 111x")
+	ErrCashAccountInvalid     = errors.New("cash account required")
 	ErrCashImbalance          = errors.New("debit and credit must balance")
 	ErrCashInsufficientBalance = errors.New("insufficient cash balance")
 	ErrFundAlreadyClosed      = errors.New("petty cash fund already closed")

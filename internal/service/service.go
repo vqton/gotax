@@ -1324,7 +1324,7 @@ func (s *service) UpdateCashReceipt(ctx context.Context, r *domain.CashReceipt) 
 		return err
 	}
 	if existing.Status != domain.CashDraft {
-		return fmt.Errorf("can only update draft receipts")
+		return domain.ErrCashInvalidStatus
 	}
 	r.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
 	return s.cash.UpdateReceipt(ctx, r)
@@ -1336,7 +1336,7 @@ func (s *service) DeleteCashReceipt(ctx context.Context, id string) error {
 		return err
 	}
 	if existing.Status != domain.CashDraft {
-		return fmt.Errorf("can only delete draft receipts")
+		return domain.ErrCashInvalidStatus
 	}
 	return s.cash.DeleteReceipt(ctx, id)
 }
@@ -1347,7 +1347,7 @@ func (s *service) SubmitCashReceipt(ctx context.Context, id, userID string) erro
 		return err
 	}
 	if r.Status != domain.CashDraft && r.Status != domain.CashRejected {
-		return fmt.Errorf("cannot submit receipt in status %s", r.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	r.Status = domain.CashSubmitted
 	r.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
@@ -1360,7 +1360,7 @@ func (s *service) ApproveCashReceipt(ctx context.Context, id, approverID string)
 		return err
 	}
 	if !r.Status.ValidTransition(domain.CashApproved) {
-		return fmt.Errorf("cannot approve receipt in status %s", r.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	if r.CreatedBy == approverID {
 		return domain.ErrSelfCashApproval
@@ -1379,7 +1379,7 @@ func (s *service) RejectCashReceipt(ctx context.Context, id, reviewerID string) 
 		return err
 	}
 	if !r.Status.ValidTransition(domain.CashRejected) {
-		return fmt.Errorf("cannot reject receipt in status %s", r.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	nowStr := s.now().Format("2006-01-02 15:04:05")
 	r.Status = domain.CashRejected
@@ -1393,7 +1393,7 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 		return err
 	}
 	if !r.Status.ValidTransition(domain.CashPosted) {
-		return fmt.Errorf("cannot post receipt in status %s", r.Status)
+		return domain.ErrCashInvalidStatus
 	}
 
 	entryDate, err := time.Parse("2006-01-02", r.VoucherDate)
@@ -1481,7 +1481,7 @@ func (s *service) UpdateCashPayment(ctx context.Context, p *domain.CashPayment) 
 		return err
 	}
 	if existing.Status != domain.CashDraft {
-		return fmt.Errorf("can only update draft payments")
+		return domain.ErrCashInvalidStatus
 	}
 	p.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
 	return s.cash.UpdatePayment(ctx, p)
@@ -1493,7 +1493,7 @@ func (s *service) DeleteCashPayment(ctx context.Context, id string) error {
 		return err
 	}
 	if existing.Status != domain.CashDraft {
-		return fmt.Errorf("can only delete draft payments")
+		return domain.ErrCashInvalidStatus
 	}
 	return s.cash.DeletePayment(ctx, id)
 }
@@ -1504,7 +1504,7 @@ func (s *service) SubmitCashPayment(ctx context.Context, id, userID string) erro
 		return err
 	}
 	if p.Status != domain.CashDraft && p.Status != domain.CashRejected {
-		return fmt.Errorf("cannot submit payment in status %s", p.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	p.Status = domain.CashSubmitted
 	p.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
@@ -1517,7 +1517,7 @@ func (s *service) ApproveCashPayment(ctx context.Context, id, approverID string)
 		return err
 	}
 	if !p.Status.ValidTransition(domain.CashApproved) {
-		return fmt.Errorf("cannot approve payment in status %s", p.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	if p.CreatedBy == approverID {
 		return domain.ErrSelfCashApproval
@@ -1536,7 +1536,7 @@ func (s *service) RejectCashPayment(ctx context.Context, id, reviewerID string) 
 		return err
 	}
 	if !p.Status.ValidTransition(domain.CashRejected) {
-		return fmt.Errorf("cannot reject payment in status %s", p.Status)
+		return domain.ErrCashInvalidStatus
 	}
 	nowStr := s.now().Format("2006-01-02 15:04:05")
 	p.Status = domain.CashRejected
@@ -1550,7 +1550,12 @@ func (s *service) PostCashPayment(ctx context.Context, id, userID string) error 
 		return err
 	}
 	if !p.Status.ValidTransition(domain.CashPosted) {
-		return fmt.Errorf("cannot post payment in status %s", p.Status)
+		return domain.ErrCashInvalidStatus
+	}
+
+	bal, _ := s.cash.GetBalance(ctx, p.CompanyID, p.CashAccountID)
+	if bal < p.AmountVND {
+		return domain.ErrCashInsufficientBalance
 	}
 
 	entryDate, err := time.Parse("2006-01-02", p.VoucherDate)
@@ -1592,22 +1597,10 @@ func (s *service) PostCashPayment(ctx context.Context, id, userID string) error 
 // ─── Cash Transfers ─────────────────────────────────────────────────
 
 func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer) error {
-	if t.Amount <= 0 {
-		return domain.ErrCashAmountRequired
-	}
-	if t.FromAccountID == "" || t.ToAccountID == "" {
-		return domain.ErrCashAccountInvalid
-	}
-	if t.Reason == "" {
-		return domain.ErrJournalEntryNoDescription
-	}
-	if t.Currency == "" {
-		t.Currency = "VND"
+	if err := t.Validate(); err != nil {
+		return err
 	}
 	rate := t.ExchangeRate
-	if t.Currency != "VND" && rate <= 0 {
-		return domain.ErrExchangeRateRequired
-	}
 	if t.Currency == "VND" {
 		rate = 1
 	}
