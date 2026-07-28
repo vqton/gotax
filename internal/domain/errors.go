@@ -166,6 +166,15 @@ var (
 	ErrSelfCashApproval       = errors.New("cannot self-approve cash voucher")
 )
 
+// Advance errors
+var (
+	ErrAdvanceNotFound       = errors.New("advance request not found")
+	ErrAdvanceAlreadyPaid    = errors.New("advance already paid")
+	ErrAdvanceAlreadySettled = errors.New("advance already settled")
+	ErrSettlementNotFound    = errors.New("advance settlement not found")
+	ErrSettlementAlreadyPaid = errors.New("settlement already paid")
+)
+
 // Tax module errors
 var (
 	ErrDeclarationNotFound       = errors.New("tax declaration not found")

@@ -1083,6 +1083,109 @@ func createTestAccount(t *testing.T, svc Service, ctx context.Context, code stri
 	}))
 }
 
+// ─── Advance Request / Settlement Tests ───────────────────────────────
+
+func TestCreateAdvance_Success(t *testing.T) {
+	svc, ctx := setupService(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Currency: "VND", ExchangeRate: 1,
+		Purpose: "Travel advance",
+	}
+	err := svc.CreateAdvance(ctx, a)
+	require.NoError(t, err)
+	assert.NotEmpty(t, a.ID)
+	assert.Equal(t, domain.AdvanceDraft, a.Status)
+}
+
+func TestCreateAdvance_ValidationError(t *testing.T) {
+	svc, ctx := setupService(t)
+	a := &domain.AdvanceRequest{CompanyID: "CMP001", Amount: 0, Purpose: ""}
+	err := svc.CreateAdvance(ctx, a)
+	assert.Error(t, err)
+}
+
+func TestAdvanceFullLifecycle(t *testing.T) {
+	svc, ctx := setupService(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Currency: "VND", ExchangeRate: 1,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	require.NoError(t, svc.ApproveAdvance(ctx, a.ID, "manager1"))
+	got, err := svc.GetAdvance(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AdvanceApproved, got.Status)
+
+	require.NoError(t, svc.PayAdvance(ctx, a.ID, "cashier1"))
+	got, err = svc.GetAdvance(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AdvancePaid, got.Status)
+	assert.Equal(t, "cashier1", got.PaidBy)
+
+	require.NoError(t, svc.SettleAdvance(ctx, a.ID, "settle-1"))
+	got, err = svc.GetAdvance(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AdvanceSettled, got.Status)
+}
+
+func TestAdvanceRejectThenUpdate(t *testing.T) {
+	svc, ctx := setupService(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		Purpose: "advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	require.NoError(t, svc.RejectAdvance(ctx, a.ID, "manager1"))
+	got, err := svc.GetAdvance(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AdvanceRejected, got.Status)
+
+	got.Amount = 2000000
+	require.NoError(t, svc.UpdateAdvance(ctx, got))
+	got2, err := svc.GetAdvance(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2000000.0, got2.Amount)
+}
+
+func TestAdvanceInvalidTransition(t *testing.T) {
+	svc, ctx := setupService(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		Purpose: "advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	// can't pay without approving
+	err := svc.PayAdvance(ctx, a.ID, "cashier1")
+	assert.Error(t, err)
+}
+
+func TestListAdvances(t *testing.T) {
+	svc, ctx := setupService(t)
+	for i := 0; i < 3; i++ {
+		a := &domain.AdvanceRequest{
+			CompanyID: "CMP001", RequestorID: "user1",
+			Amount: 1000000, AmountVND: 1000000,
+			Currency: "VND", ExchangeRate: 1,
+			Purpose: "advance test",
+		}
+		require.NoError(t, svc.CreateAdvance(ctx, a))
+	}
+	advances, err := svc.ListAdvances(ctx, "CMP001")
+	require.NoError(t, err)
+	assert.Len(t, advances, 3)
+}
+
 func TestGetAllPeriods(t *testing.T) {
 	svc, ctx := setupService(t)
 	require.NoError(t, svc.CreatePeriod(ctx, &domain.Period{

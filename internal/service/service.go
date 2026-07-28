@@ -160,6 +160,7 @@ type Service interface {
 
 	GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error)
 	GetCashBalance(ctx context.Context, companyID, accountID string) (float64, error)
+	GetCashFlowStatement(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*CashFlowStatement, error)
 
 	CreatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error
 	GetPettyCashFund(ctx context.Context, id string) (*domain.PettyCashFund, error)
@@ -168,6 +169,17 @@ type Service interface {
 	CreateCashInventory(ctx context.Context, inv *domain.CashInventory) error
 	GetCashInventory(ctx context.Context, id string) (*domain.CashInventory, error)
 	ListCashInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error)
+
+	CreateAdvance(ctx context.Context, a *domain.AdvanceRequest) error
+	GetAdvance(ctx context.Context, id string) (*domain.AdvanceRequest, error)
+	ListAdvances(ctx context.Context, companyID string) ([]domain.AdvanceRequest, error)
+	UpdateAdvance(ctx context.Context, a *domain.AdvanceRequest) error
+	ApproveAdvance(ctx context.Context, id, approverID string) error
+	RejectAdvance(ctx context.Context, id, reviewerID string) error
+	PayAdvance(ctx context.Context, id, paidBy string) error
+	SettleAdvance(ctx context.Context, id, settlementID string) error
+	CreateAdvanceSettlement(ctx context.Context, s *domain.AdvanceSettlement) error
+	ListAdvanceByStatus(ctx context.Context, companyID string, status domain.AdvanceStatus) ([]domain.AdvanceRequest, error)
 }
 
 type service struct {
@@ -1709,6 +1721,43 @@ func (s *service) GetCashBalance(ctx context.Context, companyID, accountID strin
 	return s.cash.GetBalance(ctx, companyID, accountID)
 }
 
+type CashFlowStatement struct {
+	CompanyID       string  `json:"company_id"`
+	FromDate        string  `json:"from_date"`
+	ToDate          string  `json:"to_date"`
+	OpeningBalance  float64 `json:"opening_balance"`
+	OperatingInflow float64 `json:"operating_inflow"`
+	OperatingOutflow float64 `json:"operating_outflow"`
+	OperatingNet    float64 `json:"operating_net"`
+	InvestingInflow float64 `json:"investing_inflow"`
+	InvestingOutflow float64 `json:"investing_outflow"`
+	InvestingNet    float64 `json:"investing_net"`
+	FinancingInflow float64 `json:"financing_inflow"`
+	FinancingOutflow float64 `json:"financing_outflow"`
+	FinancingNet    float64 `json:"financing_net"`
+	NetCashFlow     float64 `json:"net_cash_flow"`
+	ClosingBalance  float64 `json:"closing_balance"`
+}
+
+func (s *service) GetCashFlowStatement(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*CashFlowStatement, error) {
+	cb, err := s.cash.GetCashBook(ctx, companyID, currency, accountID, fromDate, toDate)
+	if err != nil {
+		return nil, err
+	}
+	stmt := &CashFlowStatement{
+		CompanyID:        companyID,
+		FromDate:         fromDate,
+		ToDate:           toDate,
+		OpeningBalance:   cb.OpeningBalance,
+		OperatingInflow:  cb.TotalReceipts,
+		OperatingOutflow: cb.TotalPayments,
+	}
+	stmt.OperatingNet = stmt.OperatingInflow - stmt.OperatingOutflow
+	stmt.NetCashFlow = stmt.OperatingNet
+	stmt.ClosingBalance = cb.ClosingBalance
+	return stmt, nil
+}
+
 // ─── Petty Cash ─────────────────────────────────────────────────────
 
 func (s *service) CreatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error {
@@ -1765,4 +1814,124 @@ func (s *service) GetCashInventory(ctx context.Context, id string) (*domain.Cash
 
 func (s *service) ListCashInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error) {
 	return s.cash.ListInventories(ctx, companyID)
+}
+
+// ─── Advance Request / Settlement ─────────────────────────────────────
+
+func (s *service) CreateAdvance(ctx context.Context, a *domain.AdvanceRequest) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	a.ID = "" // let repo generate
+	a.Status = domain.AdvanceDraft
+	a.CreatedAt = now
+	a.UpdatedAt = now
+	return s.cash.CreateAdvance(ctx, a)
+}
+
+func (s *service) GetAdvance(ctx context.Context, id string) (*domain.AdvanceRequest, error) {
+	return s.cash.GetAdvance(ctx, id)
+}
+
+func (s *service) ListAdvances(ctx context.Context, companyID string) ([]domain.AdvanceRequest, error) {
+	return s.cash.ListAdvances(ctx, companyID)
+}
+
+func (s *service) UpdateAdvance(ctx context.Context, a *domain.AdvanceRequest) error {
+	existing, err := s.cash.GetAdvance(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.AdvanceDraft && existing.Status != domain.AdvanceRejected {
+		return fmt.Errorf("can only update draft or rejected advances")
+	}
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	a.Status = existing.Status
+	a.CreatedAt = existing.CreatedAt
+	a.UpdatedAt = s.now().Format("2006-01-02 15:04:05")
+	return s.cash.UpdateAdvance(ctx, a)
+}
+
+func (s *service) ApproveAdvance(ctx context.Context, id, approverID string) error {
+	a, err := s.cash.GetAdvance(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.Status.ValidTransition(domain.AdvanceApproved) {
+		return fmt.Errorf("cannot approve from status %s", a.Status)
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	a.Status = domain.AdvanceApproved
+	a.ApprovedBy = approverID
+	a.ApprovedAt = now
+	a.UpdatedAt = now
+	return s.cash.UpdateAdvance(ctx, a)
+}
+
+func (s *service) RejectAdvance(ctx context.Context, id, reviewerID string) error {
+	a, err := s.cash.GetAdvance(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.Status.ValidTransition(domain.AdvanceRejected) {
+		return fmt.Errorf("cannot reject from status %s", a.Status)
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	a.Status = domain.AdvanceRejected
+	a.UpdatedAt = now
+	return s.cash.UpdateAdvance(ctx, a)
+}
+
+func (s *service) PayAdvance(ctx context.Context, id, paidBy string) error {
+	a, err := s.cash.GetAdvance(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.Status.ValidTransition(domain.AdvancePaid) {
+		return fmt.Errorf("cannot pay from status %s", a.Status)
+	}
+	if a.Amount <= 0 {
+		return domain.ErrCashAmountRequired
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	a.Status = domain.AdvancePaid
+	a.PaidBy = paidBy
+	a.PaidAt = now
+	a.UpdatedAt = now
+	return s.cash.UpdateAdvance(ctx, a)
+}
+
+func (s *service) SettleAdvance(ctx context.Context, id, settlementID string) error {
+	a, err := s.cash.GetAdvance(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.Status.ValidTransition(domain.AdvanceSettled) {
+		return fmt.Errorf("cannot settle from status %s", a.Status)
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	a.Status = domain.AdvanceSettled
+	a.UpdatedAt = now
+	return s.cash.UpdateAdvance(ctx, a)
+}
+
+func (s *service) CreateAdvanceSettlement(ctx context.Context, set *domain.AdvanceSettlement) error {
+	if set.AdvanceID == "" {
+		return fmt.Errorf("advance_id required")
+	}
+	if set.TotalSpent < 0 {
+		return fmt.Errorf("total_spent cannot be negative")
+	}
+	now := s.now().Format("2006-01-02 15:04:05")
+	set.ID = ""
+	set.Status = "DRAFT"
+	set.CreatedAt = now
+	return s.cash.CreateAdvanceSettlement(ctx, set)
+}
+
+func (s *service) ListAdvanceByStatus(ctx context.Context, companyID string, status domain.AdvanceStatus) ([]domain.AdvanceRequest, error) {
+	return s.cash.ListAdvancesByStatus(ctx, companyID, status)
 }

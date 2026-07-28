@@ -32,6 +32,7 @@ func RegisterCashRoutes(r *gin.Engine, h *CashHandler, authMW gin.HandlerFunc) {
 			receipts.POST("/:id/approve", h.ApproveCashReceipt)
 			receipts.POST("/:id/reject", h.RejectCashReceipt)
 			receipts.POST("/:id/post", h.PostCashReceipt)
+			receipts.GET("/:id/print", h.PrintCashReceipt)
 		}
 
 		payments := cash.Group("/payments")
@@ -45,6 +46,7 @@ func RegisterCashRoutes(r *gin.Engine, h *CashHandler, authMW gin.HandlerFunc) {
 			payments.POST("/:id/approve", h.ApproveCashPayment)
 			payments.POST("/:id/reject", h.RejectCashPayment)
 			payments.POST("/:id/post", h.PostCashPayment)
+			payments.GET("/:id/print", h.PrintCashPayment)
 		}
 
 		transfers := cash.Group("/transfers")
@@ -68,6 +70,18 @@ func RegisterCashRoutes(r *gin.Engine, h *CashHandler, authMW gin.HandlerFunc) {
 			inventory.POST("", h.CreateCashInventory)
 			inventory.GET("", h.ListCashInventories)
 			inventory.GET("/:id", h.GetCashInventory)
+		}
+
+		advances := cash.Group("/advances")
+		{
+			advances.POST("", h.CreateAdvance)
+			advances.GET("", h.ListAdvances)
+			advances.GET("/:id", h.GetAdvance)
+			advances.PUT("/:id", h.UpdateAdvance)
+			advances.POST("/:id/approve", h.ApproveAdvance)
+			advances.POST("/:id/reject", h.RejectAdvance)
+			advances.POST("/:id/pay", h.PayAdvance)
+			advances.POST("/:id/settle", h.SettleAdvance)
 		}
 	}
 
@@ -468,12 +482,12 @@ func (ch *CashHandler) CashFlowStatement(c *gin.Context) {
 		return
 	}
 
-	cb, err := ch.svc.GetCashBook(c.Request.Context(), companyID, currency, accountID, fromDate, toDate)
+	stmt, err := ch.svc.GetCashFlowStatement(c.Request.Context(), companyID, currency, accountID, fromDate, toDate)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, cb)
+	c.JSON(http.StatusOK, gin.H{"report_type": "b03_dn_cash_flow", "report": stmt})
 }
 
 func (ch *CashHandler) CashBookReport(c *gin.Context) {
@@ -494,4 +508,132 @@ func (ch *CashHandler) CashBookReport(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, cb)
+}
+
+// ─── Voucher Forms ──────────────────────────────────────────────────
+
+func (ch *CashHandler) PrintCashReceipt(c *gin.Context) {
+	id := c.Param("id")
+	receipt, err := ch.svc.GetCashReceipt(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"form_type": "M01-TT", "voucher": receipt})
+}
+
+func (ch *CashHandler) PrintCashPayment(c *gin.Context) {
+	id := c.Param("id")
+	payment, err := ch.svc.GetCashPayment(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"form_type": "M02-TT", "voucher": payment})
+}
+
+// ─── Advance Request / Settlement ─────────────────────────────────────
+
+func (ch *CashHandler) CreateAdvance(c *gin.Context) {
+	var req domain.AdvanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.RequestorID = GetUserID(c)
+	req.CreatedBy = GetUserID(c)
+	if err := ch.svc.CreateAdvance(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, req)
+}
+
+func (ch *CashHandler) GetAdvance(c *gin.Context) {
+	id := c.Param("id")
+	a, err := ch.svc.GetAdvance(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, a)
+}
+
+func (ch *CashHandler) ListAdvances(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
+	advances, err := ch.svc.ListAdvances(c.Request.Context(), companyID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, advances)
+}
+
+func (ch *CashHandler) UpdateAdvance(c *gin.Context) {
+	id := c.Param("id")
+	var req domain.AdvanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.ID = id
+	if err := ch.svc.UpdateAdvance(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, req)
+}
+
+func (ch *CashHandler) ApproveAdvance(c *gin.Context) {
+	id := c.Param("id")
+	userID := GetUserID(c)
+	if err := ch.svc.ApproveAdvance(c.Request.Context(), id, userID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "advance approved"})
+}
+
+func (ch *CashHandler) RejectAdvance(c *gin.Context) {
+	id := c.Param("id")
+	userID := GetUserID(c)
+	if err := ch.svc.RejectAdvance(c.Request.Context(), id, userID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "advance rejected"})
+}
+
+func (ch *CashHandler) PayAdvance(c *gin.Context) {
+	id := c.Param("id")
+	userID := GetUserID(c)
+	if err := ch.svc.PayAdvance(c.Request.Context(), id, userID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "advance paid"})
+}
+
+func (ch *CashHandler) SettleAdvance(c *gin.Context) {
+	id := c.Param("id")
+	// settlement info can come in request body
+	var req struct {
+		SettlementID string `json:"settlement_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err == nil && req.SettlementID != "" {
+		if err := ch.svc.SettleAdvance(c.Request.Context(), id, req.SettlementID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		if err := ch.svc.SettleAdvance(c.Request.Context(), id, ""); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "advance settled"})
 }

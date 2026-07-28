@@ -296,4 +296,11 @@ type CashRepository interface {
 	GetInventory(ctx context.Context, id string) (*CashInventory, error)
 	ListInventories(ctx context.Context, companyID string) ([]CashInventory, error)
 	UpdateInventory(ctx context.Context, inv *CashInventory) error
+
+	CreateAdvance(ctx context.Context, a *AdvanceRequest) error
+	GetAdvance(ctx context.Context, id string) (*AdvanceRequest, error)
+	ListAdvances(ctx context.Context, companyID string) ([]AdvanceRequest, error)
+	UpdateAdvance(ctx context.Context, a *AdvanceRequest) error
+	ListAdvancesByStatus(ctx context.Context, companyID string, status AdvanceStatus) ([]AdvanceRequest, error)
+	CreateAdvanceSettlement(ctx context.Context, s *AdvanceSettlement) error
 }

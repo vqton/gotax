@@ -1045,3 +1045,256 @@ func TestListCashInventories(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
+
+// ─── Missing Handler Tests ───────────────────────────────────────────
+
+func TestGetCashPayment(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "seed",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+	require.NoError(t, svc.SubmitCashReceipt(ctx, receipt.ID, "user1"))
+	require.NoError(t, svc.ApproveCashReceipt(ctx, receipt.ID, "user2"))
+	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
+
+	payment := &domain.CashPayment{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "5111", CreditAccountID: "1111",
+		Amount: 500000, AmountVND: 500000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		PaymentType: domain.PaymentExpense, PayeeType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashPayment(ctx, payment))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/payments/"+payment.ID+"?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetPettyCashFundByID(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	fund := &domain.PettyCashFund{
+		CompanyID: "CMP001", FundCode: "PC001", FundName: "Office Petty Cash",
+		CustodianID: "EMP001", InitialAmount: 5000000, CurrentBalance: 5000000,
+		Currency: "VND", Status: domain.PettyCashActive,
+	}
+	require.NoError(t, svc.CreatePettyCashFund(ctx, fund))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/petty-cash/"+fund.ID+"?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetCashInventoryByID(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	inv := &domain.CashInventory{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		InventoryDate: "2026-07-15", BookBalance: 1000000,
+		ActualBalance: 1000000, Currency: "VND",
+	}
+	require.NoError(t, svc.CreateCashInventory(ctx, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/inventory/"+inv.ID+"?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetCashBalance_MissingAccount(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/balance?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestPrintCashReceipt(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	receipt := &domain.CashReceipt{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "1111", CreditAccountID: "5111",
+		Amount: 1000000, AmountVND: 1000000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		ReceiptType: domain.ReceiptSales, CounterpartType: domain.CounterpartCustomer,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashReceipt(ctx, receipt))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/receipts/"+receipt.ID+"/print?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Advance Request Handler Tests ────────────────────────────────────
+
+func TestCreateAdvance(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"CMP001","requestor_id":"user1","amount":5000000,"amount_vnd":5000000,"purpose":"Travel advance"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/advances", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+}
+
+func TestCreateAdvance_ValidationError(t *testing.T) {
+	r, _, _ := setupTest(t)
+	body := `{"company_id":"","amount":0}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/cash/advances", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestGetAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/cash/advances/"+a.ID, nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetAdvance_NotFound(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/cash/advances/NONEXIST", nil))
+	assert.Equal(t, 404, w.Code)
+}
+
+func TestListAdvances(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	for i := 0; i < 2; i++ {
+		require.NoError(t, svc.CreateAdvance(ctx, &domain.AdvanceRequest{
+			CompanyID: "CMP001", RequestorID: "user1",
+			Amount: 1000000, AmountVND: 1000000,
+			Purpose: "test",
+		}))
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/cash/advances?company_id=CMP001", nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestListAdvances_MissingCompany(t *testing.T) {
+	r, _, _ := setupTest(t)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/cash/advances", nil))
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestUpdateAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	body := `{"company_id":"CMP001","requestor_id":"user1","amount":6000000,"amount_vnd":6000000,"purpose":"Updated advance"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/cash/advances/"+a.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestApproveAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/cash/advances/"+a.ID+"/approve", nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestRejectAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/cash/advances/"+a.ID+"/reject", nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestPayAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+	require.NoError(t, svc.ApproveAdvance(ctx, a.ID, "manager1"))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/cash/advances/"+a.ID+"/pay", nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestSettleAdvance(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	a := &domain.AdvanceRequest{
+		CompanyID: "CMP001", RequestorID: "user1",
+		Amount: 5000000, AmountVND: 5000000,
+		Purpose: "Travel advance",
+	}
+	require.NoError(t, svc.CreateAdvance(ctx, a))
+	require.NoError(t, svc.ApproveAdvance(ctx, a.ID, "manager1"))
+	require.NoError(t, svc.PayAdvance(ctx, a.ID, "cashier1"))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/cash/advances/"+a.ID+"/settle", nil))
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestPrintCashPayment(t *testing.T) {
+	r, svc, ctx := setupTest(t)
+	payment := &domain.CashPayment{
+		CompanyID: "CMP001", CashAccountID: "1111",
+		DebitAccountID: "5111", CreditAccountID: "1111",
+		Amount: 500000, AmountVND: 500000,
+		Currency: "VND", ExchangeRate: 1,
+		VoucherDate: "2026-07-15", Reason: "test",
+		PaymentType: domain.PaymentExpense, PayeeType: domain.CounterpartOther,
+		Status: domain.CashDraft, CreatedBy: "user1",
+	}
+	require.NoError(t, svc.CreateCashPayment(ctx, payment))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/cash/payments/"+payment.ID+"/print?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+}

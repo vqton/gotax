@@ -1518,7 +1518,8 @@ type CashBookEntry struct {
 	ReceiptAmount float64 `json:"receipt_amount"`
 	PaymentAmount float64 `json:"payment_amount"`
 	RunningBalance float64 `json:"running_balance"`
-	RefID         string  `json:"ref_id"`
+	RefID              string  `json:"ref_id"`
+	CounterpartAccount string  `json:"counterpart_account,omitempty"`
 }
 
 type CashBook struct {
@@ -1596,4 +1597,62 @@ type CashPaymentFilter struct {
 	ToDate      string      `json:"to_date,omitempty"`
 	Offset      int         `json:"offset"`
 	Limit       int         `json:"limit"`
+}
+
+// ─── Advance Request ────────────────────────────────────────────────
+
+type AdvanceStatus string
+const (AdvanceDraft AdvanceStatus="DRAFT"; AdvanceSubmitted AdvanceStatus="SUBMITTED"; AdvanceApproved AdvanceStatus="APPROVED"; AdvanceRejected AdvanceStatus="REJECTED"; AdvancePaid AdvanceStatus="PAID"; AdvanceSettled AdvanceStatus="SETTLED")
+
+func (s AdvanceStatus) ValidTransition(next AdvanceStatus) bool {
+	switch s{
+	case AdvanceDraft: return next==AdvanceSubmitted||next==AdvanceApproved||next==AdvanceRejected
+	case AdvanceSubmitted: return next==AdvanceApproved||next==AdvanceRejected
+	case AdvanceApproved: return next==AdvancePaid||next==AdvanceDraft
+	case AdvanceRejected: return next==AdvanceDraft
+	case AdvancePaid: return next==AdvanceSettled
+	case AdvanceSettled: return false
+	default: return false
+	}
+}
+
+type AdvanceRequest struct {
+	ID           string        `json:"id"`
+	CompanyID    string        `json:"company_id"`
+	RequestorID  string        `json:"requestor_id"`
+	RequestorName string       `json:"requestor_name,omitempty"`
+	Amount       float64       `json:"amount"`
+	AmountVND    float64       `json:"amount_vnd"`
+	Currency     string        `json:"currency"`
+	ExchangeRate float64       `json:"exchange_rate"`
+	Purpose      string        `json:"purpose"`
+	Status       AdvanceStatus `json:"status"`
+	ApprovedBy   string        `json:"approved_by,omitempty"`
+	ApprovedAt   string        `json:"approved_at,omitempty"`
+	PaidBy       string        `json:"paid_by,omitempty"`
+	PaidAt       string        `json:"paid_at,omitempty"`
+	GLJournalID  string        `json:"gl_journal_id,omitempty"`
+	CreatedBy    string        `json:"created_by"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+}
+
+func (a *AdvanceRequest) Validate() error {
+	if a.Amount <= 0 { return ErrCashAmountRequired }
+	if a.Purpose == "" { return ErrJournalEntryNoDescription }
+	if a.Currency == "" { a.Currency = "VND" }
+	if a.Currency != "VND" && a.ExchangeRate <= 0 { return ErrExchangeRateRequired }
+	return nil
+}
+
+type AdvanceSettlement struct {
+	ID              string  `json:"id"`
+	AdvanceID       string  `json:"advance_id"`
+	CompanyID       string  `json:"company_id"`
+	TotalSpent      float64 `json:"total_spent"`
+	RemainingAmount float64 `json:"remaining_amount"`
+	Currency        string  `json:"currency"`
+	Notes           string  `json:"notes,omitempty"`
+	Status          string  `json:"status"` // DRAFT, COMPLETED
+	CreatedAt       string  `json:"created_at"`
 }

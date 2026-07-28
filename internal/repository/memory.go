@@ -1518,8 +1518,11 @@ type MemoryCashRepo struct {
 	transfers   map[string]*domain.CashTransfer
 	funds       map[string]*domain.PettyCashFund
 	inventories map[string]*domain.CashInventory
+	advances    map[string]*domain.AdvanceRequest
+	settlements map[string]*domain.AdvanceSettlement
 	receiptCnt  int
 	paymentCnt  int
+	advCnt      int
 }
 
 func NewMemoryCashRepo() *MemoryCashRepo {
@@ -1529,6 +1532,8 @@ func NewMemoryCashRepo() *MemoryCashRepo {
 		transfers:   make(map[string]*domain.CashTransfer),
 		funds:       make(map[string]*domain.PettyCashFund),
 		inventories: make(map[string]*domain.CashInventory),
+		advances:    make(map[string]*domain.AdvanceRequest),
+		settlements: make(map[string]*domain.AdvanceSettlement),
 	}
 }
 
@@ -1540,6 +1545,15 @@ func (r *MemoryCashRepo) nextReceiptID() string {
 func (r *MemoryCashRepo) nextPaymentID() string {
 	r.paymentCnt++
 	return time.Now().Format("20060102150405") + "-CP" + formatInt(r.paymentCnt)
+}
+
+func (r *MemoryCashRepo) newID() string {
+	r.advCnt++
+	return fmt.Sprintf("%d", r.advCnt) + uuidSuffix()
+}
+
+func uuidSuffix() string {
+	return time.Now().Format("20060102150405")
 }
 
 // ── Receipts ─────────────────────────────────────────────────────
@@ -2010,5 +2024,82 @@ func (r *MemoryCashRepo) UpdateInventory(_ context.Context, inv *domain.CashInve
 		copy(cp.Denominations, inv.Denominations)
 	}
 	r.inventories[inv.ID] = &cp
+	return nil
+}
+
+// ─── Advance Request / Settlement (Memory) ─────────────────────────────
+
+func (r *MemoryCashRepo) CreateAdvance(_ context.Context, a *domain.AdvanceRequest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if a.ID == "" {
+		a.ID = fmt.Sprintf("ADV-%s", r.newID())
+	}
+	cp := *a
+	r.advances[a.ID] = &cp
+	a.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryCashRepo) GetAdvance(_ context.Context, id string) (*domain.AdvanceRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.advances[id]
+	if !ok {
+		return nil, domain.ErrAdvanceNotFound
+	}
+	cp := *a
+	return &cp, nil
+}
+
+func (r *MemoryCashRepo) ListAdvances(_ context.Context, companyID string) ([]domain.AdvanceRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.AdvanceRequest
+	for _, a := range r.advances {
+		if companyID != "" && a.CompanyID != companyID {
+			continue
+		}
+		out = append(out, *a)
+	}
+	return out, nil
+}
+
+func (r *MemoryCashRepo) UpdateAdvance(_ context.Context, a *domain.AdvanceRequest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.advances[a.ID]; !ok {
+		return domain.ErrAdvanceNotFound
+	}
+	cp := *a
+	r.advances[a.ID] = &cp
+	return nil
+}
+
+func (r *MemoryCashRepo) ListAdvancesByStatus(_ context.Context, companyID string, status domain.AdvanceStatus) ([]domain.AdvanceRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.AdvanceRequest
+	for _, a := range r.advances {
+		if companyID != "" && a.CompanyID != companyID {
+			continue
+		}
+		if a.Status != status {
+			continue
+		}
+		out = append(out, *a)
+	}
+	return out, nil
+}
+
+func (r *MemoryCashRepo) CreateAdvanceSettlement(_ context.Context, s *domain.AdvanceSettlement) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s.ID == "" {
+		s.ID = fmt.Sprintf("ADVS-%s", r.newID())
+	}
+	cp := *s
+	r.settlements[s.ID] = &cp
+	s.ID = cp.ID
 	return nil
 }
