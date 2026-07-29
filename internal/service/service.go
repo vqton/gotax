@@ -61,6 +61,8 @@ type Service interface {
 	Logout(ctx context.Context, userID, refreshTokenStr string) error
 	LogoutAll(ctx context.Context, userID string) error
 
+	AdminResetPassword(ctx context.Context, userID, newPassword string) error
+	UpdateUserRole(ctx context.Context, userID string, role domain.UserRole) error
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
@@ -1957,4 +1959,37 @@ func (s *service) CreateAdvanceSettlement(ctx context.Context, set *domain.Advan
 
 func (s *service) ListAdvanceByStatus(ctx context.Context, companyID string, status domain.AdvanceStatus) ([]domain.AdvanceRequest, error) {
 	return s.cash.ListAdvancesByStatus(ctx, companyID, status)
+}
+
+func (s *service) AdminResetPassword(ctx context.Context, userID, newPassword string) error {
+	if err := domain.ValidatePassword(newPassword); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	newHash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("hashing failed: %w", err)
+	}
+	user.PasswordHistory = append(user.PasswordHistory, user.PasswordHash)
+	if len(user.PasswordHistory) > domain.PasswordHistorySize {
+		user.PasswordHistory = user.PasswordHistory[len(user.PasswordHistory)-domain.PasswordHistorySize:]
+	}
+	user.PasswordHash = newHash
+	now := s.now()
+	user.PasswordChangedAt = &now
+	user.FailedAttempts = 0
+	user.LockedUntil = nil
+	return s.users.Update(ctx, user)
+}
+
+func (s *service) UpdateUserRole(ctx context.Context, userID string, role domain.UserRole) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	user.Role = role
+	return s.users.Update(ctx, user)
 }
