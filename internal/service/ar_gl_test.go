@@ -375,3 +375,87 @@ func TestPostCN_CreatesGLEntry(t *testing.T) {
 	assert.InDelta(t, totalDebit, totalCredit, 0.001)
 	assert.InDelta(t, 110, totalDebit, 0.001)
 }
+
+func TestARGLReconciliation_Matches(t *testing.T) {
+	svc, gl, ctx := setupGLEnabled(t)
+	seedGLAccounts(t, gl, ctx)
+	seedPeriod(t, gl, ctx)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "RECON01", Name: "ReconCo",
+		TaxCode: "999", Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	// create invoice that will post GL entry Dr 131
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-RECON",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "ReconCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "svc", Quantity: 1, UnitPrice: 500,
+			VATRate: 10, VATType: "VAT_10",
+			RevenueAccount: "5111", VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+	err = svc.PostInvoice(ctx, inv.ID)
+	require.NoError(t, err)
+
+	period, _ := gl.GetPeriodByYearMonth(ctx, time.Now().Year(), int(time.Now().Month()))
+
+	// run reconciliation
+	recon, err := svc.GetARGLReconciliation(ctx, "c1", period.ID)
+	require.NoError(t, err)
+	require.NotNil(t, recon)
+	assert.Equal(t, period.ID, recon.PeriodID)
+	assert.InDelta(t, 550.0, recon.SubledgerTotal, 0.001) // 500 + 50 VAT
+	assert.InDelta(t, 550.0, recon.GLBalance, 0.001)      // Dr 131 posted
+	assert.InDelta(t, 0, recon.Variance, 0.001)
+}
+
+func TestARGLReconciliation_Variance(t *testing.T) {
+	svc, gl, ctx := setupGLEnabled(t)
+	seedPeriod(t, gl, ctx)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "RECON02", Name: "VarianceCo",
+		TaxCode: "999", Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	// create invoice WITHOUT GL posting (nil GL in sale service)
+	// but we still have GL account 131 with zero balance
+	repo := repository.NewMemorySaleRepo()
+	noGLSvc := NewSaleService(repo, repo, repo, repo, repo, repo, repo, repo, nil)
+
+	err = noGLSvc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-VAR",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "VarianceCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "svc", Quantity: 1, UnitPrice: 300,
+			VATRate: 0, VATType: "NON_TAX",
+			RevenueAccount: "5111", VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = noGLSvc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+	err = noGLSvc.invRepo.PostInvoice(ctx, inv.ID, time.Now().UTC())
+	require.NoError(t, err)
+
+	period, _ := gl.GetPeriodByYearMonth(ctx, time.Now().Year(), int(time.Now().Month()))
+
+	recon, err := noGLSvc.GetARGLReconciliation(ctx, "c1", period.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 300, recon.SubledgerTotal, 0.001)
+	assert.InDelta(t, 0, recon.GLBalance, 0.001) // no GL posting → balance is 0
+	assert.InDelta(t, -300, recon.Variance, 0.001)
+}

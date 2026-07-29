@@ -782,6 +782,45 @@ func (s *SaleService) GetCustomerStatement(ctx context.Context, customerID, from
 	return stmt, nil
 }
 
+func (s *SaleService) GetARGLReconciliation(ctx context.Context, companyID, periodID string) (*domain.ARGLReconciliation, error) {
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	subledgerTotal := 0.0
+	byCust := make(map[string]*domain.ARGLReconDetail)
+	for _, inv := range invoices {
+		if inv.Status == domain.SInvCancelled {
+			continue
+		}
+		subledgerTotal += inv.BalanceDue
+		d, ok := byCust[inv.CustomerID]
+		if !ok {
+			d = &domain.ARGLReconDetail{CustomerID: inv.CustomerID, CustomerName: inv.CustomerName}
+			byCust[inv.CustomerID] = d
+		}
+		d.BalanceDue += inv.BalanceDue
+	}
+	glBalance := 0.0
+	if s.gl != nil {
+		bal, err := s.gl.GetAccountBalance(ctx, "131", periodID)
+		if err == nil && bal != nil {
+			glBalance = bal.ClosingBalance
+		}
+	}
+	details := make([]domain.ARGLReconDetail, 0, len(byCust))
+	for _, d := range byCust {
+		details = append(details, *d)
+	}
+	return &domain.ARGLReconciliation{
+		PeriodID:       periodID,
+		SubledgerTotal: subledgerTotal,
+		GLBalance:      glBalance,
+		Variance:       glBalance - subledgerTotal,
+		Details:        details,
+	}, nil
+}
+
 // ─── Sales Quotation (P1) ──────────────────────────────────────────────
 
 func (s *SaleService) CreateSQ(ctx context.Context, sq *domain.SalesQuotation) error {

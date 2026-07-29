@@ -347,6 +347,12 @@ func (s *service) CreatePostedEntry(ctx context.Context, entry *domain.JournalEn
 	if entry.AccountingDate.IsZero() {
 		entry.AccountingDate = entry.EntryDate
 	}
+	if entry.PeriodID == "" {
+		p, err := s.periods.GetByYearMonth(ctx, entry.EntryDate.Year(), int(entry.EntryDate.Month()))
+		if err == nil && p != nil {
+			entry.PeriodID = p.ID
+		}
+	}
 	return s.journals.Create(ctx, entry)
 }
 

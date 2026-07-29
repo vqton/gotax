@@ -575,3 +575,18 @@ type CustomerStatement struct {
 	ClosingBal   float64                 `json:"closing_balance"`
 	Lines        []CustomerStatementLine `json:"lines"`
 }
+
+type ARGLReconciliation struct {
+	PeriodID       string                  `json:"period_id"`
+	PeriodLabel    string                  `json:"period_label"`
+	SubledgerTotal float64                 `json:"subledger_total"`
+	GLBalance      float64                 `json:"gl_balance"`
+	Variance       float64                 `json:"variance"`
+	Details        []ARGLReconDetail       `json:"details,omitempty"`
+}
+
+type ARGLReconDetail struct {
+	CustomerID     string  `json:"customer_id"`
+	CustomerName   string  `json:"customer_name"`
+	BalanceDue     float64 `json:"balance_due"`
+}
