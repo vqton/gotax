@@ -432,4 +432,53 @@ var (
 	ErrARTransAmountRequired   = errors.New("amount must be non-zero")
 	ErrARTransTypeInvalid      = errors.New("invalid AR transaction type")
 	ErrARTransNotFound         = errors.New("AR transaction not found")
+
+	// Warehouse module errors
+	ErrWarehouseCodeRequired  = errors.New("warehouse code is required")
+	ErrWarehouseNameRequired  = errors.New("warehouse name is required")
+	ErrWarehouseNotFound      = errors.New("warehouse not found")
+	ErrWarehouseCodeExists    = errors.New("warehouse code already exists")
+
+	ErrCategoryCodeRequired   = errors.New("category code is required")
+	ErrCategoryNameRequired   = errors.New("category name is required")
+	ErrCategoryNotFound       = errors.New("item category not found")
+	ErrCategoryCodeExists     = errors.New("category code already exists")
+
+	ErrItemCodeRequired       = errors.New("item code is required")
+	ErrItemNameRequired       = errors.New("item name is required")
+	ErrItemUnitRequired       = errors.New("unit is required")
+	ErrItemNotFound           = errors.New("item not found")
+	ErrItemCodeExists         = errors.New("item code already exists")
+	ErrValuationMethodInvalid = errors.New("invalid valuation method")
+
+	ErrBalanceNotFound        = errors.New("stock balance not found")
+	ErrBalanceExists          = errors.New("stock balance already exists for period")
+
+	ErrTransNotFound          = errors.New("inventory transaction not found")
+
+	ErrTransferNumberRequired = errors.New("transfer number is required")
+	ErrTransferFromWHRequired = errors.New("from warehouse is required")
+	ErrTransferToWHRequired   = errors.New("to warehouse is required")
+	ErrTransferSameWH         = errors.New("from and to warehouse must be different")
+	ErrTransferItemsRequired  = errors.New("transfer must have at least one item")
+	ErrTransferNotFound       = errors.New("stock transfer not found")
+	ErrTransferInvalidStatus  = errors.New("invalid transfer status transition")
+
+	ErrAdjNumberRequired      = errors.New("adjustment number is required")
+	ErrAdjWarehouseRequired   = errors.New("warehouse is required for adjustment")
+	ErrAdjItemsRequired       = errors.New("adjustment must have at least one item")
+	ErrAdjTypeRequired        = errors.New("adjustment type is required")
+	ErrAdjTypeInvalid         = errors.New("invalid adjustment type")
+	ErrAdjNotFound            = errors.New("stock adjustment not found")
+	ErrAdjInvalidStatus       = errors.New("invalid adjustment status transition")
+
+	ErrTakeNumberRequired     = errors.New("take number is required")
+	ErrTakeWarehouseRequired  = errors.New("warehouse is required for stock take")
+	ErrTakeDateRequired       = errors.New("take date is required")
+	ErrTakeItemsRequired      = errors.New("stock take must have at least one item")
+	ErrTakeNotFound           = errors.New("stock take not found")
+	ErrTakeInvalidStatus      = errors.New("invalid stock take status transition")
+
+	ErrValRunDateRequired     = errors.New("valuation date is required")
+	ErrValRunNotFound         = errors.New("valuation run not found")
 )

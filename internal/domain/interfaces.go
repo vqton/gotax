@@ -523,3 +523,84 @@ type SalesQuotationRepository interface {
 	ListSQs(ctx context.Context, companyID string) ([]SalesQuotation, error)
 	UpdateSQ(ctx context.Context, sq *SalesQuotation) error
 }
+
+// ─── Warehouse Repository ──────────────────────────────────────────
+
+type WarehouseRepository interface {
+	CreateWarehouse(ctx context.Context, w *Warehouse) error
+	GetWarehouseByID(ctx context.Context, id string) (*Warehouse, error)
+	ListWarehouses(ctx context.Context, companyID string) ([]Warehouse, error)
+	UpdateWarehouse(ctx context.Context, w *Warehouse) error
+	DeleteWarehouse(ctx context.Context, id string) error
+	GetWarehouseByCode(ctx context.Context, companyID, code string) (*Warehouse, error)
+}
+
+type ItemCategoryRepository interface {
+	CreateCategory(ctx context.Context, c *ItemCategory) error
+	GetCategoryByID(ctx context.Context, id string) (*ItemCategory, error)
+	ListCategories(ctx context.Context, companyID string) ([]ItemCategory, error)
+	UpdateCategory(ctx context.Context, c *ItemCategory) error
+	DeleteCategory(ctx context.Context, id string) error
+	GetCategoryByCode(ctx context.Context, companyID, code string) (*ItemCategory, error)
+}
+
+type ItemRepository interface {
+	CreateItem(ctx context.Context, i *Item) error
+	GetItemByID(ctx context.Context, id string) (*Item, error)
+	ListItems(ctx context.Context, companyID string) ([]Item, error)
+	UpdateItem(ctx context.Context, i *Item) error
+	DeleteItem(ctx context.Context, id string) error
+	GetItemByCode(ctx context.Context, companyID, code string) (*Item, error)
+}
+
+type StockBalanceRepository interface {
+	CreateStockBalance(ctx context.Context, b *StockBalance) error
+	GetStockBalanceByID(ctx context.Context, id string) (*StockBalance, error)
+	FindStockBalance(ctx context.Context, companyID, warehouseID, itemID, period string) (*StockBalance, error)
+	ListStockBalances(ctx context.Context, companyID, warehouseID string) ([]StockBalance, error)
+	UpdateStockBalance(ctx context.Context, b *StockBalance) error
+	UpsertStockBalance(ctx context.Context, b *StockBalance) error
+}
+
+type InventoryTransactionRepository interface {
+	CreateInventoryTransaction(ctx context.Context, t *InventoryTransaction) error
+	GetInventoryTransactionByID(ctx context.Context, id string) (*InventoryTransaction, error)
+	ListInventoryTransactions(ctx context.Context, companyID, warehouseID, itemID string, offset, limit int) ([]InventoryTransaction, int, error)
+}
+
+type StockTransferRepository interface {
+	CreateStockTransfer(ctx context.Context, t *StockTransfer) error
+	GetStockTransferByID(ctx context.Context, id string) (*StockTransfer, error)
+	ListStockTransfers(ctx context.Context, companyID string) ([]StockTransfer, error)
+	UpdateStockTransfer(ctx context.Context, t *StockTransfer) error
+	UpdateStockTransferStatus(ctx context.Context, id string, status TransferStatus) error
+	GetTransferItems(ctx context.Context, transferID string) ([]TransferItem, error)
+	CreateTransferItem(ctx context.Context, item *TransferItem) error
+}
+
+type StockAdjustmentRepository interface {
+	CreateStockAdjustment(ctx context.Context, a *StockAdjustment) error
+	GetStockAdjustmentByID(ctx context.Context, id string) (*StockAdjustment, error)
+	ListStockAdjustments(ctx context.Context, companyID string) ([]StockAdjustment, error)
+	UpdateStockAdjustment(ctx context.Context, a *StockAdjustment) error
+	UpdateStockAdjustmentStatus(ctx context.Context, id string, status AdjStatus) error
+	GetAdjustmentItems(ctx context.Context, adjustmentID string) ([]AdjItem, error)
+	CreateAdjustmentItem(ctx context.Context, item *AdjItem) error
+}
+
+type StockTakeRepository interface {
+	CreateStockTake(ctx context.Context, t *StockTake) error
+	GetStockTakeByID(ctx context.Context, id string) (*StockTake, error)
+	ListStockTakes(ctx context.Context, companyID string) ([]StockTake, error)
+	UpdateStockTake(ctx context.Context, t *StockTake) error
+	UpdateStockTakeStatus(ctx context.Context, id string, status TakeStatus) error
+	GetTakeItems(ctx context.Context, takeID string) ([]TakeItem, error)
+	CreateTakeItem(ctx context.Context, item *TakeItem) error
+}
+
+type InventoryValuationRunRepository interface {
+	CreateValuationRun(ctx context.Context, v *InventoryValuationRun) error
+	GetValuationRunByID(ctx context.Context, id string) (*InventoryValuationRun, error)
+	ListValuationRuns(ctx context.Context, companyID string) ([]InventoryValuationRun, error)
+	UpdateValuationRun(ctx context.Context, v *InventoryValuationRun) error
+}

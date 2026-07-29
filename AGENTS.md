@@ -186,6 +186,21 @@ Key accounts: 151 (goods in transit), 152 (raw materials), 153 (tools), 156 (goo
 
 First build priority: domain models + PG schema → PG + memory repos → service → handler → routes.
 
+## Warehouse Module — NOT STARTED
+
+Warehouse workflow doc at `docs/warehouse/` — end-to-end enterprise workflow. v2.0 updated for Circular 99/2025/TT-BTC (TK 611 eliminated). Benchmarked: MISA AMIS Kho hàng (06/2026), FAST Fast Inventory (03/2026), Bravo 10 ERP, Odoo 19.0 Inventory, SAP MM-IM.
+
+**Verdict: Warehouse module ~0% complete.**
+
+What's specified (1 doc, 1037 lines):
+- `WARE_MODULE_WORKFLOW.md` — 20 sections covering 17 granular workflows. Every step uses 6-field structured table (State/Lifecycle, Actor, Input, Validations, Output/GL, Exception). 30 movement types with full GL posting matrix per TT 99/2025. COA reference (151-158, 2294, 632, 611, 711, 811). State machines (8 entities). Proposed data model (8 entities: Warehouse, Item, ItemCategory, StockBalance, InventoryTransaction, StockTransfer, StockAdjustment, StockTake, InventoryValuationRun). Integration maps. MISA multi-step receipt/issue included.
+
+Key COA accounts: 151 (goods in transit), 152 (raw materials), 153 (tools), 154 (WIP), 155 (finished goods), 156 (goods), 157 (consignment), 158 (bonded), 2294 (provision), 632 (COGS), 611 (cost variance), 711/811 (gain/loss).
+
+Cost methods: Weighted Avg, FIFO, Specific ID, Standard Cost.
+
+Build order: models_warehouse.go + 007_warehouse_schema.sql → PG repos + memory repos → WarehouseService → WarehouseHandler → routes → main.go wire.
+
 **Adding a Feature — Step Order**
 
 1. Interface method in `internal/domain/interfaces.go`
