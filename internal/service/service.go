@@ -716,9 +716,25 @@ func (s *service) RefreshToken(ctx context.Context, rawRefresh string) (*domain.
 	if err != nil {
 		return nil, err
 	}
+	rawNew, err := auth.GenerateRefreshTokenRaw(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken := &domain.RefreshToken{
+		UserID:    user.ID,
+		TokenHash: auth.HashRefreshToken(rawNew),
+		IPAddress: found.IPAddress,
+		ExpiresAt: s.now().Add(7 * 24 * time.Hour),
+	}
+	if err := s.refresh.Create(ctx, refreshToken); err != nil {
+		return nil, err
+	}
+	if err := s.refresh.Revoke(ctx, found.ID); err != nil {
+		return nil, err
+	}
 	return &domain.TokenPair{
 		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
+		RefreshToken: rawNew,
 		ExpiresIn:    900,
 		TokenType:    "Bearer",
 	}, nil
@@ -794,11 +810,12 @@ func (s *service) ForgotPassword(ctx context.Context, email string) error {
 			if err != nil {
 				return err
 			}
-			token := &domain.PasswordResetToken{
-				UserID:    u.ID,
-				TokenHash: auth.HashRefreshToken(raw),
-				ExpiresAt: s.now().Add(1 * time.Hour),
-			}
+		token := &domain.PasswordResetToken{
+			ID:        raw,
+			UserID:    u.ID,
+			TokenHash: auth.HashRefreshToken(raw),
+			ExpiresAt: s.now().Add(1 * time.Hour),
+		}
 			return s.reset.Create(ctx, token)
 		}
 	}
@@ -833,12 +850,19 @@ func (s *service) ResetPassword(ctx context.Context, rawToken, newPassword strin
 		return err
 	}
 
+	if domain.IsPasswordInHistory(user.PasswordHistory, newHash) {
+		return domain.ErrPasswordReuse
+	}
+
+	user.PasswordHistory = append(user.PasswordHistory, user.PasswordHash)
+	if len(user.PasswordHistory) > domain.PasswordHistorySize {
+		user.PasswordHistory = user.PasswordHistory[len(user.PasswordHistory)-domain.PasswordHistorySize:]
+	}
 	user.PasswordHash = newHash
 	now := s.now()
 	user.PasswordChangedAt = &now
 	user.FailedAttempts = 0
 	user.LockedUntil = nil
-	user.PasswordHistory = nil
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return err

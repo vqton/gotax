@@ -369,9 +369,15 @@ func (h *Handler) Logout(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
 	userID := GetUserID(c)
-	h.svc.Logout(c.Request.Context(), userID, req.RefreshToken)
+	if err := h.svc.Logout(c.Request.Context(), userID, req.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
 

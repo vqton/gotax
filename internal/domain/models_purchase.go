@@ -157,23 +157,36 @@ func (l *POItem) Validate() error {
 type GRNStatus string
 const (GRNDraft GRNStatus="DRAFT"; GRNPosted GRNStatus="POSTED"; GRNCancelled GRNStatus="CANCELLED")
 
+func (s GRNStatus) ValidTransition(next GRNStatus) bool {
+	switch s {
+	case GRNDraft: return next == GRNPosted || next == GRNCancelled
+	case GRNPosted: return next == GRNCancelled
+	case GRNCancelled: return false
+	default: return false
+	}
+}
+
 type GRN struct {
-	ID          string     `json:"id"`
-	CompanyID   string     `json:"company_id"`
-	GRNNumber   string     `json:"grn_number"`
-	POID        string     `json:"po_id"`
-	ReceiptDate time.Time  `json:"receipt_date"`
-	Warehouse   string     `json:"warehouse,omitempty"`
-	Status      GRNStatus  `json:"status"`
-	Notes       string     `json:"notes,omitempty"`
-	CreatedBy   string     `json:"created_by"`
-	CreatedAt   time.Time  `json:"created_at,omitempty"`
-	Lines       []GRNItem  `json:"lines"`
+	ID              string     `json:"id"`
+	CompanyID       string     `json:"company_id"`
+	GRNNumber       string     `json:"grn_number"`
+	POID            string     `json:"po_id,omitempty"`
+	WarehouseID     string     `json:"warehouse_id,omitempty"`
+	ReceiptDate     time.Time  `json:"receipt_date"`
+	Warehouse       string     `json:"warehouse,omitempty"`
+	Status          GRNStatus  `json:"status"`
+	Notes           string     `json:"notes,omitempty"`
+	CreatedBy       string     `json:"created_by"`
+	PostedAt        time.Time  `json:"posted_at,omitempty"`
+	CancelledReason string     `json:"cancelled_reason,omitempty"`
+	CreatedAt       time.Time  `json:"created_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at,omitempty"`
+	Lines           []GRNItem  `json:"lines"`
 }
 
 func (g *GRN) Validate() error {
 	if g.GRNNumber == "" { return ErrGRNNumberRequired }
-	if g.POID == "" { return ErrGRNPORequired }
+	if g.POID == "" && g.WarehouseID == "" { return ErrGRNPORequired }
 	if g.ReceiptDate.IsZero() { return ErrGRNDateRequired }
 	if g.Status == "" { g.Status = GRNDraft }
 	switch g.Status {
@@ -187,7 +200,8 @@ func (g *GRN) Validate() error {
 type GRNItem struct {
 	ID               string  `json:"id"`
 	GRNID            string  `json:"grn_id"`
-	POLineID         string  `json:"po_line_id"`
+	POLineID         string  `json:"po_line_id,omitempty"`
+	ItemID           string  `json:"item_id,omitempty"`
 	ItemCode         string  `json:"item_code,omitempty"`
 	ItemName         string  `json:"item_name"`
 	Unit             string  `json:"unit"`

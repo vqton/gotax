@@ -173,3 +173,10 @@ CREATE TABLE IF NOT EXISTS valuation_runs (
   notes           TEXT    NOT NULL DEFAULT '',
   created_at      TEXT    NOT NULL DEFAULT ''
 );
+
+ALTER TABLE goods_receipt_notes ADD COLUMN IF NOT EXISTS warehouse_id   TEXT NOT NULL DEFAULT '';
+ALTER TABLE goods_receipt_notes ADD COLUMN IF NOT EXISTS posted_at      TEXT NOT NULL DEFAULT '';
+ALTER TABLE goods_receipt_notes ADD COLUMN IF NOT EXISTS cancelled_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE goods_receipt_notes ADD COLUMN IF NOT EXISTS updated_at     TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE grn_lines ADD COLUMN IF NOT EXISTS item_id TEXT NOT NULL DEFAULT '';

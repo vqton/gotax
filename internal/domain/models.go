@@ -20,7 +20,7 @@ type NormalBalance string
 const (NormalBalanceDebit NormalBalance="DEBIT"; NormalBalanceCredit NormalBalance="CREDIT")
 
 type VoucherType string
-const (VoucherTypeReceipt VoucherType="THU"; VoucherTypePayment VoucherType="CHI"; VoucherTypeSale VoucherType="BAN"; VoucherTypePurchase VoucherType="MUA"; VoucherTypeOther VoucherType="KHAC"; VoucherTypeClosing VoucherType="KC")
+const (VoucherTypeReceipt VoucherType="THU"; VoucherTypePayment VoucherType="CHI"; VoucherTypeSale VoucherType="BAN"; VoucherTypePurchase VoucherType="MUA"; VoucherTypeInventoryReceipt VoucherType="NK"; VoucherTypeInventoryIssue VoucherType="XK"; VoucherTypeOther VoucherType="KHAC"; VoucherTypeClosing VoucherType="KC")
 
 type DetailBy string
 const (DetailByNone DetailBy=""; DetailByObject DetailBy="OBJECT"; DetailByProject DetailBy="PROJECT"; DetailByContract DetailBy="CONTRACT"; DetailByCostItem DetailBy="COST_ITEM"; DetailByDepartment DetailBy="DEPARTMENT")

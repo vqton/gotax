@@ -18,6 +18,10 @@ import (
 	"gotax/internal/service"
 )
 
+type mockJE struct{}
+func (mockJE) CreateEntry(_ context.Context, _ *domain.JournalEntry, _ string) error { return nil }
+func (mockJE) PostEntry(_ context.Context, _ string) error                           { return nil }
+
 func setupWarehouseTest(t *testing.T) (*gin.Engine, *service.WarehouseService, context.Context) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -31,7 +35,8 @@ func setupWarehouseTest(t *testing.T) (*gin.Engine, *service.WarehouseService, c
 	adjRepo := repository.NewMemoryStockAdjustmentRepo()
 	takeRepo := repository.NewMemoryStockTakeRepo()
 	valRepo := repository.NewMemoryInventoryValuationRunRepo()
-	whSvc := service.NewWarehouseService(whRepo, catRepo, itemRepo, balRepo, txnRepo, trfRepo, adjRepo, takeRepo, valRepo)
+	grnRepo := repository.NewMemoryPurchaseRepo()
+	whSvc := service.NewWarehouseService(whRepo, catRepo, itemRepo, balRepo, txnRepo, trfRepo, adjRepo, takeRepo, valRepo, grnRepo, &mockJE{})
 	whH := NewWarehouseHandler(whSvc)
 
 	r := gin.New()

@@ -395,19 +395,19 @@ func (r *PGPurchaseRepo) CreateGRN(ctx context.Context, g *domain.GRN) error {
 	if g.Status == "" {
 		g.Status = domain.GRNDraft
 	}
-	return r.pool.QueryRow(ctx, `INSERT INTO goods_receipt_notes (id, company_id, grn_number, po_id, receipt_date, warehouse, status, notes, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-		g.ID, g.CompanyID, g.GRNNumber, g.POID, g.ReceiptDate, g.Warehouse, g.Status, g.Notes, g.CreatedBy, now,
+	return r.pool.QueryRow(ctx, `INSERT INTO goods_receipt_notes (id, company_id, grn_number, po_id, warehouse_id, receipt_date, warehouse, status, notes, created_by, created_at, posted_at, cancelled_reason, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+		g.ID, g.CompanyID, g.GRNNumber, g.POID, g.WarehouseID, g.ReceiptDate, g.Warehouse, g.Status, g.Notes, g.CreatedBy, now, g.PostedAt, g.CancelledReason, now,
 	).Scan(&g.ID)
 }
 
 func (r *PGPurchaseRepo) scanGRNFromRow(row pgx.Row) (domain.GRN, error) {
 	var g domain.GRN
-	err := row.Scan(&g.ID, &g.CompanyID, &g.GRNNumber, &g.POID, &g.ReceiptDate, &g.Warehouse, &g.Status, &g.Notes, &g.CreatedBy, &g.CreatedAt)
+	err := row.Scan(&g.ID, &g.CompanyID, &g.GRNNumber, &g.POID, &g.WarehouseID, &g.ReceiptDate, &g.Warehouse, &g.Status, &g.Notes, &g.CreatedBy, &g.CreatedAt, &g.PostedAt, &g.CancelledReason, &g.UpdatedAt)
 	return g, err
 }
 
 func (r *PGPurchaseRepo) GetGRN(ctx context.Context, id string) (*domain.GRN, error) {
-	g, err := r.scanGRNFromRow(r.pool.QueryRow(ctx, `SELECT id, company_id, grn_number, po_id, receipt_date, warehouse, status, notes, created_by, created_at FROM goods_receipt_notes WHERE id=$1`, id))
+	g, err := r.scanGRNFromRow(r.pool.QueryRow(ctx, `SELECT id, company_id, grn_number, po_id, warehouse_id, receipt_date, warehouse, status, notes, created_by, created_at, posted_at, cancelled_reason, updated_at FROM goods_receipt_notes WHERE id=$1`, id))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, domain.ErrGRNNotFound
@@ -420,7 +420,7 @@ func (r *PGPurchaseRepo) GetGRN(ctx context.Context, id string) (*domain.GRN, er
 }
 
 func (r *PGPurchaseRepo) GetGRNByNumber(ctx context.Context, companyID, grnNumber string) (*domain.GRN, error) {
-	g, err := r.scanGRNFromRow(r.pool.QueryRow(ctx, `SELECT id, company_id, grn_number, po_id, receipt_date, warehouse, status, notes, created_by, created_at FROM goods_receipt_notes WHERE company_id=$1 AND grn_number=$2`, companyID, grnNumber))
+	g, err := r.scanGRNFromRow(r.pool.QueryRow(ctx, `SELECT id, company_id, grn_number, po_id, warehouse_id, receipt_date, warehouse, status, notes, created_by, created_at, posted_at, cancelled_reason, updated_at FROM goods_receipt_notes WHERE company_id=$1 AND grn_number=$2`, companyID, grnNumber))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, domain.ErrGRNNotFound
@@ -460,7 +460,7 @@ func (r *PGPurchaseRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) 
 	if err := r.pool.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id, company_id, grn_number, po_id, receipt_date, warehouse, status, notes, created_by, created_at FROM goods_receipt_notes WHERE company_id=$1`
+	q := `SELECT id, company_id, grn_number, po_id, warehouse_id, receipt_date, warehouse, status, notes, created_by, created_at, posted_at, cancelled_reason, updated_at FROM goods_receipt_notes WHERE company_id=$1`
 	args := []interface{}{filter.CompanyID}
 	n = 2
 	if filter.POID != "" {
@@ -512,7 +512,9 @@ func (r *PGPurchaseRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) 
 }
 
 func (r *PGPurchaseRepo) UpdateGRN(ctx context.Context, g *domain.GRN) error {
-	_, err := r.pool.Exec(ctx, `UPDATE goods_receipt_notes SET receipt_date=$1, warehouse=$2, notes=$3 WHERE id=$4`, g.ReceiptDate, g.Warehouse, g.Notes, g.ID)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := r.pool.Exec(ctx, `UPDATE goods_receipt_notes SET warehouse_id=$1, receipt_date=$2, warehouse=$3, status=$4, notes=$5, posted_at=$6, cancelled_reason=$7, updated_at=$8 WHERE id=$9`,
+		g.WarehouseID, g.ReceiptDate, g.Warehouse, g.Status, g.Notes, g.PostedAt, g.CancelledReason, now, g.ID)
 	return err
 }
 
@@ -522,7 +524,7 @@ func (r *PGPurchaseRepo) UpdateGRNStatus(ctx context.Context, id string, status 
 }
 
 func (r *PGPurchaseRepo) GetGRNLines(ctx context.Context, grnID string) ([]domain.GRNItem, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id, grn_id, po_line_id, item_code, item_name, unit, quantity_received, quantity_rejected, unit_price, line_total FROM grn_lines WHERE grn_id=$1 ORDER BY id`, grnID)
+	rows, err := r.pool.Query(ctx, `SELECT id, grn_id, po_line_id, item_id, item_code, item_name, unit, quantity_received, quantity_rejected, unit_price, line_total FROM grn_lines WHERE grn_id=$1 ORDER BY id`, grnID)
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +532,7 @@ func (r *PGPurchaseRepo) GetGRNLines(ctx context.Context, grnID string) ([]domai
 	out := make([]domain.GRNItem, 0)
 	for rows.Next() {
 		var l domain.GRNItem
-		if err := rows.Scan(&l.ID, &l.GRNID, &l.POLineID, &l.ItemCode, &l.ItemName, &l.Unit, &l.QuantityReceived, &l.QuantityRejected, &l.UnitPrice, &l.LineTotal); err != nil {
+		if err := rows.Scan(&l.ID, &l.GRNID, &l.POLineID, &l.ItemID, &l.ItemCode, &l.ItemName, &l.Unit, &l.QuantityReceived, &l.QuantityRejected, &l.UnitPrice, &l.LineTotal); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -545,9 +547,9 @@ func (r *PGPurchaseRepo) CreateGRNLines(ctx context.Context, items []domain.GRNI
 	src := pgx.CopyFromSlice(len(items), func(i int) ([]interface{}, error) {
 		it := items[i]
 		lt := it.QuantityReceived * it.UnitPrice
-		return []interface{}{it.ID, it.GRNID, it.POLineID, it.ItemCode, it.ItemName, it.Unit, it.QuantityReceived, it.QuantityRejected, it.UnitPrice, lt}, nil
+		return []interface{}{it.ID, it.GRNID, it.POLineID, it.ItemID, it.ItemCode, it.ItemName, it.Unit, it.QuantityReceived, it.QuantityRejected, it.UnitPrice, lt}, nil
 	})
-	_, err := r.pool.CopyFrom(ctx, pgx.Identifier{"grn_lines"}, []string{"id", "grn_id", "po_line_id", "item_code", "item_name", "unit", "quantity_received", "quantity_rejected", "unit_price", "line_total"}, src)
+	_, err := r.pool.CopyFrom(ctx, pgx.Identifier{"grn_lines"}, []string{"id", "grn_id", "po_line_id", "item_id", "item_code", "item_name", "unit", "quantity_received", "quantity_rejected", "unit_price", "line_total"}, src)
 	return err
 }
 
@@ -558,9 +560,9 @@ func (r *PGPurchaseRepo) CreateGRNLinesTx(ctx context.Context, tx pgx.Tx, items 
 	src := pgx.CopyFromSlice(len(items), func(i int) ([]interface{}, error) {
 		it := items[i]
 		lt := it.QuantityReceived * it.UnitPrice
-		return []interface{}{it.ID, it.GRNID, it.POLineID, it.ItemCode, it.ItemName, it.Unit, it.QuantityReceived, it.QuantityRejected, it.UnitPrice, lt}, nil
+		return []interface{}{it.ID, it.GRNID, it.POLineID, it.ItemID, it.ItemCode, it.ItemName, it.Unit, it.QuantityReceived, it.QuantityRejected, it.UnitPrice, lt}, nil
 	})
-	_, err := tx.CopyFrom(ctx, pgx.Identifier{"grn_lines"}, []string{"id", "grn_id", "po_line_id", "item_code", "item_name", "unit", "quantity_received", "quantity_rejected", "unit_price", "line_total"}, src)
+	_, err := tx.CopyFrom(ctx, pgx.Identifier{"grn_lines"}, []string{"id", "grn_id", "po_line_id", "item_id", "item_code", "item_name", "unit", "quantity_received", "quantity_rejected", "unit_price", "line_total"}, src)
 	return err
 }
 

@@ -481,14 +481,12 @@ func (r *MemoryPurchaseRepo) ListGRNs(_ context.Context, filter domain.GRNFilter
 func (r *MemoryPurchaseRepo) UpdateGRN(_ context.Context, g *domain.GRN) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	existing, ok := r.grns[g.ID]
-	if !ok {
+	if _, ok := r.grns[g.ID]; !ok {
 		return domain.ErrGRNNotFound
 	}
-	if existing.Status != domain.GRNDraft {
-		return domain.ErrGRNCannotUpdate
-	}
 	cp := *g
+	cp.POID = g.POID
+	cp.UpdatedAt = time.Now()
 	r.grns[g.ID] = &cp
 	if len(cp.Lines) > 0 {
 		r.grnLines[g.ID] = make([]domain.GRNItem, len(cp.Lines))
