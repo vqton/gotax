@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Đăng nhập · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="/assets/js/auth.js"></script>
+</head>
+<body class="auth-page">
+
+<div class="auth-card" x-data="loginStore()" aria-labelledby="page-title">
+
+  <div class="auth-header">
+    <div class="auth-logo">
+      <span class="logo-icon">📊</span>
+      <span class="logo-text">GoTax</span>
+    </div>
+    <h1 id="page-title" class="auth-title">Đăng nhập hệ thống</h1>
+    <p class="auth-subtitle">Hệ thống Quản lý Thuế Kế toán · Circular 99/2025</p>
+  </div>
+
+  <div id="alert-slot"></div>
+
+  <form @submit.prevent="submit" novalidate>
+
+    <div class="form-group">
+      <label for="username" class="form-label">Tên đăng nhập</label>
+      <input
+        type="text"
+        id="username"
+        name="username"
+        class="form-input"
+        placeholder="ten.dang.nhap"
+        required
+        x-model="username"
+        autocomplete="username"
+        aria-required="true"
+        aria-describedby="username-hint"
+      >
+      <p id="username-hint" class="form-hint">Tên đăng nhập do quản trị cấp.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="password" class="form-label">Mật khẩu</label>
+      <div class="password-wrapper">
+        <input
+          :type="showPw ? 'text' : 'password'"
+          id="password"
+          name="password"
+          class="form-input"
+          :class="{ 'is-invalid': loginError }"
+          placeholder="••••••••"
+          required
+          minlength="8"
+          x-model="password"
+          autocomplete="current-password"
+          aria-required="true"
+          aria-invalid="loginError ? 'true' : 'false'"
+          @input="loginError = ''"
+        >
+        <button
+          type="button"
+          class="password-toggle"
+          @click="showPw = !showPw"
+          :aria-pressed="showPw"
+          aria-label="Hiện / ẩn"
+        ><span x-text="showPw ? '🙈' : '👁'"></span></button>
+      </div>
+      <template x-if="loginError">
+        <p class="form-hint" style="color:var(--clr-error)" x-text="loginError"></p>
+      </template>
+    </div>
+
+    <div class="form-group">
+      <label class="check-box">
+        <input type="checkbox" name="hasTenant" x-model="withTenant">
+        <span>Kèm mã MST / tenant</span>
+      </label>
+    </div>
+
+    <div class="form-group" x-show="withTenant" x-transition style="display:none">
+      <label for="mst" class="form-label">Mã MST</label>
+      <input
+        type="text"
+        id="mst"
+        name="mst"
+        class="form-input"
+        placeholder="0123456789"
+        inputmode="numeric"
+        pattern="[0-9]{10,14}"
+        x-model="mst"
+        autocomplete="off"
+      >
+      <p class="form-hint">10–14 chữ số.</p>
+    </div>
+
+<button
+  type="submit"
+  id="submit-btn"
+  class="btn btn-primary btn-full"
+  :disabled="isSubmitting"
+>
+  <template x-if="isSubmitting">
+    <span class="btn-spinner" aria-hidden="true"></span>
+  </template>
+  <span x-text="isSubmitting ? 'Đang đăng nhập…' : 'ĐĂNG NHẬP'"></span>
+</button>
+  </form>
+
+  <div class="auth-divider" aria-hidden="true"><span>hoặc</span></div>
+
+  <button
+    type="button"
+    class="btn btn-secondary btn-full"
+    @click="$refs.vneid.disabled=false;$refs.vneid.click()"
+  >🪪 Đăng nhập qua VNeID</button>
+  <a ref="vneid" href="/vneid/login" hidden></a>
+
+  <div class="auth-footer">
+    <a href="/forgot-password" class="link-underline">Quên mật khẩu?</a>
+    <span class="legal">© 2026 GoTax</span>
+  </div>
+
+</div>
+
+<script>
+function loginStore() {
+  const alertStore = window.__alpine_store || null;
+
+  return {
+    username: "",
+    password: "",
+    withTenant: false,
+    mst: "",
+    showPw: false,
+    loginError: "",
+    isSubmitting: false,
+
+    get body() {
+      const b = { username: this.username, password: this.password };
+      if (this.withTenant && this.mst) b.tenant_id = this.mst;
+      return b;
+    },
+
+    submit() {
+      this.loginError = "";
+      if (!this.username || !this.password) {
+        this.loginError = "Nhập đầy đủ tên đăng nhập và mật khẩu.";
+        return;
+      }
+      this.isSubmitting = true;
+      fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(this.body),
+      })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        this.isSubmitting = false;
+        if (r.ok && d.access_token) {
+          Alpine.store("auth").set(d);
+          Alpine.store("alert").success("Đăng nhập thành công.");
+          setTimeout(() => window.location.href = "/", 350);
+          return;
+        }
+        if (r.status === 401 && d.requires_2fa) {
+          localStorage.setItem("gotax_temp_token", d.temp_token || "");
+          setTimeout(() => window.location.href = "/2fa", 50);
+          return;
+        }
+        this.loginError = d.error || "Đăng nhập thất bại.";
+        Alpine.store("alert").error(this.loginError);
+      })
+      .catch(() => {
+        this.isSubmitting = false;
+        this.loginError = "Lỗi kết nối. Thử lại sau.";
+        Alpine.store("alert").error(this.loginError);
+      });
+    },
+  };
+}
+</script>
+
+</body>
+</html>

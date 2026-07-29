@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xác thực 2FA · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="/assets/js/auth.js"></script>
+</head>
+<body class="auth-page">
+
+<div class="auth-card auth-wide" x-data="twoFAStore()" aria-labelledby="page-title">
+
+  <div class="auth-header">
+    <div class="auth-logo">
+      <span class="logo-icon">📊</span>
+      <span class="logo-text">GoTax</span>
+    </div>
+    <h1 id="page-title" class="auth-title">Xác thực hai yếu tố</h1>
+    <p class="auth-subtitle">Nhập mã 6 số từ ứng dụng Google Authenticator</p>
+  </div>
+
+  <div id="alert-slot"
+    x-data
+    x-init="mountAlerts"
+    @2fa:success.window="successAlert($event.detail.msg)"
+    @2fa:error.window="errorAlert($event.detail.msg)"
+  ></div>
+
+  <form @submit.prevent="submit" novalidate>
+
+    <div class="form-group">
+      <label class="form-label">Mã xác thực</label>
+      <div class="code-input--group">
+        <template x-for="(d, i) in digits" :key="i">
+          <input
+            type="text"
+            inputmode="numeric"
+            pattern="[0-1]"
+            maxlength="1"
+            x-model="digits[i]"
+            class="code-input"
+            :class="{
+              'is-valid':  digits[i] && /[0-9]/.test(digits[i]),
+              'is-invalid': digits[i] && !/[0-9]/.test(digits[i])
+            }"
+            @input.debounce.100ms="onInput(i)"
+            @keydown.backspace.prevent="onBackspace(i)"
+            @keydown.arrow-right.prevent="focusNext(i)"
+            @keydown.arrow-left.prevent="focusPrev(i)"
+            :id="'code' + i"
+            :aria-label="'Chữ số ' + (i + 1)"
+            autocomplete="one-time-code"
+            inputmode="numeric"
+          >
+        </template>
+      </div>
+      <p class="form-hint">Mã đổi mỗi 30 giây · Mở Google Authenticator để xem.</p>
+    </div>
+
+    <template x-if="alertMsg">
+      <div class="alert" :class="'alert--' + alertType" x-text="alertMsg" x-transition></div>
+    </template>
+
+    <button
+      type="submit"
+      id="submit-btn"
+      class="btn btn-primary btn-full"
+      :disabled="isSubmitting"
+    >
+<template x-if="isSubmitting">
+  <span class="btn-spinner" aria-hidden="true"></span>
+</template>
+<span x-text="isSubmitting ? 'Đang xác thực…' : 'XÁC THỰC'"></span>
+</button>
+
+  </form>
+
+  <div class="auth-footer">
+    <a href="/login" class="link-underline">← Quay lại đăng nhập</a>
+    <button
+      type="button"
+      class="link-text"
+      @click="resend()"
+      :disabled="cooldown > 0"
+      x-data="{ cooldown: 0 }"
+      x-init="setTimeout(() => $root.querySelector('.link-text').remove(), 0)"
+    >Gửi lại mã SMS?</button>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener("alpine:init", () => {
+  Alpine.data("twoFAStore", () => ({
+    digits: ["", "", "", "", "", ""],
+    isSubmitting: false,
+    alertMsg: "",
+    alertType: "error",
+
+    get code() { return this.digits.join(""); },
+
+    onInput(i) {
+      this.alertMsg = "";
+      const v = this.digits[i].replace(/\D/g, "");
+      this.digits[i] = v.slice(0, 1);
+      if (v && i < 5) {
+        const el = document.getElementById("code" + (i + 1));
+        if (el) el.focus();
+      }
+    },
+
+    onBackspace(i) {
+      if (this.digits[i] === "" && i > 0) {
+        this.digits[i - 1] = "";
+        const el = document.getElementById("code" + (i - 1));
+        if (el) el.focus();
+      }
+    },
+
+    focusNext(i) { if (i < 5) document.getElementById("code" + (i + 1))?.focus(); },
+    focusPrev(i) { if (i > 0) document.getElementById("code" + (i - 1))?.focus(); },
+
+    submit() {
+      if (this.isSubmitting) return;
+      if (this.code.length < 6) {
+        this.showAlert("Nhập đủ 6 chữ số.", "error");
+        return;
+      }
+      this.isSubmitting = true;
+      const auth = Alpine.store("auth");
+      const tempToken = localStorage.getItem("gotax_temp_token") || "";
+
+      fetch("/api/v1/auth/totp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ temp_token: tempToken, code: this.code }),
+      })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showAlert(data.error || "Mã không hợp lệ.", "error");
+          dispatchEvent(new CustomEvent("2fa:error", {
+            detail: { msg: data.error || "Lỗi" }, bubbles: true,
+          }));
+          return;
+        }
+        auth.set(data);
+        dispatchEvent(new CustomEvent("2fa:success", {
+          detail: { msg: "Xác thực thành công." }, bubbles: true,
+        }));
+        setTimeout(() => window.location.href = "/", 300);
+      })
+      .catch(() => {
+        this.showAlert("Lỗi kết nối.", "error");
+      })
+      .finally(() => { this.isSubmitting = false; });
+    },
+
+    resend() {
+      this.showAlert("Mã đã gửi lại (giả lập).", "info");
+    },
+
+    showAlert(text, type) {
+      this.alertMsg = text;
+      this.alertType = type;
+      setTimeout(() => { this.alertMsg = ""; }, 4000);
+    },
+  }));
+});
+</script>
+
+</body>
+</html>

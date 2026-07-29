@@ -1,0 +1,3 @@
+<template id="alert-template">
+  <div class="alert" :class="'alert--' + a.type" x-show="a.text" x-transition.opacity.duration.300ms x-text="a.text" @click="remove(a)" role="alert"></div>
+</template>

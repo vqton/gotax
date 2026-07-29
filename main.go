@@ -65,11 +65,28 @@ func main() {
 	secret := os.Getenv("JWT_SECRET")
 	auth.SetJWTSecret(secret)
 
-	r := gin.Default()
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "GoTax GL Server"})
-	})
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+r := gin.Default()
+r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+r.LoadHTMLGlob("web/auth/*.html")
+r.Static("/assets", "./web/static")
+
+r.GET("/ping", func(c *gin.Context) {
+	c.JSON(200, gin.H{"message": "GoTax GL Server"})
+})
+r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+r.GET("/login", func(c *gin.Context) {
+	c.HTML(200, "login.html", nil)
+})
+r.GET("/2fa", func(c *gin.Context) {
+	c.HTML(200, "2fa.html", nil)
+})
+r.GET("/forgot-password", func(c *gin.Context) {
+	c.HTML(200, "forgot-password.html", nil)
+})
+r.GET("/reset-password", func(c *gin.Context) {
+	c.HTML(200, "reset-password.html", nil)
+})
 
 	i18nL := gotaxi18n.MustNew()
 	r.Use(handler.I18nMiddleware(i18nL))
