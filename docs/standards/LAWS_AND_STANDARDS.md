@@ -177,7 +177,53 @@
 | `docs/GL_SPECS.md` | Superseded by COA_SPECS.md + AUTH_SPECS.md | 2026-07-27 |
 | `docs/UC_GL_MODULE.md` | Superseded by COA_USE_CASES.md + AUTH_USE_CASES.md | 2026-07-27 |
 
-## 11. Key References
+## 11. Purchase Module — Key Regulatory Accounts (Circular 99/2025/TT-BTC)
+
+| Account | Name | Purchase Usage |
+|---------|------|----------------|
+| 151 | Hang mua dang di duong (Goods in transit) | Goods invoiced but not yet received |
+| 152 | Nguyen lieu, vat lieu (Raw materials) | Material purchase for production |
+| 153 | Cong cu, dung cu (Tools & instruments) | Tool purchase |
+| 156 | Hang hoa (Merchandise) | Goods purchase for resale |
+| 331 | Phai tra cho nguoi ban (AP) | All supplier payables |
+| 1331 | Thue GTGT duoc khau tru (VAT input) | Deductible VAT on purchases |
+| 3332 | Thue tieu thu dac biet (Special consumption) | Special tax on certain imports |
+| 3333 | Thue xuat, nhap khau (Import/Export duty) | Import duty on foreign purchases |
+| 33312 | Thue GTGT hang nhap khau (Import VAT) | VAT on imports |
+| 33381 | Thue bao ve moi truong (Env protection) | Environmental tax on certain goods |
+| 515 | Doanh thu hoat dong tai chinh (Financial income) | Early payment discount received |
+| 635 | Chi phi tai chinh (Financial expense) | FX loss on AP payment |
+| 642 | Chi phi quan ly (Admin expense) | Service purchases, office supplies |
+
+## 12. Purchase Module — Laws & Decrees
+
+| Document | Key Impact on Purchase |
+|----------|----------------------|
+| Circular 99/2025/TT-BTC | Account 151/152/153/156/331/133 rules |
+| Decree 123/2020/ND-CP (amended by 70/2025) | E-invoice requirements for purchase |
+| Decree 254/2026/ND-CP | GDT e-invoice XML format, buyer receipt |
+| Decree 23/2025/ND-CP | Digital signature on e-invoices |
+| Law on VAT 13/2024/QH15 | VAT input deduction rules |
+| Law on Tax Admin 108/2025/QH15 | E-tax transactions, invoice reporting |
+| IAS 2 (IFRS) | Inventory cost recognition |
+| VAS 02 | Inventory valuation at lower of cost or NRV |
+| Decision 29/2026/QD-TTg | VNeID for enterprise authentication |
+
+## 13. Purchase Module — Document Index
+
+| Document | File | Status |
+|----------|------|--------|
+| BRD | `docs/purchase/PURCHASE_BRD.md` | DRAFT |
+| Functional Specs | `docs/purchase/PURCHASE_SPECS.md` | DRAFT |
+| Use Cases | `docs/purchase/PURCHASE_USE_CASES.md` | DRAFT |
+| Workflows | `docs/purchase/PURCHASE_WORKFLOWS.md` | DRAFT |
+| Business Rules | `docs/purchase/PURCHASE_RULES.md` | DRAFT |
+| Data Flows | `docs/purchase/PURCHASE_DATA_FLOWS.md` | DRAFT |
+| Templates | `docs/purchase/PURCHASE_TEMPLATES.md` | DRAFT |
+| User Journeys | `docs/purchase/PURCHASE_USER_JOURNEYS.md` | DRAFT |
+| Readiness Assessment | `docs/purchase/PURCHASE_READINESS.md` | DRAFT |
+
+## 14. Key References
 
 - https://www.gdt.gov.vn — General Dept of Taxation
 - https://mof.gov.vn — Ministry of Finance

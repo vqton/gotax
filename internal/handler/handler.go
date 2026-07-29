@@ -189,12 +189,13 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 	}
 }
 
-func RegisterRoutesWithCompany(r *gin.Engine, h *Handler, ch *CompanyHandler, th *TaxHandler, cashH *CashHandler, bankH *BankHandler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
+func RegisterRoutesWithCompany(r *gin.Engine, h *Handler, ch *CompanyHandler, th *TaxHandler, cashH *CashHandler, bankH *BankHandler, purchaseH *PurchaseHandler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
 	RegisterRoutes(r, h, authMW, adminMW)
 	RegisterCompanyRoutes(r, ch, authMW, adminMW)
 	RegisterTaxRoutes(r, th, authMW)
 	RegisterCashRoutes(r, cashH, authMW)
 	RegisterBankRoutes(r, bankH, authMW)
+	RegisterPurchaseRoutes(r, purchaseH, authMW)
 }
 
 // ─── Auth ──────────────────────────────────────────────────────────

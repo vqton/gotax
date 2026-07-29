@@ -367,3 +367,66 @@ type CashRepository interface {
 	ListAdvancesByStatus(ctx context.Context, companyID string, status AdvanceStatus) ([]AdvanceRequest, error)
 	CreateAdvanceSettlement(ctx context.Context, s *AdvanceSettlement) error
 }
+
+// ─── Purchase Repository ───────────────────────────────────────────
+
+type SupplierRepository interface {
+	CreateSupplier(ctx context.Context, s *Supplier) error
+	GetSupplier(ctx context.Context, id string) (*Supplier, error)
+	GetSupplierByCode(ctx context.Context, companyID, code string) (*Supplier, error)
+	ListSuppliers(ctx context.Context, filter PurchaseOrderFilter) ([]Supplier, int, error)
+	UpdateSupplier(ctx context.Context, s *Supplier) error
+	DeleteSupplier(ctx context.Context, id string) error
+}
+
+type PurchaseOrderRepository interface {
+	CreatePO(ctx context.Context, po *PurchaseOrder) error
+	GetPO(ctx context.Context, id string) (*PurchaseOrder, error)
+	GetPOByNumber(ctx context.Context, companyID, poNumber string) (*PurchaseOrder, error)
+	ListPOs(ctx context.Context, filter PurchaseOrderFilter) ([]PurchaseOrder, int, error)
+	UpdatePO(ctx context.Context, po *PurchaseOrder) error
+	UpdatePOStatus(ctx context.Context, id string, status POStatus) error
+	GetPOLines(ctx context.Context, poID string) ([]POItem, error)
+	CreatePOLines(ctx context.Context, items []POItem) error
+	UpdatePOLines(ctx context.Context, items []POItem) error
+	NextPONumber(ctx context.Context, companyID, yyyymm string) (string, error)
+}
+
+type GRNRepository interface {
+	CreateGRN(ctx context.Context, g *GRN) error
+	GetGRN(ctx context.Context, id string) (*GRN, error)
+	GetGRNByNumber(ctx context.Context, companyID, grnNumber string) (*GRN, error)
+	ListGRNs(ctx context.Context, filter GRNFilter) ([]GRN, int, error)
+	UpdateGRN(ctx context.Context, g *GRN) error
+	UpdateGRNStatus(ctx context.Context, id string, status GRNStatus) error
+	GetGRNLines(ctx context.Context, grnID string) ([]GRNItem, error)
+	CreateGRNLines(ctx context.Context, items []GRNItem) error
+	UpdateGRNLines(ctx context.Context, items []GRNItem) error
+	NextGRNNumber(ctx context.Context, companyID, yyyymm string) (string, error)
+}
+
+type SupplierInvoiceRepository interface {
+	CreateInvoice(ctx context.Context, inv *SupplierInvoice) error
+	GetInvoice(ctx context.Context, id string) (*SupplierInvoice, error)
+	GetInvoiceByNumber(ctx context.Context, companyID, invoiceNumber string) (*SupplierInvoice, error)
+	ListInvoices(ctx context.Context, filter SupplierInvoiceFilter) ([]SupplierInvoice, int, error)
+	UpdateInvoice(ctx context.Context, inv *SupplierInvoice) error
+	UpdateInvoiceStatus(ctx context.Context, id string, status InvoiceStatus) error
+	PostInvoice(ctx context.Context, id string, postedAt time.Time) error
+	GetInvoiceLines(ctx context.Context, invoiceID string) ([]SupplierInvoiceLine, error)
+	CreateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error
+	UpdateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error
+}
+
+type APTransactionRepository interface {
+	CreateAPTransaction(ctx context.Context, t *APTransaction) error
+	GetAPTransaction(ctx context.Context, id string) (*APTransaction, error)
+	ListAPTransactionsBySupplier(ctx context.Context, companyID, supplierID string) ([]APTransaction, error)
+	ListAPTransactions(ctx context.Context, companyID string, offset, limit int) ([]APTransaction, int, error)
+}
+
+type CostAllocationRepository interface {
+	CreateCostAllocation(ctx context.Context, c *CostAllocation) error
+	GetCostAllocation(ctx context.Context, id string) (*CostAllocation, error)
+	ListCostAllocationsByInvoice(ctx context.Context, invoiceID string) ([]CostAllocation, error)
+}

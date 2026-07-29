@@ -125,8 +125,11 @@ func main() {
 		bankSvc := service.NewBankService(bankRepo)
 		bankH := handler.NewBankHandler(bankSvc, companySvc)
 
-		handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, authMW, adminMW)
-		log.Println("GoTax GL server (PG) starting on :8080")
+	purchaseRepo := repository.NewPGPurchaseRepo(pool)
+	purchaseSvc := service.NewPurchaseService(purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo)
+	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, authMW, adminMW)
+	log.Println("GoTax GL server (PG) starting on :8080")
 		r.Run(":8080")
 		return
 	}
@@ -168,7 +171,10 @@ func main() {
 	bankSvc := service.NewBankService(bankRepo)
 	bankH := handler.NewBankHandler(bankSvc, companySvc)
 
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, authMW, adminMW)
+	memPurchaseRepo := repository.NewMemoryPurchaseRepo()
+	purchaseSvc := service.NewPurchaseService(memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo)
+	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, authMW, adminMW)
 	log.Println("GoTax GL server (CA) starting on :8080")
 	r.Run(":8080")
 }

@@ -163,6 +163,29 @@ What's MISSING (~80%):
 
 See `docs/tax/TAX_READINESS.md` for full matrix. See `docs/tax/TAX_BRD.md`, `TAX_SPECS.md`, `TAX_USE_CASES.md`, `TAX_WORKFLOWS.md`, `TAX_TEMPLATES.md`, `TAX_RULES.md`, `TAX_DATA_FLOWS.md` for full design.
 
+## Purchase Module — NOT STARTED
+
+Purchase docs at `docs/purchase/` — comprehensive analysis. Researched: MISA AMIS, Fast Accounting, Bravo ERP, Tryton, GDT, IAS 2, IFRS 15, Circular 99/2025, Decree 123/2020, Decree 254/2026.
+
+**Verdict: Purchase module ~0% complete. NOT production-ready.**
+
+What exists: **NOTHING**. Zero code, zero schema, zero endpoints.
+
+What's specified (9 docs, 2184 lines total):
+- `PURCHASE_BRD.md` — 9 FR sections, regulatory matrix, integration points
+- `PURCHASE_SPECS.md` — 9 data models, 33 API endpoints, state machines, GL posting map
+- `PURCHASE_USE_CASES.md` — 9 use cases (happy/alt/exception paths)
+- `PURCHASE_WORKFLOWS.md` — 7 workflows (P2P, domestic, import, return, month-end, e-invoice, payment)
+- `PURCHASE_RULES.md` — 21 business rules (accounting, validation, security, period-end, compliance)
+- `PURCHASE_DATA_FLOWS.md` — ERD, data flows, GL integration, e-invoice flow, volume estimates
+- `PURCHASE_TEMPLATES.md` — 10 templates (PO, GRN, invoice, aging, 3-way match, S01-DN, S02-DN, XML, credit note, scorecard)
+- `PURCHASE_USER_JOURNEYS.md` — 7 user journeys (AP clerk, warehouse, chief accountant, purchasing, CFO, tax, auditor)
+- `PURCHASE_READINESS.md` — Gap analysis vs MISA/Fast/Bravo, 4-phase roadmap, risk assessment
+
+Key accounts: 151 (goods in transit), 152 (raw materials), 153 (tools), 156 (goods), 331 (AP), 1331 (VAT input), 3332/3333/33312 (import taxes), 515 (discount), 635 (FX loss).
+
+First build priority: domain models + PG schema → PG + memory repos → service → handler → routes.
+
 **Adding a Feature — Step Order**
 
 1. Interface method in `internal/domain/interfaces.go`
