@@ -56,8 +56,10 @@ CREATE TABLE IF NOT EXISTS stock_balances (
   total_cost          NUMERIC(18,2) NOT NULL DEFAULT 0,
   last_transaction_at TEXT    NOT NULL DEFAULT '',
   created_at          TEXT    NOT NULL DEFAULT '',
-  updated_at          TEXT    NOT NULL DEFAULT ''
+  updated_at          TEXT    NOT NULL DEFAULT '',
+  UNIQUE(company_id, warehouse_id, item_id, period)
 );
+CREATE INDEX IF NOT EXISTS idx_stock_balances_lookup ON stock_balances(company_id, warehouse_id, item_id, period);
 
 CREATE TABLE IF NOT EXISTS inventory_transactions (
   id          TEXT    PRIMARY KEY,

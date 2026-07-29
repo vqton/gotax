@@ -286,7 +286,8 @@ func (r *PGWarehouseRepo) UpsertStockBalance(ctx context.Context, b *domain.Stoc
 	return r.pool.QueryRow(ctx,
 		`INSERT INTO stock_balances (id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		 ON CONFLICT (id) DO UPDATE SET quantity=$6,unit_cost=$7,total_cost=$8,last_transaction_at=$9,updated_at=$11
+		 ON CONFLICT (company_id, warehouse_id, item_id, period) DO UPDATE
+		 SET quantity=$6,unit_cost=$7,total_cost=$8,last_transaction_at=$9,updated_at=$11
 		 RETURNING id`,
 		b.ID, b.CompanyID, b.WarehouseID, b.ItemID, b.Period, b.Quantity, b.UnitCost, b.TotalCost, nullTime(b.LastTransactionAt), now, now,
 	).Scan(&b.ID)
