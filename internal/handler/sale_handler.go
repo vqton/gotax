@@ -64,6 +64,7 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 			receipts.GET("/:id", h.GetReceipt)
 			receipts.PATCH("/:id/post", h.PostReceipt)
 			receipts.PATCH("/:id/cancel", h.CancelReceipt)
+			receipts.POST("/:id/allocate", h.AllocateReceipt)
 		}
 		creditnotes := sale.Group("/credit-notes")
 		{
@@ -572,6 +573,28 @@ func (h *SaleHandler) CancelReceipt(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "cancelled"})
+}
+
+func (h *SaleHandler) AllocateReceipt(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		InvoiceID string  `json:"invoice_id"`
+		Amount    float64 `json:"amount"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rcpt, err := h.svc.GetReceipt(c.Request.Context(), id)
+	if err != nil || rcpt.CompanyID != c.Query("company_id") {
+		c.JSON(http.StatusNotFound, gin.H{"error": "receipt not found"})
+		return
+	}
+	if err := h.svc.AllocateReceipt(c.Request.Context(), id, req.InvoiceID, req.Amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "allocated"})
 }
 
 // ─── Credit Note ───────────────────────────────────────────────────────

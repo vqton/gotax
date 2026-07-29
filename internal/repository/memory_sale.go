@@ -681,6 +681,18 @@ func (r *MemorySaleRepo) SetInvoiceGLPosted(_ context.Context, id string, posted
 	return nil
 }
 
+func (r *MemorySaleRepo) AllocateToInvoice(_ context.Context, invoiceID string, amount float64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inv, ok := r.invoices[invoiceID]
+	if !ok {
+		return domain.ErrInvNotFound
+	}
+	inv.AmountReceived += amount
+	inv.BalanceDue -= amount
+	return nil
+}
+
 func (r *MemorySaleRepo) GetInvoiceLines(_ context.Context, invoiceID string) ([]domain.InvLine, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

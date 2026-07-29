@@ -412,6 +412,8 @@ var (
 	ErrRcpNotFound         = errors.New("customer receipt not found")
 	ErrRcpAlreadyPosted    = errors.New("receipt already posted")
 	ErrRcpInvalidTransition = errors.New("invalid receipt status transition")
+	ErrRcpAllocExceedsBalance = errors.New("allocation exceeds invoice balance")
+	ErrRcpAllocExceedsReceipt = errors.New("allocation exceeds receipt unallocated amount")
 
 	ErrCNNumberRequired      = errors.New("credit note number is required")
 	ErrCNNumberExists        = errors.New("credit note number already exists")

@@ -482,6 +482,7 @@ type CustomerInvoiceRepository interface {
 	UpdateInvoiceStatus(ctx context.Context, id string, status SaleInvoiceStatus) error
 	PostInvoice(ctx context.Context, id string, postedAt time.Time) error
 	SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error
+	AllocateToInvoice(ctx context.Context, invoiceID string, amount float64) error
 	GetInvoiceLines(ctx context.Context, invoiceID string) ([]InvLine, error)
 	CreateInvoiceLines(ctx context.Context, items []InvLine) error
 	UpdateInvoiceLines(ctx context.Context, items []InvLine) error

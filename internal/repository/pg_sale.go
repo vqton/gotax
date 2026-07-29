@@ -683,6 +683,11 @@ func (r *PGSaleRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt
 	return err
 }
 
+func (r *PGSaleRepo) AllocateToInvoice(ctx context.Context, invoiceID string, amount float64) error {
+	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET amount_received=amount_received+$1,balance_due=balance_due-$1 WHERE id=$2`, amount, invoiceID)
+	return err
+}
+
 func (r *PGSaleRepo) GetInvoiceLines(ctx context.Context, invoiceID string) ([]domain.InvLine, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id,invoice_id,so_line_id,dn_line_id,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,line_total,line_vat_amount,revenue_account_id,vat_account_id FROM inv_lines WHERE invoice_id=$1`, invoiceID)
 	if err != nil {

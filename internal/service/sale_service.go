@@ -459,6 +459,34 @@ func (s *SaleService) CancelReceipt(ctx context.Context, id string) error {
 	return s.rcptRepo.UpdateReceiptStatus(ctx, id, domain.RcpCancelled)
 }
 
+func (s *SaleService) AllocateReceipt(ctx context.Context, receiptID, invoiceID string, amount float64) error {
+	rcpt, err := s.rcptRepo.GetReceipt(ctx, receiptID)
+	if err != nil {
+		return err
+	}
+	if amount > rcpt.UnallocatedAmount {
+		return domain.ErrRcpAllocExceedsReceipt
+	}
+	inv, err := s.invRepo.GetInvoice(ctx, invoiceID)
+	if err != nil {
+		return err
+	}
+	if amount > inv.BalanceDue {
+		return domain.ErrRcpAllocExceedsBalance
+	}
+	if err := s.invRepo.AllocateToInvoice(ctx, invoiceID, amount); err != nil {
+		return err
+	}
+	rcpt.UnallocatedAmount -= amount
+	if err := s.rcptRepo.UpdateReceipt(ctx, rcpt); err != nil {
+		return err
+	}
+	alloc := domain.RcpAllocation{
+		ReceiptID: receiptID, InvoiceID: invoiceID, AllocatedAmount: amount,
+	}
+	return s.rcptRepo.CreateReceiptAllocations(ctx, []domain.RcpAllocation{alloc})
+}
+
 // ─── Credit Note ───────────────────────────────────────────────────────
 
 func (s *SaleService) CreateCN(ctx context.Context, cn *domain.CreditNote) error {

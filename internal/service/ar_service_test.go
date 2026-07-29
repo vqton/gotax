@@ -370,3 +370,136 @@ func TestCreditLimit_NoLimitMeansNoCheck(t *testing.T) {
 	err = svc.CreateInvoice(ctx, inv)
 	require.NoError(t, err)
 }
+
+func TestPrepayment_CreatesAndOffsets(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "PRE01", Name: "PrepayCo",
+		TaxCode: "999", Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-PRE",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "PrepayCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "svc", Quantity: 1, UnitPrice: 300,
+			VATRate: 10, VATType: "VAT_10",
+			RevenueAccount: "5111", VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+
+	// create prepayment receipt for 100
+	rcpt := &domain.CustomerReceipt{
+		CompanyID: "c1", ReceiptNumber: "PRE-RCP-001",
+		CustomerID: cust.ID, ReceiptDate: time.Now(),
+		PaymentMethod: "bank_transfer", Currency: "VND",
+		Amount: 100, Status: domain.RcpDraft,
+	}
+	err = svc.CreateReceipt(ctx, rcpt)
+	require.NoError(t, err)
+
+	// post receipt
+	err = svc.PostReceipt(ctx, rcpt.ID)
+	require.NoError(t, err)
+
+	// allocate 100 to invoice
+	err = svc.AllocateReceipt(ctx, rcpt.ID, inv.ID, 100)
+	require.NoError(t, err)
+
+	// verify invoice BalanceDue decreased
+	updatedInv, err := svc.GetInvoice(ctx, inv.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 330.0-100.0, updatedInv.BalanceDue)
+
+	// verify receipt UnallocatedAmount
+	updatedRcpt, err := svc.GetReceipt(ctx, rcpt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, updatedRcpt.UnallocatedAmount)
+}
+
+func TestPrepayment_AllocationCannotExceedInvoice(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "PRE02", Name: "OverCo",
+		TaxCode: "999", Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-PRE-2",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "OverCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "svc", Quantity: 1, UnitPrice: 200,
+			VATRate: 10, VATType: "VAT_10",
+			RevenueAccount: "5111", VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+
+	rcpt := &domain.CustomerReceipt{
+		CompanyID: "c1", ReceiptNumber: "PRE-RCP-002",
+		CustomerID: cust.ID, ReceiptDate: time.Now(),
+		PaymentMethod: "bank_transfer", Currency: "VND",
+		Amount: 500, Status: domain.RcpDraft,
+	}
+	err = svc.CreateReceipt(ctx, rcpt)
+	require.NoError(t, err)
+	err = svc.PostReceipt(ctx, rcpt.ID)
+	require.NoError(t, err)
+
+	// try to allocate 300 to invoice that only has 220 balance
+	err = svc.AllocateReceipt(ctx, rcpt.ID, inv.ID, 300)
+	require.Error(t, err)
+}
+
+func TestPrepayment_AllocCannotExceedUnallocated(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "PRE03", Name: "OverRcp",
+		TaxCode: "999", Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-PRE-3",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "OverRcp", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "svc", Quantity: 1, UnitPrice: 500,
+			VATRate: 0, VATType: "NON_TAX",
+			RevenueAccount: "5111", VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+
+	rcpt := &domain.CustomerReceipt{
+		CompanyID: "c1", ReceiptNumber: "PRE-RCP-003",
+		CustomerID: cust.ID, ReceiptDate: time.Now(),
+		PaymentMethod: "bank_transfer", Currency: "VND",
+		Amount: 50, Status: domain.RcpDraft,
+	}
+	err = svc.CreateReceipt(ctx, rcpt)
+	require.NoError(t, err)
+	err = svc.PostReceipt(ctx, rcpt.ID)
+	require.NoError(t, err)
+
+	// try to allocate 100 from receipt that only has 50
+	err = svc.AllocateReceipt(ctx, rcpt.ID, inv.ID, 100)
+	require.Error(t, err)
+}
