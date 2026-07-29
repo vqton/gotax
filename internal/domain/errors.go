@@ -432,6 +432,7 @@ var (
 	ErrARTransAmountRequired   = errors.New("amount must be non-zero")
 	ErrARTransTypeInvalid      = errors.New("invalid AR transaction type")
 	ErrARTransNotFound         = errors.New("AR transaction not found")
+	ErrCreditLimitExceeded     = errors.New("credit limit exceeded")
 
 	// Warehouse module errors
 	ErrWarehouseCodeRequired  = errors.New("warehouse code is required")

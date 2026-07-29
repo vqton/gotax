@@ -91,6 +91,31 @@ func (s *SaleService) DeleteCustomer(ctx context.Context, id string) error {
 
 // ─── Sales Order ───────────────────────────────────────────────────────
 
+func (s *SaleService) checkCreditLimit(ctx context.Context, customerID string, newAmount float64) error {
+	cust, err := s.custRepo.GetCustomer(ctx, customerID)
+	if err != nil {
+		return err
+	}
+	if cust.CreditLimit <= 0 {
+		return nil // no limit set
+	}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{CustomerID: customerID})
+	if err != nil {
+		return err
+	}
+	outstanding := 0.0
+	for _, inv := range invoices {
+		if inv.Status == domain.SInvCancelled {
+			continue
+		}
+		outstanding += inv.BalanceDue
+	}
+	if outstanding+newAmount > cust.CreditLimit {
+		return domain.ErrCreditLimitExceeded
+	}
+	return nil
+}
+
 func (s *SaleService) CreateSO(ctx context.Context, so *domain.SalesOrder) error {
 	if err := so.Validate(); err != nil {
 		return err
@@ -141,6 +166,9 @@ func (s *SaleService) ApproveSO(ctx context.Context, id, approvedBy string) erro
 	}
 	if so.Status != domain.SODraft {
 		return domain.ErrSOAlreadyApproved
+	}
+	if err := s.checkCreditLimit(ctx, so.CustomerID, so.TotalAmount); err != nil {
+		return err
 	}
 	return s.soRepo.ApproveSO(ctx, id, approvedBy, s.now())
 }
@@ -255,6 +283,9 @@ func (s *SaleService) CreateInvoice(ctx context.Context, inv *domain.CustomerInv
 		inv.Status = domain.SInvDraft
 	}
 	inv.CalculateTotals()
+	if err := s.checkCreditLimit(ctx, inv.CustomerID, inv.TotalAmount); err != nil {
+		return err
+	}
 	inv.CreatedAt = s.now()
 	return s.invRepo.CreateInvoice(ctx, inv)
 }

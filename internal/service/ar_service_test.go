@@ -217,3 +217,156 @@ func TestGetCustomerStatement(t *testing.T) {
 	assert.Equal(t, 400.0, lastLine.Balance) // 220 + 330 - 150 = 400
 	assert.InDelta(t, 400, stmt.ClosingBal, 0.001)
 }
+
+func TestCreditLimit_BlocksInvoiceOverLimit(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID:   "c1",
+		Code:        "CRED01",
+		Name:        "CreditCo",
+		TaxCode:     "999",
+		CreditLimit: 500,
+		Currency:    "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	// invoice within limit (300 < 500) — should pass
+	inv1 := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-CR-1",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "CreditCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "item", Quantity: 1, UnitPrice: 300,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "test-user",
+	}
+	err = svc.CreateInvoice(ctx, inv1)
+	require.NoError(t, err)
+
+	// second invoice would push total to 700 > 500 — should block
+	inv2 := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-CR-2",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "CreditCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "item", Quantity: 1, UnitPrice: 400,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "test-user",
+	}
+	err = svc.CreateInvoice(ctx, inv2)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrCreditLimitExceeded)
+}
+
+func TestCreditLimit_AllowsInvoiceAtLimit(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "CRED02", Name: "EdgeCo",
+		TaxCode: "999", CreditLimit: 250, Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	// existing invoice: 150
+	inv1 := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-EDGE-1",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "EdgeCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "a", Quantity: 1, UnitPrice: 150,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv1)
+	require.NoError(t, err)
+
+	// second invoice: 100, total = 250, exactly at limit — should pass
+	inv2 := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-EDGE-2",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "EdgeCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "b", Quantity: 1, UnitPrice: 100,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv2)
+	require.NoError(t, err)
+}
+
+func TestCreditLimit_BlocksSOApproveOverLimit(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "CRED03", Name: "SOCo",
+		TaxCode: "999", CreditLimit: 200, Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	// existing invoice: 150
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-SO-OVR",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "SOCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "a", Quantity: 1, UnitPrice: 150,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+
+	// SO for 100 would make total 250 > 200 — block
+	so := &domain.SalesOrder{
+		CompanyID: "c1", SONumber: "SO-CR-1",
+		OrderDate: time.Now(), CustomerID: cust.ID,
+		Currency: "VND", Status: domain.SODraft,
+		Lines: []domain.SOLine{{ItemName: "svc", Quantity: 1, UnitPrice: 100}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateSO(ctx, so)
+	require.NoError(t, err)
+
+	err = svc.ApproveSO(ctx, so.ID, "approver")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrCreditLimitExceeded)
+}
+
+func TestCreditLimit_NoLimitMeansNoCheck(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+
+	cust := &domain.Customer{
+		CompanyID: "c1", Code: "CRED04", Name: "NoLimitCo",
+		TaxCode: "999", CreditLimit: 0, Currency: "VND",
+	}
+	err := svc.CreateCustomer(ctx, cust)
+	require.NoError(t, err)
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-NOLIMIT",
+		InvoiceDate: time.Now(), CustomerID: cust.ID,
+		CustomerName: "NoLimitCo", CustomerTaxCode: "999",
+		CustomerAddress: "addr", InvoiceType: "domestic",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{ItemName: "big", Quantity: 1, UnitPrice: 999999,
+			RevenueAccount: "5111", VATRate: 0, VATType: "NON_TAX",
+			VATAccountID: "3331"}},
+		CreatedBy: "user",
+	}
+	err = svc.CreateInvoice(ctx, inv)
+	require.NoError(t, err)
+}

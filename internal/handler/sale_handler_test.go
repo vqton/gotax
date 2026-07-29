@@ -573,3 +573,28 @@ func TestSaleCrossTenant_GetSQ(t *testing.T) {
 	w = getJSON(ts, "/api/v1/sale/quotations/"+sq.ID+"?company_id=OTHER")
 	assert.Equal(t, 404, w.Code)
 }
+
+func TestGetCustomerStatement(t *testing.T) {
+	ts := setupSale(t)
+
+	// post an invoice to have AR activity
+	invBody := fmt.Sprintf(`{"company_id":"CMP001","invoice_number":"STMT-INV","customer_id":"%s","customer_name":"Test Customer","customer_tax_code":"1234567890","customer_address":"addr","invoice_type":"domestic","currency":"VND","invoice_date":"%s","lines":[{"item_name":"svc","quantity":1,"unit_price":200,"vat_rate":10,"vat_type":"VAT_10","revenue_account_id":"5111"}]}`,
+		ts.cust.ID, time.Now().Add(-48*time.Hour).Format(time.RFC3339))
+	w := postJSON(ts, "/api/v1/sale/invoices?company_id=CMP001", invBody)
+	assert.Equal(t, 201, w.Code)
+	var inv domain.CustomerInvoice
+	json.Unmarshal(w.Body.Bytes(), &inv)
+
+	// post the invoice
+	w = patchJSON(ts, "/api/v1/sale/invoices/"+inv.ID+"/post?company_id=CMP001", "")
+	assert.Equal(t, 200, w.Code)
+
+	// get statement
+	w = getJSON(ts, "/api/v1/sale/ar/statement?customer_id="+ts.cust.ID+"&company_id=CMP001")
+	assert.Equal(t, 200, w.Code)
+	var stmt domain.CustomerStatement
+	err := json.Unmarshal(w.Body.Bytes(), &stmt)
+	require.NoError(t, err)
+	assert.Equal(t, ts.cust.ID, stmt.Customer.ID)
+	assert.Equal(t, 220.0, stmt.ClosingBal) // 200 + 20 VAT = 220
+}

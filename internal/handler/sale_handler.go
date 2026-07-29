@@ -77,6 +77,7 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 		{
 			ar.GET("/aging", h.GetARAgingReport)
 			ar.GET("/summary", h.GetARSummary)
+			ar.GET("/statement", h.GetCustomerStatement)
 		}
 		quotations := sale.Group("/quotations")
 		{
@@ -672,6 +673,18 @@ func (h *SaleHandler) GetARSummary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, summary)
+}
+
+func (h *SaleHandler) GetCustomerStatement(c *gin.Context) {
+	customerID := c.Query("customer_id")
+	fromDate := c.DefaultQuery("from_date", "")
+	toDate := c.DefaultQuery("to_date", "")
+	stmt, err := h.svc.GetCustomerStatement(c.Request.Context(), customerID, fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, stmt)
 }
 
 // ─── Sales Quotation ───────────────────────────────────────────────────
