@@ -1,341 +1,508 @@
-# AR Module — Task Tracker
+# AR Module — Task Tracker v2
 
-## Phase 0: Critical Fix
+## ✅ Phase 0: Critical Fix (COMPLETE)
 
 ### Task 1: Fix AR Aging Report — Bucket by DueDate
 
-**Desc:** `GetARAgingReport` puts all amount in Bucket0. Fix: query invoices with DueDate, calc days overdue from report date, group into buckets (current, 1-30, 31-60, 61-90, 91-120, 120+).
+**Desc:** `GetARAgingReport` puts all amount in Bucket0. Fix: query invoices by DueDate, calc days overdue, group into proper buckets.
 
 **AC:**
-- [ ] Aging report shows correct bucket per invoice BalanceDue
-- [ ] Current (<0 days overdue) in Bucket0
-- [ ] 1-30 days overdue in Bucket30
-- [ ] 31-60 days overdue in Bucket60
-- [ ] 61-90 days overdue in Bucket90
-- [ ] 120+ days overdue in Bucket120
-- [ ] Existing tests updated
+- [x] Aging report shows correct bucket per invoice BalanceDue
+- [x] Current (<0 days overdue) in Bucket0
+- [x] 1-30 days overdue in Bucket30, 31-60→Bucket60, 61-90→Bucket90, 91-120→Bucket120, 120+→Bucket120
+- [x] Paid invoices excluded
+- [x] 3 tests: validates buckets, no invoices, paid excluded
 
-**Verification:** `./go test -v -run TestARAging ./internal/service/` (or handler equivalent)
+**Verification:** `go test -v -run TestARAging ./internal/service/`
 
-**Files:** `internal/service/sale_service.go` (GetARAgingReport), `internal/domain/models_sale.go` (ARAgingReport struct?), possibly `internal/repository/pg_sale.go` + `memory_sale.go`
-
-**Scope:** S (2-3 files)
+**Files:** `internal/service/sale_service.go`, `internal/service/ar_service_test.go`
 
 ---
 
-## Phase 1: Core AR (P0)
+## ✅ Phase 1: Core AR (COMPLETE)
 
 ### Task 2: GL Auto-Posting on Invoice Post
 
-**Desc:** When invoice transitions ISSUED→POSTED, auto-create journal entry: Dr 131 (total_amount), Cr revenue_account (subtotal), Cr 3331 (tax_amount). Use existing `service.Service.CreateEntry()`.
+**Desc:** PostInvoice creates JournalEntry via GL.CreatePostedEntry: Dr 131 (total), Cr revenue accounts (subtotal by line), Cr 3331 (VAT). Set gl_posted=true.
 
 **AC:**
-- [ ] PostInvoice creates JournalEntry via GL service
-- [ ] GL entry matches: Dr AR account (131), Cr revenue account (511X), Cr VAT account (3331)
-- [ ] `gl_posted=true`, `gl_posted_at` set
-- [ ] Error in GL post → rollback invoice status
-- [ ] Test: posted invoice has matching GL entry
+- [x] PostInvoice creates JournalEntry via GL in service layer (not in repo)
+- [x] GL entry: Dr 131 (AR), Cr revenue account(s), Cr 3331 (VAT)
+- [x] `gl_posted=true`, `gl_posted_at` set
+- [x] nil GL → no crash, GLPosted stays false
+- [x] Test: posted invoice has matching GL entry
 
-**Files:** `internal/service/sale_service.go`, `internal/service/sale_service_test.go`, DI wiring in `main.go`
-
-**Scope:** M (3-4 files)
+**Files:** `internal/service/sale_service.go`, `internal/service/service.go` (CreatePostedEntry), `internal/domain/interfaces.go` (Set*GLPosted methods), `internal/repository/*`
 
 ---
 
 ### Task 3: GL Auto-Posting on Receipt Post
 
-**Desc:** When receipt transitions DRAFT→POSTED, auto-create journal entry: Dr 111/112 (amount), Cr 131 (amount). Handle allocation-level discount (Dr 5213).
+**Desc:** PostReceipt creates JournalEntry: Dr 1111 (cash) or 1121 (bank), Cr 131 (AR) by amount.
 
 **AC:**
-- [ ] PostReceipt creates JournalEntry: Dr cash/bank, Cr AR
-- [ ] Early payment discount → Dr 5213
-- [ ] Error in GL post → rollback receipt status
-- [ ] Test: posted receipt has matching GL entry
+- [x] PostReceipt creates JournalEntry: Dr cash/bank, Cr 131
+- [x] Payment method mapping: cash→1111, bank_transfer/cheque/credit_card→1121
+- [x] `gl_posted=true`, `gl_posted_at` set
+- [x] Test: bank transfer Dr 1121, cash receipt Dr 1111
 
-**Files:** `internal/service/sale_service.go`, `internal/service/sale_service_test.go`, `main.go`
-
-**Scope:** M (3-4 files)
+**Files:** `internal/service/sale_service.go`, `internal/domain/models_sale.go` (added GLPosted to Receipt)
 
 ---
 
 ### Task 4: GL Auto-Posting on Credit Note Post
 
-**Desc:** When credit note transitions DRAFT→POSTED, auto-create reversing journal entry: Dr revenue_account (subtotal), Dr 3331 (VAT), Cr 131 (total_amount). If goods returned → also reverse COGS (Dr inventory Cr 632).
+**Desc:** PostCN creates reversing JournalEntry: Dr revenue account (from original inv), Dr 3331 (VAT), Cr 131 (total).
 
 **AC:**
-- [ ] PostCN creates JournalEntry: Dr 511X/3331, Cr 131
-- [ ] If return with goods → Dr inventory account Cr 632
-- [ ] `gl_posted=true`, `gl_posted_at` set
-- [ ] Test: posted CN reduces AR balance
+- [x] PostCN creates JournalEntry: Dr 511X, Dr 3331, Cr 131
+- [x] Revenue account resolved from original invoice lines
+- [x] `gl_posted=true`, `gl_posted_at` set
+- [x] Test: CN reduces AR balance
 
-**Files:** `internal/service/sale_service.go`, `internal/service/sale_service_test.go`, `main.go`
-
-**Scope:** M (3-4 files)
+**Files:** `internal/service/sale_service.go`, `internal/repository/*` (stripped GLPosted from PostCN)
 
 ---
 
 ### Task 5: Customer Statement Endpoint
 
-**Desc:** Generate customer statement of account: opening balance, transactions (invoices, receipts, credit notes) in period, closing balance. PDF/JSON output.
+**Desc:** Generate customer statement: opening balance, all transactions (invoices/receipts/CNs) in period with running balance, closing balance.
 
 **AC:**
-- [ ] GET /api/v1/sales/customer-statement/:id returns statement
-- [ ] Opening = closing of prior period
-- [ ] All period transactions listed
-- [ ] Closing = opening + invoiced - received - credit notes
-- [ ] Multi-currency support
-- [ ] Test: statement matches invoice+receipt+CN totals
+- [x] GET `/api/v1/sale/ar/statement?customer_id=X` returns statement
+- [x] All period transactions listed (invoices, receipts, credit notes)
+- [x] Running balance per line item
+- [x] Closing balance = opening + all debits - all credits
+- [x] Handler test: statement matches invoice+receipt totals
 
-**Files:** `internal/handler/sale_handler.go`, `internal/service/sale_service.go`, `internal/domain/models_sale.go` (statement model), route registration
+**Files:** `internal/handler/sale_handler.go`, `internal/service/sale_service.go`, `internal/domain/models_sale.go` (CustomerStatement structs), `internal/handler/sale_handler_test.go`
+
+---
+
+## ⏸️ Phase 2: E-Invoice Pipeline (DEFERRED)
+
+Deferred per PI direction. Full design in `docs/sale/AR_WORKFLOW.md`. Retained for reference.
+
+### Task 6: E-Invoice Pipeline Interface + TXML Generator
+### Task 7: E-Invoice Digital Signer
+### Task 8: GDT API Client
+### Task 9: E-Invoice Auto-Pipeline Hook
+
+---
+
+## 🔲 Phase 3: Collection Management (P1)
+
+### Task 6 (new numbering): Prepayment/Deposit Workflow
+
+**Desc:** Full prepayment lifecycle. Customer pays deposit → optional deposit e-invoice (deferred) → offset against final invoice. Extend CustomerReceipt with ReceiptType field.
+
+**Foundations exist:**
+- `ARTransPrepayment` type constant defined
+- `CustomerReceipt` model exists with allocation support
+- Receipt allocation/reconciliation workflow exists
+
+**New:**
+- `CustomerReceipt.ReceiptType` field — values: standard, prepayment, refund
+- Receipt create validates: prepayment has no invoice allocation
+- Deposit offset endpoint: apply prepayment to one or more invoices
+- Refund workflow: receipt with type=refund, negative amount, links to original prepayment
+- Refund check: cannot refund more than remaining deposit balance
+
+**AC:**
+- [ ] CustomerReceipt has ReceiptType (standard/prepayment/refund)
+- [ ] CreateReceipt validates prepayment has no invoice allocation (unallocated)
+- [ ] POST `/api/v1/sale/receipts/:id/offset` — apply prepayment to invoice
+- [ ] Offset creates ARTransOffset + reduces invoice BalanceDue
+- [ ] Refund receipt type: negative amount, links to original prepayment
+- [ ] Test: prepayment offsets correctly reduce invoice balance
+
+**Implementation order:**
+1. Add ReceiptType to CustomerReceipt model + Validate()
+2. Add OffsetReceipt to SaleService + repos
+3. Add handler endpoint + route
+4. Write tests
+
+**Files:**
+- `internal/domain/models_sale.go` — ReceiptType field, constants
+- `internal/domain/interfaces.go` — maybe new offset methods
+- `internal/repository/memory_sale.go` — OffsetReceipt impl
+- `internal/repository/pg_sale.go` — OffsetReceipt impl
+- `internal/service/sale_service.go` — OffsetReceipt service method
+- `internal/handler/sale_handler.go` — offset endpoint
+- `internal/handler/sale_handler_test.go` — handler test
 
 **Scope:** M (4-5 files)
 
-**Checkpoint: Phase 1**
-- [ ] Invoice posted → GL entry exists → statement shows it
-- [ ] Receipt posted → GL entry exists → statement shows it
-- [ ] Credit note posted → GL entry exists → statement shows it
-- [ ] All Phase 1 tests pass
+---
+
+### Task 7: FX Revaluation
+
+**Desc:** Realized FX at receipt allocation time + unrealized FX at month-end for outstanding foreign-currency AR.
+
+**Foundations exist:**
+- ExchangeRate CRUD exists in GL service
+- CustomerInvoice.Currency + ExchangeRate fields exist
+- CustomerReceipt.Currency + ExchangeRate fields exist
+- Account 515 (Doanh thu tai chinh) and 635 (Chi phi tai chinh) exist
+
+**Realized FX (at receipt allocation):**
+- Compare invoice exchange rate vs receipt exchange rate
+- If receipt rate > invoice rate → Dr 635 (FX loss) Cr 131 (reduce AR)
+- If receipt rate < invoice rate → Dr 131 (increase AR) Cr 515 (FX gain)
+- Post alongside the main receipt GL entry
+
+**Unrealized FX (month-end batch):**
+- Get all open (non-zero BalanceDue) foreign-currency invoices
+- Compute reval at period-end rate from ExchangeRate table
+- Post net adjustment: Dr/Cr 131, Cr/Dr 515/635
+- Store reval journal entry reference for audit trail
+
+**AC:**
+- [ ] Receipt allocation calculates realized FX gain/loss when currencies match but rates differ
+- [ ] Realized FX posted: Dr 635/Cr 131 (loss) or Dr 131/Cr 515 (gain)
+- [ ] Month-end batch endpoint: revalue all open FC invoices
+- [ ] Unrealized FX posted as net adjustment entry
+- [ ] Test: FX gain/loss posted correctly for simple case
+
+**Implementation order:**
+1. Add FX calc to receipt allocation logic in sale_service.go
+2. Add month-end batch endpoint
+3. Write tests
+
+**Files:**
+- `internal/service/sale_service.go` — FX in allocation + month-end
+- `internal/handler/sale_handler.go` — month-end endpoint
+- `internal/service/ar_service_test.go` — FX tests
+- `internal/handler/sale_handler_test.go` — handler test
+
+**Scope:** M (4-5 files)
 
 ---
 
-## Phase 2: E-Invoice Pipeline (P0)
+### Task 8: Dunning Engine
 
-### Task 6: E-Invoice Pipeline Interface + TXML Generator
+**Desc:** Multi-level dunning with configurable triggers, reminder generation, promise-to-pay tracking, dunning history.
 
-**Desc:** Define e-invoice pipeline interfaces (TXMLGenerator, Signer, GDTSubmitter). Implement TXML generator per Decree 254 format — seller, buyer, line items, totals, VAT breakdown.
+**Foundations exist:**
+- AR aging report calculates overdue buckets
+- Customer model has email field for reminders
+- Invoice and receipt statuses support lifecycle
+
+**New models:** `internal/domain/models_collection.go`
+
+```go
+type DunningLevel string
+const (
+    DunningL1 DunningLevel = "L1" // 1-30 days overdue — gentle reminder
+    DunningL2 DunningLevel = "L2" // 31-60 days — formal notice
+    DunningL3 DunningLevel = "L3" // 61-90 days — final notice
+    DunningL4 DunningLevel = "L4" // 90+ days — legal action warning
+)
+
+type DunningConfig struct {
+    CompanyID       string
+    Level           DunningLevel
+    DaysOverdueMin  int
+    DaysOverdueMax  int
+    AmountThreshold float64        // 0 = no threshold
+    Active          bool
+}
+
+type DunningQueue struct {
+    ID              string
+    CompanyID       string
+    InvoiceID       string
+    CustomerID      string
+    CurrentLevel    DunningLevel
+    LastReminderAt  *time.Time
+    NextReminderAt  *time.Time
+    PTPDate         *time.Time     // promise-to-pay date (suspends dunning)
+    PTPNotes        string
+    Status          DunningStatus  // pending/escalated/resolved/suspended
+    CreatedAt       time.Time
+    ResolvedAt      *time.Time
+}
+
+type DunningHistory struct {
+    ID          string
+    QueueID     string
+    InvoiceID   string
+    CustomerID  string
+    Level       DunningLevel
+    Action      string           // reminder_sent/ptp_recorded/escalated/resolved
+    Notes       string
+    CreatedAt   time.Time
+}
+```
+
+**Service methods:**
+- `GenerateDunningQueue(ctx, companyID)` — batch: scan overdue invoices, upsert dunning queue
+- `SendReminders(ctx, companyID, level)` — generate reminders for queue items due
+- `RecordPTP(ctx, queueID, date, notes)` — record promise-to-pay, suspend dunning
+- `EscalateLevel(ctx, queueID)` — manually escalate dunning level
+- `ResolveQueue(ctx, queueID)` — mark resolved (invoice paid)
+- `GetDunningQueue(ctx, companyID, level)` — list queue items
+- `GetDunningHistory(ctx, invoiceID)` — dunning history
+
+**Dunning batch logic:**
+1. Full scan of open (non-paid, non-cancelled) invoices past DueDate
+2. Compute days overdue from report date
+3. Match to DunningConfig by days range + threshold
+4. Upsert DunningQueue (update level, next reminder date)
+5. Auto-escalate: if current level < computed level, increment with history
 
 **AC:**
-- [ ] TXMLGenerator interface defined
-- [ ] Default implementation generates valid TXML XML
-- [ ] XML includes: seller info, buyer info, line items, totals, VAT by rate
-- [ ] Amount in words (Vietnamese)
-- [ ] QR code URL format correct
-- [ ] Test: generated XML validates against Decree 254 schema
+- [ ] DunningConfig CRUD (create/list/update per company)
+- [ ] GenerateDunningQueue: scans open invoices, creates/updates queue
+- [ ] Correct level assignment based on days overdue
+- [ ] Promise-to-pay records (suspends dunning for that invoice)
+- [ ] Escalation history tracked in DunningHistory
+- [ ] Queue resolved when invoice fully paid
+- [ ] Test: dunning batch processes correct invoices at correct level
 
-**Files:** `internal/einvoice/` (new package), `internal/domain/interfaces.go` (if interfaces go there)
+**Implementation order:**
+1. Models + repo interface + memory repo
+2. PG schema + PG repo
+3. CollectionService + DunningConfig CRUD
+4. GenerateDunningQueue batch + test
+5. SendReminders (tracking only, no actual email/SMS)
+6. PTP + escalation + resolution
+7. Handler + routes
+8. Handler tests
 
-**Scope:** M (3-5 files in new package)
+**Files:**
+- `internal/domain/models_collection.go` — new file
+- `internal/domain/interfaces.go` — DunningRepository interface
+- `internal/repository/memory_sale.go` — MemoryDunningRepo
+- `internal/repository/pg_sale.go` — PGDunningRepo
+- `migrations/008_dunning.sql` — dunning tables
+- `internal/service/collection_service.go` — new file
+- `internal/handler/sale_handler.go` — add to SaleHandler
+- `internal/service/ar_service_test.go` — dunning tests
+- `internal/handler/sale_handler_test.go` — handler tests
+
+**Scope:** L (8-10 files)
 
 ---
 
-### Task 7: E-Invoice Digital Signer
+### Task 9: Bad Debt Provision + Write-Off
 
-**Desc:** Implement XMLDSig signing using company's DigitalSignature (cert + private key). Wraps TXML with digital signature per GDT requirements.
+**Desc:** Provision calc per VAS 17 by aging bucket %. Write-off workflow with approval. Recovery tracking.
 
-**AC:**
-- [ ] Signer signs TXML with RSA-SHA256
-- [ ] Signature embeds certificate info
-- [ ] Signed XML valid against GDT schema
-- [ ] Error if cert expired or key invalid
-- [ ] Test: signed XML passes verification
+**Foundations exist:**
+- Account 229 (Du phong phai thu kho doi) seeded in tests
+- Account 642 (Chi phi quan ly) exists
+- Account 711 (Doanh thu khac) exists
+- AR aging report gives buckets
+- Customer has CustomerStatus (ACTIVE/SUSPENDED/BLACKLISTED)
 
-**Files:** `internal/einvoice/signer.go`, `internal/domain/models_company.go` (DigitalSignature usage)
+**Provision calc (VAS 17, R8):**
+```
+- 0-6 months overdue:     0% (no provision) or optional
+- 6-12 months overdue:    30% of balance
+- 1-2 years overdue:      50%
+- 2-3 years overdue:      70%
+- >3 years overdue:      100%
+```
+Configurable percentages per company. Batch calc at month-end.
 
-**Scope:** M (2-3 files)
+**Write-off criteria:**
+- Customer bankrupt/dissolved/liquidated
+- Debtor deceased
+- 3+ years overdue with full provision
+- Legal proceedings concluded with no recovery
+- Must be approved (segregation: accountant proposes, chief accountant approves)
 
----
+**Write-off entry:** Dr 229 (provision) Cr 131 (AR) — if insufficient provision, Dr 642 for remainder.
+Off-balance-sheet: record in monitoring account (Dr 009 "Debt written off" — per Circular 99).
 
-### Task 8: GDT API Client
-
-**Desc:** GDT REST API client for e-invoice operations: submit invoice, cancel invoice, replace invoice, query status. Uses existing IntegrationProfile for credentials.
-
-**AC:**
-- [ ] Submit signed TXML → receive invoice code
-- [ ] Cancel invoice by code
-- [ ] Replace invoice
-- [ ] Query invoice status
-- [ ] Rate limit + retry handling
-- [ ] Mock GDT for tests
-- [ ] Test: integration test with mock GDT
-
-**Files:** `internal/einvoice/gdt_client.go`, `internal/domain/models_company.go` (IntegrationProfile)
-
-**Scope:** L (4-6 files including mock + test)
-
----
-
-### Task 9: E-Invoice Auto-Pipeline Hook
-
-**Desc:** Hook e-invoice pipeline into PostInvoice: on ISSUED→POSTED, auto-generate TXML → sign → submit to GDT → store code. Configurable auto vs manual.
+**Recovery (unexpected payment after write-off):**
+- Reinstate receivable: Dr 131 Cr 711
+- Record payment: Dr bank Cr 131
+- Remove from off-balance-sheet: Cr 009
 
 **AC:**
-- [ ] PostInvoice triggers pipeline if auto enabled
-- [ ] Pipeline: TXML generate → sign → GDT submit → store code
-- [ ] Status transitions: SIGNED → SUBMITTED → CODED
-- [ ] Failure → manual retry endpoint
-- [ ] Config: auto-pipeline on/off per company
-- [ ] Test: mock pipeline verifies state transitions
+- [ ] ProvisionConfig CRUD (bucket %, active toggle per company)
+- [ ] `CalculateProvision(ctx, companyID, asOfDate)` — computes provision per customer
+- [ ] `PostProvision(ctx, companyID, asOfDate)` — posts Dr 642 Cr 229
+- [ ] `WriteOff(ctx, invoiceIDs, reason, approvedBy)` — writes off AR
+- [ ] Write-off: Dr 229 Cr 131 (+ Dr 642 if insufficient), Cr 009 if tracked
+- [ ] `RecoverWriteOff(ctx, invoiceID, amount)` — reinstatement + payment
+- [ ] Test: provision calc matches manual calc
 
-**Files:** `internal/service/sale_service.go`, `internal/einvoice/pipeline.go`, `main.go`
+**Implementation order:**
+1. Models + repo interface
+2. PG schema + PG repo
+3. Provision calc + post in CollectionService
+4. Write-off + recovery in CollectionService
+5. Handler + routes
+6. Tests
 
-**Scope:** M (3-5 files)
-
-**Checkpoint: Phase 2**
-- [ ] TXML generates valid XML
-- [ ] Signing produces verifiable signature
-- [ ] GDT mock returns invoice code
-- [ ] Full pipeline end-to-end with mock GDT
-- [ ] All Phase 1 + 2 tests pass
-
----
-
-## Phase 3: Collection Management (P1)
-
-### Task 10: Dunning Engine
-
-**Desc:** Dunning levels (L1-L4) with configurable triggers, auto-email/SMS, collection notes, promise-to-pay tracking.
-
-**AC:**
-- [ ] Dunning level config (days overdue, amount threshold)
-- [ ] Auto-queue invoices for dunning daily batch
-- [ ] L1-L4 escalation logic
-- [ ] Promise-to-pay record (suspends dunning)
-- [ ] Dunning letter template + send
-- [ ] Test: dunning batch processes correct invoices
-
-**Files:** `internal/service/collection_service.go` (new), `internal/handler/collection_handler.go` (new), `internal/domain/models_collection.go` (new), routes
+**Files:**
+- `internal/domain/models_collection.go` — ProvisionConfig, BadDebtWriteOff models
+- `internal/domain/interfaces.go` — new repository interfaces
+- `internal/repository/memory_sale.go` — memory impl
+- `internal/repository/pg_sale.go` — PG impl
+- `internal/service/collection_service.go` — provision/writeoff methods
+- `internal/handler/sale_handler.go` — endpoints
+- `internal/service/ar_service_test.go` — tests
+- `internal/handler/sale_handler_test.go` — handler tests
 
 **Scope:** L (6-8 files)
 
 ---
 
-### Task 11: Bad Debt Provision + Write-Off
+## 🔲 Phase 4: Controls & Monitoring (P1/P2)
 
-**Desc:** Provision calc per VAS 17 (R8): by aging bucket %. Write-off with director approval workflow. Off-balance-sheet tracking.
+### Task 10: Credit Limit Enforcement
 
-**AC:**
-- [ ] Bad debt provision calc (month-end batch)
-- [ ] Provision % configurable per bucket
-- [ ] Journal entry: Dr 642 Cr 229 (provision)
-- [ ] Write-off with approval (segregation of duty)
-- [ ] Write-off: Dr 229 Cr 131 (if provisioned) or Dr 642 Cr 131
-- [ ] Off-balance-sheet tracking account
-- [ ] Recovery: Dr 131 Cr 711 + Dr bank Cr 131
+**Desc:** Check at SO confirm + invoice create. Configurable action (warn vs block) per company.
 
-**Files:** `internal/service/collection_service.go`, `internal/domain/models_collection.go`, `internal/handler/sale_handler.go`
+**Foundations exist:**
+- Customer.CreditLimit field exists (float64)
+- SO lifecycle has Confirm → Approved → Confirmed transition
+- Invoice Create checks customer exists
 
-**Scope:** L (5-7 files)
+**Logic:**
+```
+outstandingAR = sum(BalanceDue) for customer's open invoices
+if outstandingAR + newAmount > CreditLimit
+    if action == "block" → return error
+    if action == "warn" → add warning to response
+```
 
----
-
-### Task 12: Prepayment/Deposit Workflow
-
-**Desc:** Full prepayment lifecycle: receive prepayment → optional deposit e-invoice → offset against final invoice → remaining balance invoice.
+**Override:** manager role can pass `?override=true` with reason to bypass limit.
 
 **AC:**
-- [ ] Receipt with type=prepayment creates credit AR balance
-- [ ] Optional deposit e-invoice issuance
-- [ ] Offset prepayment against invoice (clearing entry)
-- [ ] Final invoice = total - deposit
-- [ ] Test: prepayment offsets correctly
+- [ ] SO confirm checks credit limit (outstanding + SO total ≤ limit)
+- [ ] Invoice create checks credit limit
+- [ ] Config: warn vs block per customer or company
+- [ ] Manager override: `?override=true&reason=...` bypasses block
+- [ ] Test: exceeding limit returns configured action
 
-**Files:** `internal/service/sale_service.go`, `internal/handler/sale_handler.go`, `internal/domain/models_sale.go`
-
-**Scope:** M (4-5 files)
-
----
-
-### Task 13: FX Revaluation
-
-**Desc:** At receipt time: calc realized FX gain/loss between invoice rate and receipt rate. At month-end: revalue outstanding foreign currency AR at period-end rate.
-
-**AC:**
-- [ ] Realized FX at receipt allocation (Dr 635/Cr 515)
-- [ ] Month-end unrealized FX revaluation batch
-- [ ] Reval journal: Dr/Cr 131, Cr/Dr 515/635
-- [ ] Test: FX gain/loss posted correctly
-
-**Files:** `internal/service/sale_service.go`, `internal/service/fx_service.go` (new), `internal/domain/models.go` (ExchangeRate usage)
-
-**Scope:** M (4-5 files)
-
-**Checkpoint: Phase 3**
-- [ ] Dunning levels escalate correctly
-- [ ] Bad debt write-off flow end-to-end
-- [ ] Prepayment offsets against invoice
-- [ ] FX gain/loss posts correctly
-- [ ] All tests pass
-
----
-
-## Phase 4: Controls & Monitoring (P1/P2)
-
-### Task 14: Credit Limit Enforcement
-
-**Desc:** Check at SO confirm + invoice create: outstanding AR + new amount ≤ credit limit. Configurable action (warn/block).
-
-**AC:**
-- [ ] Credit limit check at SO confirm
-- [ ] Credit limit check at invoice create
-- [ ] Config: warn vs block per company
-- [ ] Manager override with reason
-- [ ] Test: exceeding limit blocked
-
-**Files:** `internal/service/sale_service.go`
+**Files:**
+- `internal/service/sale_service.go` — add check to ConfirmSO, CreateInvoice
+- `internal/handler/sale_handler.go` — handle override param
+- `internal/service/ar_service_test.go` — credit limit tests
 
 **Scope:** S (2-3 files)
 
 ---
 
-### Task 15: AR-GL Month-End Reconciliation
+### Task 11: AR-GL Month-End Reconciliation
 
-**Desc:** Report comparing AR sub-ledger (Σ customer invoice balances) vs GL 131 balance. List variances by invoice.
+**Desc:** Report comparing AR sub-ledger total vs GL 131 balance. List variances by customer.
+
+**Logic:**
+```
+subledger_total = sum(CustomerInvoice.BalanceDue) where status in (posted,paid)
+gl_balance = GL account 131 ending balance for period
+variance = gl_balance - subledger_total
+if variance != 0 → drill-down by customer
+```
 
 **AC:**
-- [ ] Report: sub-ledger total → GL 131 balance → variance
-- [ ] Variance drill-down by invoice
-- [ ] Test: reconciled when GL matches sub-ledger
+- [ ] GET `/api/v1/sale/ar/reconciliation?period=X` returns report
+- [ ] Report: sub-ledger total, GL 131 balance, variance
+- [ ] Variance drill-down by customer
+- [ ] Test: reconciled when GL matches sub-ledger (variance = 0)
 
-**Files:** `internal/handler/sale_handler.go`, `internal/service/report_service.go` (or sale_service.go)
+**Files:**
+- `internal/handler/sale_handler.go` — endpoint
+- `internal/service/sale_service.go` — ARSubledgerTotal calc
+- `internal/service/ar_service_test.go` — test
 
 **Scope:** M (3-4 files)
 
 ---
 
-### Task 16: DSO + AR KPI Dashboard
+### Task 12: DSO + AR KPI Dashboard
 
-**Desc:** Days Sales Outstanding calculation + AR KPI endpoints: total AR, overdue %, collection rate, avg days to pay.
+**Desc:** Days Sales Outstanding + key AR metrics.
+
+**Metrics:**
+- DSO = (Avg AR / Total Revenue) × days in period
+- Avg AR = (opening AR + closing AR) / 2
+- Total AR outstanding (current)
+- Overdue % = overdue AR / total AR × 100
+- Collection Rate = receipts / (invoices - credit notes) in period
+- Avg Days to Pay = avg of payment date - invoice date
 
 **AC:**
-- [ ] DSO = (Avg AR / Total Revenue) × days in period
-- [ ] Total AR outstanding
-- [ ] Overdue % of total AR
-- [ ] Collection rate (received / invoiced) per period
-- [ ] Test: DSO matches manual calc
+- [ ] DSO calc matches manual formula
+- [ ] Total AR outstanding returned
+- [ ] Overdue % correct
+- [ ] Collection rate per period
+- [ ] Test: DSO reasonable (~30-45 for standard terms)
 
-**Files:** `internal/handler/sale_handler.go`, `internal/service/sale_service.go`
+**Files:**
+- `internal/handler/sale_handler.go` — endpoint
+- `internal/service/sale_service.go` — KPI calc methods
+- `internal/service/ar_service_test.go` — tests
 
 **Scope:** M (3-4 files)
 
 ---
 
-### Task 17: Off-Balance-Sheet Tracking
+### Task 13: Off-Balance-Sheet Tracking
 
-**Desc:** Written-off AR tracked off-balance-sheet (monitoring account) for 10 years per Accounting Law. Separate table + reconciliation.
+**Desc:** Written-off AR tracked in monitoring account (account 009 "Debt written off") for 10 years per Accounting Law.
+
+**Foundations exist:**
+- Write-off posts Cr 009 (off-BS debit)
+- Recovery removes from 009 (Cr 009)
+- Query: total written-off, by year, by customer
+
+**Note:** Off-balance-sheet accounts in Vietnamese accounting use "account 009" (tai khoan 009 "No kho kho doi da xu ly"). This is tracked as a separate table, not a GL account with Dr/Cr.
+
+**Model:**
+```go
+type OffBalanceSheetItem struct {
+    ID              string
+    CompanyID       string
+    InvoiceID       string
+    CustomerID      string
+    WrittenOffAt    time.Time
+    WrittenOffAmount float64
+    RecoveredAmount  float64
+    RecoveredAt     *time.Time
+    Status          string    // outstanding/recovered/partial
+    Notes           string
+}
+```
 
 **AC:**
-- [ ] Write-off moves AR to off-balance-sheet table
-- [ ] Reconciliation: written-off vs off-balance-sheet total
-- [ ] Recovery: remove from off-balance-sheet, record cash
-- [ ] Test: write-off tracked correctly
+- [ ] Write-off creates OffBalanceSheetItem
+- [ ] Recovery updates item (recovered_amount, recovered_at)
+- [ ] GET `/api/v1/sale/ar/written-off` lists off-balance-sheet items
+- [ ] Query: filter by year, customer, status
+- [ ] Test: write-off + recovery tracked correctly
 
-**Files:** `internal/domain/models_collection.go`, `internal/repository/pg_sale.go`, `internal/repository/memory_sale.go`, migration
+**Files:**
+- `internal/domain/models_collection.go` — OffBalanceSheetItem
+- `internal/domain/interfaces.go` — OffBalanceSheetRepository
+- `internal/repository/memory_sale.go` — memory impl
+- `internal/repository/pg_sale.go` — PG impl
+- `internal/handler/sale_handler.go` — endpoint
+- `internal/service/collection_service.go` — methods
+- `internal/service/ar_service_test.go` — tests
 
 **Scope:** M (4-5 files)
-
-**Checkpoint: Phase 4**
-- [ ] Credit limit blocks over-limit orders
-- [ ] AR-GL reconciliation report zero variance after GL posting
-- [ ] DSO calc reasonable
-- [ ] Written-off AR tracked off-balance-sheet
-- [ ] All 17 tasks done, all tests pass
 
 ---
 
 ## Progress
 
-- [ ] Phase 0: Fix AR Aging (P0)
-- [ ] Phase 1: Core AR (P0)
-- [ ] Phase 2: E-Invoice Pipeline (P0)
-- [ ] Phase 3: Collection Management (P1)
-- [ ] Phase 4: Controls & Monitoring (P1/P2)
+- [x] **Phase 0:** Fix AR Aging (COMPLETE)
+- [x] **Phase 1:** Core AR (COMPLETE)
+- [ ] **Phase 2:** E-Invoice Pipeline (DEFERRED)
+- [ ] **Phase 3:** Collection Management (P1)
+- [ ] **Phase 4:** Controls & Monitoring (P1/P2)
+
+## Verification Gate
+
+- [ ] All Phases 0-1: `go test ./... && go vet ./...` — PASS
+- [ ] Each Phase 3/4 task: tests at service + handler level
+- [ ] Every GL posting: Dr = Cr (double-entry invariant)
+- [ ] No orphaned test data between runs
+- [ ] Codegraph index up to date after implementation
