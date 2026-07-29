@@ -134,12 +134,7 @@ func (s *PurchaseService) ApprovePO(ctx context.Context, id, approvedBy string) 
 	if !po.Status.ValidTransition(domain.POStatusApproved) {
 		return domain.ErrPOInvalidTransition
 	}
-	now := s.now()
-	po.Status = domain.POStatusApproved
-	po.ApprovedBy = approvedBy
-	po.ApprovedAt = &now
-	po.UpdatedAt = now
-	return s.poRepo.UpdatePOStatus(ctx, id, domain.POStatusApproved)
+	return s.poRepo.ApprovePO(ctx, id, approvedBy, s.now())
 }
 
 func (s *PurchaseService) CancelPO(ctx context.Context, id, reason string) error {
@@ -150,10 +145,7 @@ func (s *PurchaseService) CancelPO(ctx context.Context, id, reason string) error
 	if !po.Status.ValidTransition(domain.POStatusCancelled) {
 		return domain.ErrPOInvalidTransition
 	}
-	po.Status = domain.POStatusCancelled
-	po.CancelledReason = reason
-	po.UpdatedAt = s.now()
-	return s.poRepo.UpdatePOStatus(ctx, id, domain.POStatusCancelled)
+	return s.poRepo.CancelPO(ctx, id, reason)
 }
 
 func (s *PurchaseService) ClosePO(ctx context.Context, id string) error {
@@ -399,10 +391,23 @@ func (s *PurchaseService) GetAPSummary(ctx context.Context, companyID string) ([
 	if err != nil {
 		return nil, err
 	}
+	supIDs := make([]string, 0, len(txns))
+	seen := make(map[string]bool)
+	for _, t := range txns {
+		if !seen[t.SupplierID] {
+			supIDs = append(supIDs, t.SupplierID)
+			seen[t.SupplierID] = true
+		}
+	}
+	allSuppliers, _ := s.supRepo.ListSuppliersByIDs(ctx, supIDs)
+	supMap := make(map[string]domain.Supplier, len(allSuppliers))
+	for i := range allSuppliers {
+		supMap[allSuppliers[i].ID] = allSuppliers[i]
+	}
 	m := make(map[string]*domain.APSummary)
 	for _, t := range txns {
-		sup, _ := s.supRepo.GetSupplier(ctx, t.SupplierID)
-		if sup == nil {
+		sup, ok := supMap[t.SupplierID]
+		if !ok {
 			continue
 		}
 		if _, ok := m[t.SupplierID]; !ok {

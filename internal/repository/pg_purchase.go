@@ -119,6 +119,23 @@ func (r *PGPurchaseRepo) DeleteSupplier(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *PGPurchaseRepo) ListSuppliersByIDs(ctx context.Context, ids []string) ([]domain.Supplier, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id, company_id, code, name, tax_code, address, phone, email, bank_account_name, bank_account_number, bank_name, payment_terms, credit_limit, currency, supplier_type, status, notes, created_at, updated_at FROM suppliers WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.Supplier, 0)
+	for rows.Next() {
+		var s domain.Supplier
+		if err := rows.Scan(&s.ID, &s.CompanyID, &s.Code, &s.Name, &s.TaxCode, &s.Address, &s.Phone, &s.Email, &s.BankAccountName, &s.BankAccountNumber, &s.BankName, &s.PaymentTerms, &s.CreditLimit, &s.Currency, &s.SupplierType, &s.Status, &s.Notes, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // ─── Purchase Order ──────────────────────────────────────────────────────
 
 func (r *PGPurchaseRepo) CreatePO(ctx context.Context, po *domain.PurchaseOrder) error {
@@ -253,6 +270,18 @@ func (r *PGPurchaseRepo) UpdatePO(ctx context.Context, po *domain.PurchaseOrder)
 
 func (r *PGPurchaseRepo) UpdatePOStatus(ctx context.Context, id string, status domain.POStatus) error {
 	_, err := r.pool.Exec(ctx, `UPDATE purchase_orders SET status=$1, updated_at=NOW() WHERE id=$2`, status, id)
+	return err
+}
+
+func (r *PGPurchaseRepo) ApprovePO(ctx context.Context, id string, approvedBy string, approvedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE purchase_orders SET status=$1, approved_by=$2, approved_at=$3, updated_at=NOW() WHERE id=$4`,
+		domain.POStatusApproved, approvedBy, approvedAt, id)
+	return err
+}
+
+func (r *PGPurchaseRepo) CancelPO(ctx context.Context, id string, cancelReason string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE purchase_orders SET status=$1, cancelled_reason=$2, updated_at=NOW() WHERE id=$3`,
+		domain.POStatusCancelled, cancelReason, id)
 	return err
 }
 

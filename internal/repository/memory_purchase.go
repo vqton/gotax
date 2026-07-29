@@ -162,6 +162,18 @@ func (r *MemoryPurchaseRepo) DeleteSupplier(_ context.Context, id string) error 
 	return nil
 }
 
+func (r *MemoryPurchaseRepo) ListSuppliersByIDs(_ context.Context, ids []string) ([]domain.Supplier, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]domain.Supplier, 0, len(ids))
+	for _, id := range ids {
+		if s, ok := r.suppliers[id]; ok {
+			out = append(out, *s)
+		}
+	}
+	return out, nil
+}
+
 // ─── Purchase Order ──────────────────────────────────────────────────────
 
 func (r *MemoryPurchaseRepo) CreatePO(_ context.Context, po *domain.PurchaseOrder) error {
@@ -286,6 +298,33 @@ func (r *MemoryPurchaseRepo) UpdatePOStatus(_ context.Context, id string, status
 		return domain.ErrPONotFound
 	}
 	po.Status = status
+	po.UpdatedAt = time.Now()
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) ApprovePO(_ context.Context, id string, approvedBy string, approvedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	po, ok := r.pos[id]
+	if !ok {
+		return domain.ErrPONotFound
+	}
+	po.Status = domain.POStatusApproved
+	po.ApprovedBy = approvedBy
+	po.ApprovedAt = &approvedAt
+	po.UpdatedAt = approvedAt
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) CancelPO(_ context.Context, id string, cancelReason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	po, ok := r.pos[id]
+	if !ok {
+		return domain.ErrPONotFound
+	}
+	po.Status = domain.POStatusCancelled
+	po.CancelledReason = cancelReason
 	po.UpdatedAt = time.Now()
 	return nil
 }

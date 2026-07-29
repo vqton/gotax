@@ -20,17 +20,25 @@ func NewPGOpeningBalanceRepo(pool *pgxpool.Pool) *PGOpeningBalanceRepo {
 
 func (r *PGOpeningBalanceRepo) Create(ctx context.Context, ob *domain.OpeningBalance) error {
 	if ob.ID == "" {
-		ob.ID = "OB" + time.Now().Format("20060102150405")
+		ob.ID = "OB" + time.Now().Format("20060102150405.000000000")
 	}
+	if ob.OriginalAmount == 0 {
+		if ob.DebitAmount > 0 {
+			ob.OriginalAmount = ob.DebitAmount
+		} else if ob.CreditAmount > 0 {
+			ob.OriginalAmount = ob.CreditAmount
+		}
+	}
+	now := time.Now()
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO opening_balances (id,company_id,period_id,fiscal_year_id,account_code,
 		 currency_code,original_amount,debit_amount,credit_amount,exchange_rate,status,source_type,
 		 batch_id,reason,created_by,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		ob.ID, ob.CompanyID, ob.PeriodID, nullStr(ob.FiscalYearID), ob.AccountCode,
 		ob.CurrencyCode, ob.OriginalAmount, ob.DebitAmount, ob.CreditAmount, nullF64(ob.ExchangeRate),
 		string(ob.Status), ob.SourceType, nullStr(ob.BatchID), nullStr(ob.Reason), ob.CreatedBy,
-		time.Now())
+		now, now)
 	return err
 }
 
@@ -107,16 +115,18 @@ func (r *PGOpeningBalanceRepo) GetByAccount(ctx context.Context, companyID, peri
 
 func (r *PGOpeningBalanceRepo) Update(ctx context.Context, ob *domain.OpeningBalance) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE opening_balances SET debit_amount=$1,credit_amount=$2,original_amount=$3,
-		 exchange_rate=$4,reason=$5,updated_at=$6 WHERE id=$7 AND status NOT IN ('APPROVED','CORRECTED')`,
-		ob.DebitAmount, ob.CreditAmount, ob.OriginalAmount,
-		nullF64(ob.ExchangeRate), nullStr(ob.Reason), time.Now(), ob.ID)
+		`UPDATE opening_balances SET account_code=$1,currency_code=$2,original_amount=$3,
+		 debit_amount=$4,credit_amount=$5,exchange_rate=$6,source_type=$7,batch_id=$8,
+		 reason=$9,fiscal_year_id=$10,updated_at=NOW() WHERE id=$11 AND status NOT IN ('APPROVED','CORRECTED')`,
+		ob.AccountCode, ob.CurrencyCode, ob.OriginalAmount,
+		ob.DebitAmount, ob.CreditAmount, nullF64(ob.ExchangeRate), ob.SourceType,
+		nullStr(ob.BatchID), nullStr(ob.Reason), nullStr(ob.FiscalYearID), ob.ID)
 	return err
 }
 
 func (r *PGOpeningBalanceRepo) UpdateStatus(ctx context.Context, id string, status domain.OpeningBalanceStatus, approvedBy string) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE opening_balances SET status=$1,approved_by=$2,approved_at=CASE WHEN $1='APPROVED' THEN NOW() ELSE approved_at END,updated_at=NOW() WHERE id=$3`,
+		`UPDATE opening_balances SET status=$1,approved_by=CASE WHEN $1='APPROVED' THEN $2 ELSE approved_by END,approved_at=CASE WHEN $1='APPROVED' THEN NOW() ELSE approved_at END,updated_at=NOW() WHERE id=$3`,
 		string(status), nullStr(approvedBy), id)
 	return err
 }
@@ -133,20 +143,28 @@ func (r *PGOpeningBalanceRepo) BulkCreate(ctx context.Context, balances []domain
 		return err
 	}
 	defer tx.Rollback(ctx)
+	now := time.Now()
 	for i := range balances {
 		if balances[i].ID == "" {
-			balances[i].ID = "OB" + time.Now().Format("20060102150405")
+			balances[i].ID = "OB" + time.Now().Format("20060102150405.000000000")
+		}
+		if balances[i].OriginalAmount == 0 {
+			if balances[i].DebitAmount > 0 {
+				balances[i].OriginalAmount = balances[i].DebitAmount
+			} else if balances[i].CreditAmount > 0 {
+				balances[i].OriginalAmount = balances[i].CreditAmount
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO opening_balances (id,company_id,period_id,fiscal_year_id,account_code,
 			 currency_code,original_amount,debit_amount,credit_amount,exchange_rate,status,source_type,
 			 batch_id,reason,created_by,created_at,updated_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)`,
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 			balances[i].ID, balances[i].CompanyID, balances[i].PeriodID, nullStr(balances[i].FiscalYearID),
 			balances[i].AccountCode, balances[i].CurrencyCode, balances[i].OriginalAmount,
 			balances[i].DebitAmount, balances[i].CreditAmount, nullF64(balances[i].ExchangeRate),
 			string(balances[i].Status), balances[i].SourceType, nullStr(balances[i].BatchID),
-			nullStr(balances[i].Reason), balances[i].CreatedBy, time.Now()); err != nil {
+			nullStr(balances[i].Reason), balances[i].CreatedBy, now, now); err != nil {
 			return err
 		}
 	}
@@ -161,7 +179,7 @@ func (r *PGOpeningBalanceRepo) BulkUpdateStatus(ctx context.Context, ids []strin
 	defer tx.Rollback(ctx)
 	for _, id := range ids {
 		if _, err := tx.Exec(ctx,
-			`UPDATE opening_balances SET status=$1,approved_by=$2,approved_at=CASE WHEN $1='APPROVED' THEN NOW() ELSE approved_at END,updated_at=NOW() WHERE id=$3`,
+			`UPDATE opening_balances SET status=$1,approved_by=CASE WHEN $1='APPROVED' THEN $2 ELSE approved_by END,approved_at=CASE WHEN $1='APPROVED' THEN NOW() ELSE approved_at END,updated_at=NOW() WHERE id=$3`,
 			string(status), nullStr(approvedBy), id); err != nil {
 			return err
 		}
@@ -171,7 +189,7 @@ func (r *PGOpeningBalanceRepo) BulkUpdateStatus(ctx context.Context, ids []strin
 
 func (r *PGOpeningBalanceRepo) CreateDetail(ctx context.Context, d *domain.OpeningBalanceDetail) error {
 	if d.ID == "" {
-		d.ID = "OBD" + time.Now().Format("20060102150405")
+		d.ID = "OBD" + time.Now().Format("20060102150405.000000000")
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO opening_balance_details (id,opening_balance_id,entity_type,entity_id,entity_name,
@@ -243,7 +261,7 @@ func (r *PGOpeningBalanceRepo) ValidateBalanced(ctx context.Context, companyID, 
 
 func (r *PGOpeningBalanceRepo) CreateCarryForwardLog(ctx context.Context, log *domain.CarryForwardLog) error {
 	if log.ID == "" {
-		log.ID = "CF" + time.Now().Format("20060102150405")
+		log.ID = "CF" + time.Now().Format("20060102150405.000000000")
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO carry_forward_logs (id,company_id,from_period_id,to_period_id,
@@ -297,7 +315,7 @@ func (r *PGOpeningBalanceRepo) GetCarryForwardLogByID(ctx context.Context, id st
 
 func (r *PGOpeningBalanceRepo) CreateCircular99Mapping(ctx context.Context, m *domain.Circular99Mapping) error {
 	if m.ID == "" {
-		m.ID = "C99" + time.Now().Format("20060102150405")
+		m.ID = "C99" + time.Now().Format("20060102150405.000000000")
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO circular99_mappings (id,old_account_code,new_account_code,mapping_type,
@@ -348,7 +366,7 @@ func (r *PGOpeningBalanceRepo) GetCircular99MappingByOldCode(ctx context.Context
 
 func (r *PGOpeningBalanceRepo) CreateMigration(ctx context.Context, m *domain.BalanceMigration) error {
 	if m.ID == "" {
-		m.ID = "MIG" + time.Now().Format("20060102150405")
+		m.ID = "MIG" + time.Now().Format("20060102150405.000000000")
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO balance_migrations (id,company_id,from_regime,to_regime,execution_date,status,

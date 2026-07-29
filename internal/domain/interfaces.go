@@ -375,6 +375,7 @@ type SupplierRepository interface {
 	GetSupplier(ctx context.Context, id string) (*Supplier, error)
 	GetSupplierByCode(ctx context.Context, companyID, code string) (*Supplier, error)
 	ListSuppliers(ctx context.Context, filter PurchaseOrderFilter) ([]Supplier, int, error)
+	ListSuppliersByIDs(ctx context.Context, ids []string) ([]Supplier, error)
 	UpdateSupplier(ctx context.Context, s *Supplier) error
 	DeleteSupplier(ctx context.Context, id string) error
 }
@@ -386,6 +387,8 @@ type PurchaseOrderRepository interface {
 	ListPOs(ctx context.Context, filter PurchaseOrderFilter) ([]PurchaseOrder, int, error)
 	UpdatePO(ctx context.Context, po *PurchaseOrder) error
 	UpdatePOStatus(ctx context.Context, id string, status POStatus) error
+	ApprovePO(ctx context.Context, id string, approvedBy string, approvedAt time.Time) error
+	CancelPO(ctx context.Context, id string, cancelReason string) error
 	GetPOLines(ctx context.Context, poID string) ([]POItem, error)
 	CreatePOLines(ctx context.Context, items []POItem) error
 	UpdatePOLines(ctx context.Context, items []POItem) error

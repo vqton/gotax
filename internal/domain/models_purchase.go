@@ -108,13 +108,14 @@ func (po *PurchaseOrder) CalculateTotals() {
 	var subtotal, discount, tax float64
 	for i := range po.Lines {
 		l := &po.Lines[i]
-		l.LineTotal = l.Quantity * l.UnitPrice
+		rawTotal := l.Quantity * l.UnitPrice
+		l.LineTotal = rawTotal
 		if l.DiscountPct > 0 {
-			l.LineTotal -= l.LineTotal * l.DiscountPct / 100
+			l.LineTotal = rawTotal - rawTotal*l.DiscountPct/100
+			discount += rawTotal * l.DiscountPct / 100
 		}
 		l.LineVATAmount = l.LineTotal * l.VATRate / 100
 		subtotal += l.LineTotal
-		discount += l.LineTotal * l.DiscountPct / 100
 		tax += l.LineVATAmount
 	}
 	po.Subtotal = subtotal
