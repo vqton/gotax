@@ -481,6 +481,7 @@ type CustomerInvoiceRepository interface {
 	UpdateInvoice(ctx context.Context, inv *CustomerInvoice) error
 	UpdateInvoiceStatus(ctx context.Context, id string, status SaleInvoiceStatus) error
 	PostInvoice(ctx context.Context, id string, postedAt time.Time) error
+	SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error
 	GetInvoiceLines(ctx context.Context, invoiceID string) ([]InvLine, error)
 	CreateInvoiceLines(ctx context.Context, items []InvLine) error
 	UpdateInvoiceLines(ctx context.Context, items []InvLine) error
@@ -494,6 +495,7 @@ type CustomerReceiptRepository interface {
 	ListReceipts(ctx context.Context, filter ReceiptFilter) ([]CustomerReceipt, int, error)
 	UpdateReceipt(ctx context.Context, r *CustomerReceipt) error
 	UpdateReceiptStatus(ctx context.Context, id string, status ReceiptStatus) error
+	SetReceiptGLPosted(ctx context.Context, id string, postedAt time.Time) error
 	CreateReceiptAllocations(ctx context.Context, allocs []RcpAllocation) error
 	GetReceiptAllocations(ctx context.Context, receiptID string) ([]RcpAllocation, error)
 }
@@ -506,6 +508,7 @@ type CreditNoteRepository interface {
 	UpdateCN(ctx context.Context, cn *CreditNote) error
 	UpdateCNStatus(ctx context.Context, id string, status CNStatus) error
 	PostCN(ctx context.Context, id string, postedAt time.Time) error
+	SetCNGLPosted(ctx context.Context, id string, postedAt time.Time) error
 	GetCNLines(ctx context.Context, cnID string) ([]CNLine, error)
 	CreateCNLines(ctx context.Context, items []CNLine) error
 }

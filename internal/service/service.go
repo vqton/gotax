@@ -23,6 +23,7 @@ type Service interface {
 	UnfreezeAccount(ctx context.Context, code, reason string) error
 
 	CreateEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error
+	CreatePostedEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error
 	SubmitForReview(ctx context.Context, id, userID string) error
 	ReviewEntry(ctx context.Context, id, reviewerID string) error
 	ApproveEntry(ctx context.Context, id, approverID string) error
@@ -310,6 +311,34 @@ func (s *service) CreateEntry(ctx context.Context, entry *domain.JournalEntry, u
 	}
 	entry.Status = domain.JournalEntryDraft
 	entry.CreatedBy = userID
+	entry.CurrencyCode = "VND"
+	entry.ExchangeRate = 1
+	if entry.VoucherType == "" {
+		entry.VoucherType = domain.VoucherTypeOther
+	}
+	if entry.AccountingDate.IsZero() {
+		entry.AccountingDate = entry.EntryDate
+	}
+	return s.journals.Create(ctx, entry)
+}
+
+func (s *service) CreatePostedEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error {
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	for _, line := range entry.Lines {
+		acc, err := s.accounts.GetByCode(ctx, line.AccountCode)
+		if err != nil {
+			return err
+		}
+		if err := acc.CanPost(); err != nil {
+			return err
+		}
+	}
+	entry.Status = domain.JournalEntryPosted
+	entry.CreatedBy = userID
+	now := s.now()
+	entry.PostedAt = &now
 	entry.CurrencyCode = "VND"
 	entry.ExchangeRate = 1
 	if entry.VoucherType == "" {

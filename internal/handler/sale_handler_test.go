@@ -38,7 +38,7 @@ func setupSale(t *testing.T) *saleTestSetup {
 	artRepo := repository.NewMemorySaleRepo()
 	sqRepo := repository.NewMemorySaleRepo()
 
-	svc := service.NewSaleService(custRepo, soRepo, dnRepo, invRepo, rcptRepo, cnRepo, artRepo, sqRepo)
+	svc := service.NewSaleService(custRepo, soRepo, dnRepo, invRepo, rcptRepo, cnRepo, artRepo, sqRepo, nil)
 	h := NewSaleHandler(svc)
 
 	r := gin.New()

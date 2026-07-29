@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"gotax/internal/domain"
@@ -16,6 +17,7 @@ type SaleService struct {
 	cnRepo   domain.CreditNoteRepository
 	artRepo  domain.ARTransactionRepository
 	sqRepo   domain.SalesQuotationRepository
+	gl       Service
 	now      func() time.Time
 }
 
@@ -28,11 +30,13 @@ func NewSaleService(
 	cnRepo domain.CreditNoteRepository,
 	artRepo domain.ARTransactionRepository,
 	sqRepo domain.SalesQuotationRepository,
+	gl Service,
 ) *SaleService {
 	return &SaleService{
 		custRepo: custRepo, soRepo: soRepo, dnRepo: dnRepo,
 		invRepo: invRepo, rcptRepo: rcptRepo, cnRepo: cnRepo,
 		artRepo: artRepo, sqRepo: sqRepo,
+		gl: gl,
 		now: time.Now,
 	}
 }
@@ -283,10 +287,52 @@ func (s *SaleService) PostInvoice(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if inv.Status != domain.SInvSigned {
+	switch inv.Status {
+	case domain.SInvDraft, domain.SInvIssued:
+	default:
 		return domain.ErrInvInvalidTransition
 	}
-	return s.invRepo.PostInvoice(ctx, id, s.now().UTC())
+	now := s.now().UTC()
+	if s.gl != nil {
+		lines := []domain.JournalLine{}
+		lines = append(lines, domain.JournalLine{
+			AccountCode: "131", DebitAmount: inv.TotalAmount, CreditAmount: 0,
+			Description: "AR: " + inv.InvoiceNumber,
+		})
+		groupByRev := make(map[string]float64)
+		groupByVAT := make(map[string]float64)
+		for _, l := range inv.Lines {
+			groupByRev[l.RevenueAccount] += l.LineTotal
+			groupByVAT[l.VATAccountID] += l.LineVATAmount
+		}
+		for acc, amt := range groupByRev {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, DebitAmount: 0, CreditAmount: amt,
+				Description: "Revenue: " + inv.InvoiceNumber,
+			})
+		}
+		for acc, amt := range groupByVAT {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, DebitAmount: 0, CreditAmount: amt,
+				Description: "VAT: " + inv.InvoiceNumber,
+			})
+		}
+		entry := &domain.JournalEntry{
+			CompanyID:   inv.CompanyID,
+			EntryNumber: inv.InvoiceNumber,
+			VoucherType: domain.VoucherTypeSale,
+			EntryDate:   inv.InvoiceDate,
+			Description: "AR invoice " + inv.InvoiceNumber,
+			Lines:       lines,
+		}
+		if err := s.gl.CreatePostedEntry(ctx, entry, inv.CreatedBy); err != nil {
+			return err
+		}
+		if err := s.invRepo.SetInvoiceGLPosted(ctx, id, now); err != nil {
+			return err
+		}
+	}
+	return s.invRepo.PostInvoice(ctx, id, now)
 }
 
 func (s *SaleService) CancelInvoice(ctx context.Context, id string) error {
@@ -341,6 +387,32 @@ func (s *SaleService) PostReceipt(ctx context.Context, id string) error {
 	}
 	if rcpt.Status != domain.RcpDraft {
 		return domain.ErrRcpInvalidTransition
+	}
+	now := s.now().UTC()
+	if s.gl != nil {
+		cashAcc := "1111"
+		switch rcpt.PaymentMethod {
+		case "bank_transfer", "cheque", "credit_card":
+			cashAcc = "1121"
+		}
+		lines := []domain.JournalLine{
+			{AccountCode: cashAcc, DebitAmount: rcpt.Amount, CreditAmount: 0, Description: "Receipt: " + rcpt.ReceiptNumber},
+			{AccountCode: "131", DebitAmount: 0, CreditAmount: rcpt.Amount, Description: "Receipt: " + rcpt.ReceiptNumber},
+		}
+		entry := &domain.JournalEntry{
+			CompanyID:   rcpt.CompanyID,
+			EntryNumber: rcpt.ReceiptNumber,
+			VoucherType: domain.VoucherTypeReceipt,
+			EntryDate:   rcpt.ReceiptDate,
+			Description: "AR receipt " + rcpt.ReceiptNumber,
+			Lines:       lines,
+		}
+		if err := s.gl.CreatePostedEntry(ctx, entry, rcpt.CreatedBy); err != nil {
+			return err
+		}
+		if err := s.rcptRepo.SetReceiptGLPosted(ctx, id, now); err != nil {
+			return err
+		}
 	}
 	return s.rcptRepo.UpdateReceiptStatus(ctx, id, domain.RcpPosted)
 }
@@ -398,7 +470,59 @@ func (s *SaleService) PostCN(ctx context.Context, id string) error {
 	if cn.Status != domain.CNDraft {
 		return domain.ErrCNAlreadyPosted
 	}
-	return s.cnRepo.PostCN(ctx, id, s.now().UTC())
+	now := s.now().UTC()
+	if s.gl != nil {
+		revByAccount := make(map[string]float64)
+		if cn.ReturnType == domain.RetFull || cn.ReturnType == domain.RetPartial {
+			origInv, err := s.invRepo.GetInvoice(ctx, cn.OriginalInvoiceID)
+			if err == nil && len(origInv.Lines) > 0 {
+				totalOrig := 0.0
+				for _, l := range origInv.Lines {
+					totalOrig += l.LineTotal
+				}
+				if totalOrig > 0 {
+					for _, l := range origInv.Lines {
+						revByAccount[l.RevenueAccount] += l.LineTotal / totalOrig * cn.Subtotal
+					}
+				}
+			}
+		}
+		if len(revByAccount) == 0 {
+			revByAccount["5213"] = cn.Subtotal
+		}
+		lines := []domain.JournalLine{}
+		for acc, amt := range revByAccount {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, DebitAmount: amt, CreditAmount: 0,
+				Description: "CN revenue reversal: " + cn.CNNumber,
+			})
+		}
+		if cn.TaxAmount > 0 {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: "3331", DebitAmount: cn.TaxAmount, CreditAmount: 0,
+				Description: "CN VAT reversal: " + cn.CNNumber,
+			})
+		}
+		lines = append(lines, domain.JournalLine{
+			AccountCode: "131", DebitAmount: 0, CreditAmount: cn.TotalAmount,
+			Description: "CN: " + cn.CNNumber,
+		})
+		entry := &domain.JournalEntry{
+			CompanyID:   cn.CompanyID,
+			EntryNumber: cn.CNNumber,
+			VoucherType: domain.VoucherTypeSale,
+			EntryDate:   cn.ReturnDate,
+			Description: "AR credit note " + cn.CNNumber,
+			Lines:       lines,
+		}
+		if err := s.gl.CreatePostedEntry(ctx, entry, cn.CreatedBy); err != nil {
+			return err
+		}
+		if err := s.cnRepo.SetCNGLPosted(ctx, id, now); err != nil {
+			return err
+		}
+	}
+	return s.cnRepo.PostCN(ctx, id, now)
 }
 
 func (s *SaleService) CancelCN(ctx context.Context, id string) error {
@@ -439,21 +563,38 @@ func (s *SaleService) ListARTransactions(ctx context.Context, companyID, custome
 // ─── Reports ───────────────────────────────────────────────────────────
 
 func (s *SaleService) GetARAgingReport(ctx context.Context, companyID string) ([]domain.ARAgingReport, error) {
-	txns, _, err := s.artRepo.ListARTransactionsAll(ctx, companyID, 0, 0)
+	now := s.now().UTC().Truncate(24 * time.Hour)
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{CompanyID: companyID})
 	if err != nil {
 		return nil, err
 	}
 	byCust := make(map[string]*domain.ARAgingReport)
-	custBal := make(map[string]float64)
-	for _, t := range txns {
-		custBal[t.CustomerID] += t.Amount
-	}
-	for cid, bal := range custBal {
-		rpt := &domain.ARAgingReport{
-			CustomerID: cid,
-			Buckets:    domain.ARAgingBucket{Bucket0: bal, Bucket30: 0, Bucket60: 0, Bucket90: 0, Total: bal},
+	for _, inv := range invoices {
+		if inv.BalanceDue <= 0.001 {
+			continue
 		}
-		byCust[cid] = rpt
+		rpt, ok := byCust[inv.CustomerID]
+		if !ok {
+			rpt = &domain.ARAgingReport{CustomerID: inv.CustomerID, CustomerName: inv.CustomerName, TaxCode: inv.CustomerTaxCode}
+			byCust[inv.CustomerID] = rpt
+		}
+		var daysOverdue int
+		if inv.DueDate != nil && inv.DueDate.Before(now) {
+			daysOverdue = int(now.Sub(*inv.DueDate).Hours() / 24)
+		}
+		switch {
+		case daysOverdue <= 0:
+			rpt.Buckets.Bucket0 += inv.BalanceDue
+		case daysOverdue <= 30:
+			rpt.Buckets.Bucket30 += inv.BalanceDue
+		case daysOverdue <= 60:
+			rpt.Buckets.Bucket60 += inv.BalanceDue
+		case daysOverdue <= 90:
+			rpt.Buckets.Bucket90 += inv.BalanceDue
+		default:
+			rpt.Buckets.Bucket120 += inv.BalanceDue
+		}
+		rpt.Buckets.Total += inv.BalanceDue
 	}
 	out := make([]domain.ARAgingReport, 0, len(byCust))
 	for _, r := range byCust {
@@ -504,6 +645,82 @@ func (s *SaleService) GetARSummary(ctx context.Context, companyID string) ([]dom
 		out = append(out, *v)
 	}
 	return out, nil
+}
+
+func (s *SaleService) GetCustomerStatement(ctx context.Context, customerID, fromDate, toDate string) (*domain.CustomerStatement, error) {
+	cust, err := s.custRepo.GetCustomer(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+	invFilter := domain.CustomerInvoiceFilter{CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, invFilter)
+	if err != nil {
+		return nil, err
+	}
+	rcptFilter := domain.ReceiptFilter{CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	receipts, _, err := s.rcptRepo.ListReceipts(ctx, rcptFilter)
+	if err != nil {
+		return nil, err
+	}
+	cnFilter := domain.CreditNoteFilter{CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	cns, _, err := s.cnRepo.ListCNs(ctx, cnFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	type stmtItem struct {
+		date    time.Time
+		refType string
+		refNum  string
+		desc    string
+		debit   float64
+		credit  float64
+	}
+	items := []stmtItem{}
+
+	for _, inv := range invoices {
+		items = append(items, stmtItem{
+			date: inv.InvoiceDate, refType: "Invoice", refNum: inv.InvoiceNumber,
+			desc: "AR invoice " + inv.InvoiceNumber, debit: inv.TotalAmount, credit: 0,
+		})
+	}
+	for _, rcpt := range receipts {
+		if rcpt.Status == domain.RcpCancelled {
+			continue
+		}
+		items = append(items, stmtItem{
+			date: rcpt.ReceiptDate, refType: "Receipt", refNum: rcpt.ReceiptNumber,
+			desc: "Receipt " + rcpt.ReceiptNumber, debit: 0, credit: rcpt.Amount,
+		})
+	}
+	for _, cn := range cns {
+		if cn.Status == domain.CNCancelled {
+			continue
+		}
+		items = append(items, stmtItem{
+			date: cn.ReturnDate, refType: "Credit Note", refNum: cn.CNNumber,
+			desc: "CN " + cn.CNNumber, debit: 0, credit: cn.TotalAmount,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].date.Before(items[j].date) })
+
+	stmt := &domain.CustomerStatement{
+		Customer: *cust,
+		FromDate: fromDate,
+		ToDate:   toDate,
+		Lines:    make([]domain.CustomerStatementLine, 0, len(items)),
+	}
+	bal := 0.0
+	for _, it := range items {
+		bal += it.debit - it.credit
+		stmt.Lines = append(stmt.Lines, domain.CustomerStatementLine{
+			Date: it.date, RefType: it.refType, RefNumber: it.refNum,
+			Description: it.desc, Debit: it.debit, Credit: it.credit, Balance: bal,
+		})
+	}
+	stmt.ClosingBal = bal
+	return stmt, nil
 }
 
 // ─── Sales Quotation (P1) ──────────────────────────────────────────────

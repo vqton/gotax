@@ -672,8 +672,14 @@ func (r *PGSaleRepo) UpdateInvoiceStatus(ctx context.Context, id string, status 
 }
 
 func (r *PGSaleRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET status=$1,gl_posted=1,gl_posted_at=$2 WHERE id=$3`,
-		string(domain.SInvPosted), postedAt.Format(time.RFC3339), id)
+	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET status=$1 WHERE id=$2`,
+		string(domain.SInvPosted), id)
+	return err
+}
+
+func (r *PGSaleRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
+		postedAt.Format(time.RFC3339), id)
 	return err
 }
 
@@ -837,6 +843,12 @@ func (r *PGSaleRepo) UpdateReceiptStatus(ctx context.Context, id string, status 
 	return err
 }
 
+func (r *PGSaleRepo) SetReceiptGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE customer_receipts SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
+		postedAt.Format(time.RFC3339), id)
+	return err
+}
+
 func (r *PGSaleRepo) CreateReceiptAllocations(ctx context.Context, allocs []domain.RcpAllocation) error {
 	for _, a := range allocs {
 		_, err := r.pool.Exec(ctx, `INSERT INTO receipt_allocations (id,receipt_id,invoice_id,allocated_amount,discount_amount) VALUES ($1,$2,$3,$4,$5)`,
@@ -992,8 +1004,14 @@ func (r *PGSaleRepo) UpdateCNStatus(ctx context.Context, id string, status domai
 }
 
 func (r *PGSaleRepo) PostCN(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET status=$1,gl_posted=1,gl_posted_at=$2 WHERE id=$3`,
-		string(domain.CNPosted), postedAt.Format(time.RFC3339), id)
+	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET status=$1 WHERE id=$2`,
+		string(domain.CNPosted), id)
+	return err
+}
+
+func (r *PGSaleRepo) SetCNGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
+		postedAt.Format(time.RFC3339), id)
 	return err
 }
 

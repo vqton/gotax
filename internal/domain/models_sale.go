@@ -342,6 +342,8 @@ type CustomerReceipt struct {
 	Reference         string         `json:"reference,omitempty"`
 	Notes             string         `json:"notes,omitempty"`
 	Status            ReceiptStatus  `json:"status"`
+	GLPosted          bool           `json:"gl_posted"`
+	GLPostedAt        *time.Time     `json:"gl_posted_at,omitempty"`
 	CreatedBy         string         `json:"created_by"`
 	CreatedAt         time.Time      `json:"created_at,omitempty"`
 	Allocations       []RcpAllocation `json:"allocations"`
@@ -553,4 +555,23 @@ type ARSummary struct {
 	TotalReceived float64 `json:"total_received"`
 	Outstanding   float64 `json:"outstanding"`
 	Currency      string  `json:"currency"`
+}
+
+type CustomerStatementLine struct {
+	Date        time.Time `json:"date"`
+	RefType     string    `json:"ref_type"`
+	RefNumber   string    `json:"ref_number"`
+	Description string    `json:"description"`
+	Debit       float64   `json:"debit"`
+	Credit      float64   `json:"credit"`
+	Balance     float64   `json:"balance"`
+}
+
+type CustomerStatement struct {
+	Customer     Customer                `json:"customer"`
+	FromDate     string                  `json:"from_date"`
+	ToDate       string                  `json:"to_date"`
+	OpeningBal   float64                 `json:"opening_balance"`
+	ClosingBal   float64                 `json:"closing_balance"`
+	Lines        []CustomerStatementLine `json:"lines"`
 }

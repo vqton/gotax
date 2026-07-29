@@ -666,6 +666,16 @@ func (r *MemorySaleRepo) PostInvoice(_ context.Context, id string, postedAt time
 		return domain.ErrInvNotFound
 	}
 	inv.Status = domain.SInvPosted
+	return nil
+}
+
+func (r *MemorySaleRepo) SetInvoiceGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inv, ok := r.invoices[id]
+	if !ok {
+		return domain.ErrInvNotFound
+	}
 	inv.GLPosted = true
 	inv.GLPostedAt = &postedAt
 	return nil
@@ -835,6 +845,18 @@ func (r *MemorySaleRepo) UpdateReceiptStatus(_ context.Context, id string, statu
 	return nil
 }
 
+func (r *MemorySaleRepo) SetReceiptGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rcpt, ok := r.receipts[id]
+	if !ok {
+		return domain.ErrRcpNotFound
+	}
+	rcpt.GLPosted = true
+	rcpt.GLPostedAt = &postedAt
+	return nil
+}
+
 func (r *MemorySaleRepo) CreateReceiptAllocations(_ context.Context, allocs []domain.RcpAllocation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -983,6 +1005,16 @@ func (r *MemorySaleRepo) PostCN(_ context.Context, id string, postedAt time.Time
 		return domain.ErrCNNotFound
 	}
 	cn.Status = domain.CNPosted
+	return nil
+}
+
+func (r *MemorySaleRepo) SetCNGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cn, ok := r.cns[id]
+	if !ok {
+		return domain.ErrCNNotFound
+	}
 	cn.GLPosted = true
 	cn.GLPostedAt = &postedAt
 	return nil
