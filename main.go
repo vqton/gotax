@@ -128,7 +128,10 @@ func main() {
 	purchaseRepo := repository.NewPGPurchaseRepo(pool)
 	purchaseSvc := service.NewPurchaseService(purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo, purchaseRepo)
 	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, authMW, adminMW)
+	saleRepo := repository.NewPGSaleRepo(pool)
+	saleSvc := service.NewSaleService(saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo)
+	saleH := handler.NewSaleHandler(saleSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, authMW, adminMW)
 	log.Println("GoTax GL server (PG) starting on :8080")
 		r.Run(":8080")
 		return
@@ -174,7 +177,10 @@ func main() {
 	memPurchaseRepo := repository.NewMemoryPurchaseRepo()
 	purchaseSvc := service.NewPurchaseService(memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo)
 	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, authMW, adminMW)
+	saleRepo := repository.NewMemorySaleRepo()
+	saleSvc := service.NewSaleService(saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo)
+	saleH := handler.NewSaleHandler(saleSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, authMW, adminMW)
 	log.Println("GoTax GL server (CA) starting on :8080")
 	r.Run(":8080")
 }

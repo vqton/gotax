@@ -66,6 +66,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		filepath.Join(baseDir, "..", "..", "migrations", "004_advance_schema.sql"),
 	filepath.Join(baseDir, "..", "..", "migrations", "004_bank_module.sql"),
 	filepath.Join(baseDir, "..", "..", "migrations", "005_purchase_schema.sql"),
+	filepath.Join(baseDir, "..", "..", "migrations", "006_sale_schema.sql"),
 }
 
 	for _, path := range migrations {

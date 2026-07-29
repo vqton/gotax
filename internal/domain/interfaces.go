@@ -433,3 +433,93 @@ type CostAllocationRepository interface {
 	GetCostAllocation(ctx context.Context, id string) (*CostAllocation, error)
 	ListCostAllocationsByInvoice(ctx context.Context, invoiceID string) ([]CostAllocation, error)
 }
+
+// ─── Sale Repository ────────────────────────────────────────────
+
+type CustomerRepository interface {
+	CreateCustomer(ctx context.Context, c *Customer) error
+	GetCustomer(ctx context.Context, id string) (*Customer, error)
+	GetCustomerByCode(ctx context.Context, companyID, code string) (*Customer, error)
+	ListCustomers(ctx context.Context, companyID string) ([]Customer, error)
+	UpdateCustomer(ctx context.Context, c *Customer) error
+	DeleteCustomer(ctx context.Context, id string) error
+}
+
+type SaleOrderRepository interface {
+	CreateSO(ctx context.Context, so *SalesOrder) error
+	GetSO(ctx context.Context, id string) (*SalesOrder, error)
+	GetSOByNumber(ctx context.Context, companyID, soNumber string) (*SalesOrder, error)
+	ListSOs(ctx context.Context, filter SalesOrderFilter) ([]SalesOrder, int, error)
+	UpdateSO(ctx context.Context, so *SalesOrder) error
+	UpdateSOStatus(ctx context.Context, id string, status SOStatus) error
+	ApproveSO(ctx context.Context, id, approvedBy string, approvedAt time.Time) error
+	CancelSO(ctx context.Context, id, cancelReason string) error
+	GetSOLines(ctx context.Context, soID string) ([]SOLine, error)
+	CreateSOLines(ctx context.Context, items []SOLine) error
+	UpdateSOLines(ctx context.Context, items []SOLine) error
+	NextSONumber(ctx context.Context, companyID, yyyymm string) (string, error)
+}
+
+type DeliveryNoteRepository interface {
+	CreateDN(ctx context.Context, dn *DeliveryNote) error
+	GetDN(ctx context.Context, id string) (*DeliveryNote, error)
+	GetDNByNumber(ctx context.Context, companyID, dnNumber string) (*DeliveryNote, error)
+	ListDNs(ctx context.Context, filter DeliveryNoteFilter) ([]DeliveryNote, int, error)
+	UpdateDN(ctx context.Context, dn *DeliveryNote) error
+	UpdateDNStatus(ctx context.Context, id string, status DNStatus) error
+	GetDNLines(ctx context.Context, dnID string) ([]DNLine, error)
+	CreateDNLines(ctx context.Context, items []DNLine) error
+	UpdateDNLines(ctx context.Context, items []DNLine) error
+	NextDNNumber(ctx context.Context, companyID, yyyymm string) (string, error)
+}
+
+type CustomerInvoiceRepository interface {
+	CreateInvoice(ctx context.Context, inv *CustomerInvoice) error
+	GetInvoice(ctx context.Context, id string) (*CustomerInvoice, error)
+	GetInvoiceByNumber(ctx context.Context, companyID, invoiceNumber string) (*CustomerInvoice, error)
+	ListInvoices(ctx context.Context, filter CustomerInvoiceFilter) ([]CustomerInvoice, int, error)
+	UpdateInvoice(ctx context.Context, inv *CustomerInvoice) error
+	UpdateInvoiceStatus(ctx context.Context, id string, status SaleInvoiceStatus) error
+	PostInvoice(ctx context.Context, id string, postedAt time.Time) error
+	GetInvoiceLines(ctx context.Context, invoiceID string) ([]InvLine, error)
+	CreateInvoiceLines(ctx context.Context, items []InvLine) error
+	UpdateInvoiceLines(ctx context.Context, items []InvLine) error
+	NextInvNumber(ctx context.Context, companyID, yyyymm string) (string, error)
+}
+
+type CustomerReceiptRepository interface {
+	CreateReceipt(ctx context.Context, r *CustomerReceipt) error
+	GetReceipt(ctx context.Context, id string) (*CustomerReceipt, error)
+	GetReceiptByNumber(ctx context.Context, companyID, receiptNumber string) (*CustomerReceipt, error)
+	ListReceipts(ctx context.Context, filter ReceiptFilter) ([]CustomerReceipt, int, error)
+	UpdateReceipt(ctx context.Context, r *CustomerReceipt) error
+	UpdateReceiptStatus(ctx context.Context, id string, status ReceiptStatus) error
+	CreateReceiptAllocations(ctx context.Context, allocs []RcpAllocation) error
+	GetReceiptAllocations(ctx context.Context, receiptID string) ([]RcpAllocation, error)
+}
+
+type CreditNoteRepository interface {
+	CreateCN(ctx context.Context, cn *CreditNote) error
+	GetCN(ctx context.Context, id string) (*CreditNote, error)
+	GetCNByNumber(ctx context.Context, companyID, cnNumber string) (*CreditNote, error)
+	ListCNs(ctx context.Context, filter CreditNoteFilter) ([]CreditNote, int, error)
+	UpdateCN(ctx context.Context, cn *CreditNote) error
+	UpdateCNStatus(ctx context.Context, id string, status CNStatus) error
+	PostCN(ctx context.Context, id string, postedAt time.Time) error
+	GetCNLines(ctx context.Context, cnID string) ([]CNLine, error)
+	CreateCNLines(ctx context.Context, items []CNLine) error
+}
+
+type ARTransactionRepository interface {
+	CreateARTransaction(ctx context.Context, t *ARTransaction) error
+	GetARTransaction(ctx context.Context, id string) (*ARTransaction, error)
+	ListARTransactions(ctx context.Context, companyID, customerID string) ([]ARTransaction, error)
+	ListARTransactionsAll(ctx context.Context, companyID string, offset, limit int) ([]ARTransaction, int, error)
+}
+
+type SalesQuotationRepository interface {
+	CreateSQ(ctx context.Context, sq *SalesQuotation) error
+	GetSQ(ctx context.Context, id string) (*SalesQuotation, error)
+	ListSQs(ctx context.Context, companyID string) ([]SalesQuotation, error)
+	UpdateSQ(ctx context.Context, sq *SalesQuotation) error
+}
