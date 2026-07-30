@@ -608,3 +608,42 @@ type InventoryValuationRunRepository interface {
 	ListValuationRuns(ctx context.Context, companyID string) ([]InventoryValuationRun, error)
 	UpdateValuationRun(ctx context.Context, v *InventoryValuationRun) error
 }
+
+// ─── Fixed Asset Repository ─────────────────────────────────────────
+
+type FARepository interface {
+	CreateCategory(ctx context.Context, c *FixedAssetCategory) error
+	GetCategoryByID(ctx context.Context, id string) (*FixedAssetCategory, error)
+	GetCategoryByCode(ctx context.Context, companyID, code string) (*FixedAssetCategory, error)
+	ListCategories(ctx context.Context, filter FACategoryFilter) ([]FixedAssetCategory, error)
+	UpdateCategory(ctx context.Context, c *FixedAssetCategory) error
+	DeleteCategory(ctx context.Context, id string) error
+
+	CreateAsset(ctx context.Context, a *FixedAsset) error
+	GetAssetByID(ctx context.Context, id string) (*FixedAsset, error)
+	GetAssetByCode(ctx context.Context, companyID, code string) (*FixedAsset, error)
+	ListAssets(ctx context.Context, filter FAListFilter) ([]FixedAsset, int, error)
+	UpdateAsset(ctx context.Context, a *FixedAsset) error
+	DeleteAsset(ctx context.Context, id string) error
+
+	CreateDepreciationEntry(ctx context.Context, e *DepreciationEntry) error
+	GetDepreciationEntry(ctx context.Context, id string) (*DepreciationEntry, error)
+	ListDepreciationByAsset(ctx context.Context, assetID string) ([]DepreciationEntry, error)
+	ListDepreciationByPeriod(ctx context.Context, periodID string) ([]DepreciationEntry, error)
+	DepreciationExistsForPeriod(ctx context.Context, assetID, periodID string) (bool, error)
+	DeleteDepreciationEntry(ctx context.Context, id string) error
+
+	CreateTransaction(ctx context.Context, t *FixedAssetTransaction) error
+	ListTransactionsByAsset(ctx context.Context, assetID string) ([]FixedAssetTransaction, error)
+
+	SetAllocations(ctx context.Context, assetID string, allocs []FixedAssetAllocation) error
+	GetAllocations(ctx context.Context, assetID string) ([]FixedAssetAllocation, error)
+
+	CreateInventoryPlan(ctx context.Context, p *FixedAssetInventoryPlan) error
+	GetInventoryPlan(ctx context.Context, id string) (*FixedAssetInventoryPlan, error)
+	ListInventoryPlans(ctx context.Context, companyID string) ([]FixedAssetInventoryPlan, error)
+	UpdateInventoryPlan(ctx context.Context, p *FixedAssetInventoryPlan) error
+
+	CreateInventoryResult(ctx context.Context, r *FixedAssetInventoryResult) error
+	GetInventoryResultsByPlan(ctx context.Context, planID string) ([]FixedAssetInventoryResult, error)
+}
