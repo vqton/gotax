@@ -23,21 +23,23 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.uber.org/zap"
 
 	_ "gotax/docs"
 	"gotax/internal/auth"
+	"gotax/internal/config"
 	"gotax/internal/db"
 	"gotax/internal/domain"
 	"gotax/internal/handler"
 	gotaxi18n "gotax/internal/i18n"
+	"gotax/internal/logger"
 	"gotax/internal/repository"
 	"gotax/internal/service"
 )
@@ -64,18 +66,34 @@ import (
 func main() {
 	ctx := context.Background()
 
-	secret := os.Getenv("JWT_SECRET")
-	auth.SetJWTSecret(secret)
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		os.Exit(1)
+	}
 
-	r := gin.Default()
-	r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	zapLog, err := logger.New(cfg.LogLevel, cfg.LogFormat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer zapLog.Sync()
+
+	zap.ReplaceGlobals(zapLog)
+
+	auth.SetJWTSecret(cfg.JWTSecret)
+
+	r := gin.New()
+	r.Use(logger.GinMiddleware(zapLog))
+	r.Use(gin.Recovery())
+	r.SetTrustedProxies(cfg.TrustedProxies)
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080", "http://127.0.0.1:8080"},
+		AllowOrigins:     cfg.CORSOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length", "Authorization"},
 		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		MaxAge:           12 * 60 * 60 * 1000000000,
 	}))
 r.LoadHTMLGlob("web/auth/*.html")
 r.Static("/assets", "./web/static")
@@ -101,20 +119,22 @@ r.GET("/reset-password", func(c *gin.Context) {
 	i18nL := gotaxi18n.MustNew()
 	r.Use(handler.I18nMiddleware(i18nL))
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn != "" {
-		log.Println("using PostgreSQL backend (Clean Architecture)")
-		cfg := db.DefaultGormConfig()
-		cfg.DSN = dsn
-
-		gormDB, err := db.NewGorm(ctx, cfg)
+	if cfg.DatabaseURL != "" {
+		zap.L().Info("using PostgreSQL backend")
+		gormCfg := db.GormConfig{
+			DSN:                cfg.DatabaseURL,
+			MaxOpenConns:       cfg.GORMMaxOpenConns,
+			MaxIdleConns:       cfg.GORMMaxIdleConns,
+			ConnMaxLifetimeMS:  cfg.GORMConnMaxLifetimeMS,
+		}
+		gormDB, err := db.NewGorm(ctx, gormCfg)
 		if err != nil {
-			log.Fatalf("connect to PostgreSQL: %v", err)
+			zap.L().Fatal("connect to PostgreSQL", zap.Error(err))
 		}
 		defer db.CloseGorm(gormDB)
 
-		if err := db.RunGormMigrations(gormDB); err != nil {
-			log.Fatalf("run migrations: %v", err)
+		if err := db.RunGolangMigrate(cfg.DatabaseURL); err != nil {
+			zap.L().Fatal("run migrations", zap.Error(err))
 		}
 
 		accRepo := repository.NewPGAccountRepo(gormDB)
@@ -182,12 +202,12 @@ r.GET("/reset-password", func(c *gin.Context) {
 	whSvc := service.NewWarehouseService(whRepo, catRepo, itemRepo, balRepo, invTxnRepo, trfRepo, adjRepo, takeRepo, valRepo, grnRepo, svc)
 	whH := handler.NewWarehouseHandler(whSvc)
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, authMW, adminMW)
-	log.Println("GoTax GL server (PG) starting on :8080")
-		r.Run(":8080")
+	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
+		r.Run(cfg.ServerPort)
 		return
 	}
 
-	log.Println("using in-memory backend (Clean Architecture)")
+	zap.L().Info("using in-memory backend")
 	accRepo := repository.NewMemoryAccountRepo()
 	jeRepo := repository.NewMemoryJournalRepo()
 	jeRepo.SetAccounts(accRepo.Accounts())
@@ -242,6 +262,6 @@ r.GET("/reset-password", func(c *gin.Context) {
 	whSvc := service.NewWarehouseService(memWhRepo, memCatRepo, memItemRepo, memBalRepo, memTxnRepo, memTrfRepo, memAdjRepo, memTakeRepo, memValRepo, memPurchaseRepo, svc)
 	whH := handler.NewWarehouseHandler(whSvc)
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, authMW, adminMW)
-	log.Println("GoTax GL server (CA) starting on :8080")
-	r.Run(":8080")
+	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
+	r.Run(cfg.ServerPort)
 }

@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS term_deposits CASCADE;
+DROP TABLE IF EXISTS loan_repayments CASCADE;
+DROP TABLE IF EXISTS loan_disbursements CASCADE;
+DROP TABLE IF EXISTS loan_agreements CASCADE;
+DROP TABLE IF EXISTS payment_order_batch_items CASCADE;
+DROP TABLE IF EXISTS payment_order_batches CASCADE;
+DROP TABLE IF EXISTS payment_orders CASCADE;
+DROP TABLE IF EXISTS bank_reconciliation_matches CASCADE;
+DROP TABLE IF EXISTS bank_reconciliations CASCADE;
+DROP TABLE IF EXISTS bank_statement_lines CASCADE;
+DROP TABLE IF EXISTS bank_statements CASCADE;

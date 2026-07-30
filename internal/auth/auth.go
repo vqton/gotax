@@ -11,11 +11,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
 	"gotax/internal/domain"
@@ -38,10 +38,10 @@ func GenerateRSAKeyPair(bits int) error {
 
 func SetJWTSecret(secret string) {
 	if secret == "" {
-		log.Fatal("JWT_SECRET must be set")
+		zap.L().Fatal("JWT_SECRET must be set")
 	}
 	if err := GenerateRSAKeyPair(2048); err != nil {
-		log.Fatalf("failed to generate RSA key pair: %v", err)
+		zap.L().Fatal("failed to generate RSA key pair", zap.Error(err))
 	}
 }
 

@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS cash_inventory_details CASCADE;
+DROP TABLE IF EXISTS cash_inventories CASCADE;
+DROP TABLE IF EXISTS petty_cash_funds CASCADE;
+DROP TABLE IF EXISTS cash_transfers CASCADE;
+DROP TABLE IF EXISTS cash_payments CASCADE;
+DROP TABLE IF EXISTS cash_receipts CASCADE;

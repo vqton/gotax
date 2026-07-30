@@ -1,0 +1,14 @@
+# jwt_secret: ""         # required — set via JWT_SECRET env
+# database_url: ""       # set via DATABASE_URL env; empty → in-memory
+server_port: ":8080"
+log_level: "info"
+log_format: "console"
+trusted_proxies:
+  - "127.0.0.1"
+  - "::1"
+cors_origins:
+  - "http://localhost:8080"
+  - "http://127.0.0.1:8080"
+gorm_max_open_conns: 20
+gorm_max_idle_conns: 5
+gorm_conn_max_lifetime_ms: 1800000
