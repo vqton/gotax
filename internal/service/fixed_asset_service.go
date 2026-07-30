@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gotax/internal/domain"
+	"gotax/internal/validate"
 )
 
 type FAServiceInterface interface {
@@ -68,7 +69,7 @@ func NewFAService(faRepo domain.FARepository) FAServiceInterface {
 // ─── Categories ──────────────────────────────────────────────────────
 
 func (s *faService) CreateCategory(ctx context.Context, c *domain.FixedAssetCategory) error {
-	if err := c.Validate(); err != nil {
+	if err := validate.FixedAssetCategory(c); err != nil {
 		return err
 	}
 	return s.faRepo.CreateCategory(ctx, c)
@@ -87,7 +88,7 @@ func (s *faService) ListCategories(ctx context.Context, filter domain.FACategory
 }
 
 func (s *faService) UpdateCategory(ctx context.Context, c *domain.FixedAssetCategory) error {
-	if err := c.Validate(); err != nil {
+	if err := validate.FixedAssetCategory(c); err != nil {
 		return err
 	}
 	return s.faRepo.UpdateCategory(ctx, c)
@@ -100,13 +101,10 @@ func (s *faService) DeleteCategory(ctx context.Context, id string) error {
 // ─── Fixed Assets ────────────────────────────────────────────────────
 
 func (s *faService) CreateAsset(ctx context.Context, a *domain.FixedAsset) error {
-	if err := a.Validate(); err != nil {
+	if err := validate.FixedAsset(a); err != nil {
 		return err
 	}
 	a.CarryingAmount = a.CalcCarryingAmount()
-	if a.Status == "" {
-		a.Status = domain.FADraft
-	}
 	return s.faRepo.CreateAsset(ctx, a)
 }
 
@@ -123,7 +121,7 @@ func (s *faService) ListAssets(ctx context.Context, filter domain.FAListFilter) 
 }
 
 func (s *faService) UpdateAsset(ctx context.Context, a *domain.FixedAsset) error {
-	if err := a.Validate(); err != nil {
+	if err := validate.FixedAsset(a); err != nil {
 		return err
 	}
 	a.CarryingAmount = a.CalcCarryingAmount()

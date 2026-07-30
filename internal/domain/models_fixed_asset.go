@@ -55,20 +55,20 @@ const (
 type FixedAsset struct {
 	ID                     string             `json:"id"`
 	CompanyID              string             `json:"company_id"`
-	Code                   string             `json:"code"`
-	Name                   string             `json:"name"`
-	CategoryID             string             `json:"category_id"`
-	Status                 FixedAssetStatus   `json:"status"`
-	AcquisitionDate        string             `json:"acquisition_date"` // YYYY-MM-DD
-	OriginalCost           float64            `json:"original_cost"`
+	Code                   string             `json:"code"                      validate:"required,max=50"`
+	Name                   string             `json:"name"                      validate:"required,max=200"`
+	CategoryID             string             `json:"category_id"               validate:"required"`
+	Status                 FixedAssetStatus   `json:"status"                    validate:"omitempty,fastatus"`
+	AcquisitionDate        string             `json:"acquisition_date"          validate:"required,datetime=2006-01-02"`
+	OriginalCost           float64            `json:"original_cost"             validate:"gte=0"`
 	AccumulatedDepreciation float64           `json:"accumulated_depreciation"`
 	ResidualValue          float64            `json:"residual_value"`
 	CarryingAmount         float64            `json:"carrying_amount"`
-	UsefulLifeMonths       int                `json:"useful_life_months"`
-	DepreciationMethod     DepreciationMethod `json:"depreciation_method"`
+	UsefulLifeMonths       int                `json:"useful_life_months"        validate:"gt=0"`
+	DepreciationMethod     DepreciationMethod `json:"depreciation_method"       validate:"omitempty,damethod"`
 	DepreciationStartDate  *string            `json:"depreciation_start_date,omitempty"`
 	DepreciationEndDate    *string            `json:"depreciation_end_date,omitempty"`
-	DepartmentID           string             `json:"department_id"`
+	DepartmentID           string             `json:"department_id"             validate:"required"`
 	Location               string             `json:"location"`
 	UserID                 string             `json:"user_id,omitempty"`
 	SupplierID             string             `json:"supplier_id,omitempty"`
@@ -80,11 +80,11 @@ type FixedAsset struct {
 	CountryOfOrigin        string             `json:"country_of_origin,omitempty"`
 	TechnicalSpecs         string             `json:"technical_specs,omitempty"`
 	Notes                  string             `json:"notes,omitempty"`
-	Source                 FASource           `json:"source"`
+	Source                 FASource           `json:"source"                    validate:"omitempty,fasource"`
 	CIPAccountID           string             `json:"cip_account_id,omitempty"`
-	AssetAccountID         string             `json:"asset_account_id"`
-	DepreciationAccountID  string             `json:"depreciation_account_id"`
-	ExpenseAccountID       string             `json:"expense_account_id"`
+	AssetAccountID         string             `json:"asset_account_id"         validate:"required"`
+	DepreciationAccountID  string             `json:"depreciation_account_id"  validate:"required"`
+	ExpenseAccountID       string             `json:"expense_account_id"       validate:"required"`
 	CreatedAt              string             `json:"created_at"`
 	CreatedBy              string             `json:"created_by"`
 	UpdatedAt              string             `json:"updated_at"`
@@ -145,15 +145,15 @@ func (f *FixedAsset) Validate() error {
 type FixedAssetCategory struct {
 	ID                          string             `json:"id"`
 	CompanyID                   string             `json:"company_id"`
-	Code                        string             `json:"code"`
-	Name                        string             `json:"name"`
+	Code                        string             `json:"code"                           validate:"required,max=50"`
+	Name                        string             `json:"name"                           validate:"required,max=200"`
 	ParentID                    *string            `json:"parent_id,omitempty"`
-	Level                       int                `json:"level"`
+	Level                       int                `json:"level"                          validate:"min=1,max=3"`
 	DefaultUsefulLifeMonths     int                `json:"default_useful_life_months"`
-	DefaultDepreciationMethod   DepreciationMethod `json:"default_depreciation_method"`
-	AssetAccountID              string             `json:"asset_account_id"`
-	DepreciationAccountID       string             `json:"depreciation_account_id"`
-	ExpenseAccountID            string             `json:"expense_account_id"`
+	DefaultDepreciationMethod   DepreciationMethod `json:"default_depreciation_method"    validate:"omitempty,damethod"`
+	AssetAccountID              string             `json:"asset_account_id"              validate:"required"`
+	DepreciationAccountID       string             `json:"depreciation_account_id"       validate:"required"`
+	ExpenseAccountID            string             `json:"expense_account_id"            validate:"required"`
 	CreatedAt                   string             `json:"created_at"`
 	UpdatedAt                   string             `json:"updated_at"`
 }
