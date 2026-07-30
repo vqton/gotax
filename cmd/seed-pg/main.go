@@ -14,24 +14,25 @@ import (
 )
 
 const (
-	defaultUsername = "admin"
-	defaultPassword = "Admin@123456!"
-	defaultFullName = "System Admin"
-	defaultEmail    = "admin@gotax.vn"
-	defaultRole     = "admin"
+	seedUsername = "admin"
+	seedPassword = "Admin@123456!"
+	seedFullName = "System Admin"
+	seedEmail    = "admin@gotax.vn"
+	seedRole     = "admin"
 )
 
 func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "PostgreSQL DSN (env DATABASE_URL)")
-	username := flag.String("username", defaultUsername, "Login name")
-	password := flag.String("password", defaultPassword, "Password (>= 12 chars)")
-	fullName := flag.String("full-name", defaultFullName, "Full name")
-	email := flag.String("email", defaultEmail, "Email")
-	role := flag.String("role", defaultRole, "admin | chief_accountant | accountant | viewer")
+	username := flag.String("username", seedUsername, "Login name")
+	password := flag.String("password", seedPassword, "Password (>= 12 chars)")
+	fullName := flag.String("full-name", seedFullName, "Full name")
+	email := flag.String("email", seedEmail, "Email")
+	role := flag.String("role", seedRole, "Role: admin | chief_accountant | accountant | viewer")
+	force := flag.Bool("force", false, "Overwrite existing user password")
 	flag.Parse()
 
 	if *dsn == "" {
-		log.Fatal("DATABASE_URL not set. Pass -dsn or export DATABASE_URL")
+		log.Fatal("DATABASE_URL required (env or -dsn flag)")
 	}
 	if err := validateRole(*role); err != nil {
 		log.Fatalf("bad role: %v", err)
@@ -58,11 +59,14 @@ func main() {
 	}
 
 	var id string
-	err = db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE username = $1", *username,
-	).Scan(&id)
+	err = db.QueryRowContext(ctx, "SELECT id FROM users WHERE username = $1", *username).Scan(&id)
 
 	if err == nil {
+		if !*force {
+			fmt.Printf("user %s already exists (id=%s). Use -force to reset password.\n", *username, id)
+			fmt.Printf("     username: %s | password: %s | role: %s\n", *username, *password, *role)
+			return
+		}
 		_, uerr := db.ExecContext(ctx,
 			"UPDATE users SET password_hash=$1, full_name=$2, email=$3, role=$4, is_active=TRUE, updated_at=NOW() WHERE id=$5",
 			string(hash), *fullName, *email, *role, id,
@@ -70,7 +74,7 @@ func main() {
 		if uerr != nil {
 			log.Fatalf("update: %v", uerr)
 		}
-		fmt.Printf("OK — user %s refreshed (id=%s role=%s)\n", *username, id, *role)
+		fmt.Printf("OK — user %s password reset (id=%s role=%s)\n", *username, id, *role)
 		fmt.Printf("     username: %s | password: %s\n", *username, *password)
 		return
 	}
