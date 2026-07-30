@@ -16,7 +16,7 @@ type Localizer struct {
 }
 
 func New() (*Localizer, error) {
-	b := i18n.NewBundle(language.Vietnamese)
+	b := i18n.NewBundle(language.English)
 	entries, err := fs.ReadDir(".")
 	if err != nil {
 		return nil, fmt.Errorf("read i18n dir: %w", err)

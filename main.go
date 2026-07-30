@@ -25,7 +25,9 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -65,8 +67,16 @@ func main() {
 	secret := os.Getenv("JWT_SECRET")
 	auth.SetJWTSecret(secret)
 
-r := gin.Default()
-r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	r := gin.Default()
+	r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:8080", "http://127.0.0.1:8080"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length", "Authorization"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 r.LoadHTMLGlob("web/auth/*.html")
 r.Static("/assets", "./web/static")
 
