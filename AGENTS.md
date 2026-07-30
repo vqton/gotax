@@ -2,101 +2,93 @@
 
 ## Mode
 
-- **Caveman always active** — drop articles (a/an/the), filler, pleasantries, hedging. Fragments OK. Code/commits written normal.
-- **Karpathy rules** — be a hacker: ship first, polish later. Simple > clever. Write less, ship more. Don't over-abstract. Prefer flat code over indirection.
-- **Main theory** — every line must serve the feature. If it doesn't add signal, cut it. No comments, no docstrings unless API surface. No speculative generality.
+- **Caveman always active** — drop articles/filler/pleasantries/hedging. Fragments OK. Code/commits written normal.
+- **Karpathy rules** — ship first, polish later. Simple > clever. Write less, ship more. Don't over-abstract. Prefer flat code.
+- **Main theory** — every line serves the feature. No comments/docstrings unless API surface. No speculative generality.
 
 ## Project
 
-Vietnamese tax-compliant General Ledger API. Built to Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company. Backend for GoTax accounting SaaS.
+Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company.
 
-**Stack:** Go 1.26.5 · Gin v1.12 · pgx/v5 (PostgreSQL) · golang-jwt v5 (RS256) · bcrypt · TOTP · swaggo/swag · testify
+**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · zap · viper · casbin · go-i18n · swaggo/swag · testify
 
-## Architecture — Clean Architecture (migrated from flat `internal/gl/`)
+## Architecture
 
 ```
-main.go                     →  entrypoint, DI wiring, backend selection (PG vs memory)
-internal/domain/            →  models, repository interfaces, errors. Zero dependencies.
+main.go                     →  entrypoint, DI wiring, backend selection (PG via GORM vs memory)
+internal/domain/            →  models, repository interfaces, errors. Zero external deps.
 internal/auth/              →  JWT (RS256), TOTP, bcrypt, rate limiter
-internal/service/           →  Service (GL) + CompanyService (company). Business rules, validation.
-internal/handler/           →  Handler + CompanyHandler + AuthMiddleware + route registration
-internal/repository/        →  in-memory + PG impls of all domain repository interfaces
-internal/db/                →  PGConfig, NewPool, RunMigrations
-cmd/                        →  (empty, unused)
-pkg/                        →  (empty, unused)
-docs/                       →  generated swagger (DO NOT EDIT)
-migrations/                 →  002_gl_schema.sql + 003_company_schema.sql
+internal/service/           →  business rules, validation, orchestration. Pure Go.
+internal/handler/           →  HTTP handlers, authMW, route registration
+internal/repository/        →  per-module PG + memory impls (pg_*.go, memory_*.go)
+internal/db/                →  GORM setup, golang-migrate runner
 ```
 
 **Two backends** controlled by `DATABASE_URL` env var:
-- Set → PostgreSQL (auto-migrates on startup via pgxpool, no version table)
-- Unset → in-memory maps + sync.RWMutex (dev/test)
+- Set → PostgreSQL via GORM + golang-migrate (auto-runs on startup)
+- Unset → in-memory maps + `sync.RWMutex` (dev/test)
 
 **Request lifecycle:**
 ```
 HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Service → Repository
 ```
 
-**Layer split:**
+**Layer rules:**
 - `Handler` — parse request, call service, return JSON. Zero logic.
-- `Service` — business rules, validation, orchestration. Pure Go, no HTTP.
-- `Repository` — data access. Two impls: `PG*Repo` and `Memory*Repo`.
+- `Service` — business rules, validation. No HTTP imports.
+- `Repository` — data access. Two impls per module: `PG*Repo` + `Memory*Repo`.
 
-Every entity has both PG and memory repo. Adding a new entity means implementing the interface twice.
+## Domain Models
 
-## Domain — Model Files (SOLID: Single Responsibility)
+`internal/domain/models*.go` — all `package domain`. Split by bounded context. 7+ files, all same package.
 
-`internal/domain/models*.go` — all `package domain`. Split by bounded context:
-
-| File | Lines | Contents |
-|------|-------|----------|
-| `models.go` | 344 | GL core (Account, JournalEntry, Period, AccountBalance) + Auth (User, RefreshToken, Session, TokenPair, AuthResult) + AuditEntry + ExchangeRate + ClosingTemplate + Password policy |
-| `models_coa.go` | 111 | ApprovalRequest, AccountVersion, AccountMapping, AccountAnalysis, IFRSMapping, AccountUsage, VersionDiff/AccountDiff/Change |
-| `models_company.go` | 245 | Company, Branch, FiscalYear, PeriodV2, Department, Employee, BankAccount, EInvoicePattern, DigitalSignature, IntegrationProfile, CompanyContext |
-| `models_bank.go` | 327 | Statement, Recon, PaymentOrder, Batch, Loan, TermDeposit, Filters, Reports |
-| `models_tax.go` | 482 | Declaration types, TaxRate, EInvoice lifecycle, TaxCalendar, AuditCase, Calc results, Filters |
-| `models_cash.go` | 331 | CashReceipt/Payment/Transfer, PettyCash, Inventory, AdvanceRequest/Settlement |
-| `models_ob.go` | 117 | OpeningBalance, OpeningBalanceDetail, CarryForwardLog, Circular99Mapping, BalanceMigration |
-
-No sub-packages. Adding a model = add to correct existing file or create new `models_*.go`.
+Adding a model = add to correct existing file or create new `models_*.go`. No sub-packages, no import changes.
 
 ## Auth
 
 ```
-POST /api/v1/auth/login       →  username+password → JWT pair (access 15m + refresh)
+POST /api/v1/auth/login       →  username+password → JWT pair (access 15m + refresh 7d)
 POST /api/v1/auth/refresh      →  rotate refresh token
 POST /api/v1/auth/totp/verify  →  2FA challenge after login
 
-authMW (gin middleware)        →  extract Bearer token → verify RS256 → set user_id, username, role in gin.Context
-GetUserID(c *gin.Context)      →  helper to read user_id from context
-RoleMiddleware(admin, chief)   →  gate routes by role
+authMW → extract Bearer → verify RS256 → set user_id, username, role in gin.Context
+GetUserID(c) → helper for user_id from context
+RoleMiddleware(admin, chief) → RBAC gate
 ```
 
-JWT uses RS256. RSA key pair generated at startup from `JWT_SECRET` seed via `crypto/rand`. **Not deterministic** — same seed ≠ same keys. Every restart invalidates all tokens.
+JWT: RS256. Key pair generated at startup from `JWT_SECRET` via `crypto/rand`. **Not deterministic** — same seed ≠ same keys. Restart invalidates all tokens.
 
 ## Routes
 
-| Group | Path | Handler | Auth |
-|-------|------|---------|------|
-| Auth | `/api/v1/auth/{login,refresh,forgot-password,reset-password,totp/verify}` | `Handler` | Public |
-| GL | `/api/v1/accounts`, `/journal-entries`, `/periods`, `/exchange-rates`, `/reports`, `/coa/*`, `/audit` | `Handler` | authMW |
+| Group | Path prefix | Handler | Auth |
+|-------|-----------|---------|------|
+| Auth | `/api/v1/auth/{login,refresh,forgot,reset,totp/verify}` | `Handler` | Public |
+| GL | `/api/v1/accounts`, `journal-entries`, `periods`, `exchange-rates`, `reports`, `coa/*`, `audit` | `Handler` | authMW |
 | User | `/api/v1/users`, `/me`, `/auth/{change-password,logout,totp/*}` | `Handler` | authMW |
-| Company | `/api/v1/companies/**`, `/branches/**`, `/departments/**`, `/employees/**`, `/bank-accounts/**`, `/fiscal-years/**`, `/einvoice-patterns/**`, `/digital-signatures/**`, `/integrations/**` | `CompanyHandler` | authMW |
+| Company | `/api/v1/companies/**`, `branches/**`, `departments/**`, `employees/**`, `bank-accounts/**`, `fiscal-years/**` | `CompanyHandler` | authMW |
+| Tax | `/api/v1/tax/**` | `TaxHandler` | authMW |
+| Cash | `/api/v1/cash/**` | `CashHandler` | authMW |
+| Bank | `/api/v1/bank/**` | `BankHandler` | authMW |
+| Purchase | `/api/v1/purchase/**` | `PurchaseHandler` | authMW |
+| Sale | `/api/v1/sale/**` | `SaleHandler` | authMW |
+| Warehouse | `/api/v1/warehouse/**` | `WarehouseHandler` | authMW |
+| Fixed Asset | `/api/v1/fixed-assets/**` | `FAHandler` | authMW |
 
-`RegisterRoutesWithCompany(r, h, ch, authMW, adminMW)` in `handler/handler.go:153`.
+Route registration: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, authMW, adminMW)` at `handler/handler.go:207`.
 
 ## Commands
 
 ```sh
 go build ./...
+go vet ./...
 go test ./...
 go test -v -run TestCreateCompany ./internal/handler/
-go vet ./...
+go test -count=1 ./...        # fresh run, no cache
 
 # Run (memory)
 JWT_SECRET=devsecret go run .
 
-# Run (PostgreSQL — auto-migrates)
+# Run (PostgreSQL — auto-migrates via golang-migrate)
 DATABASE_URL=postgres://... JWT_SECRET=devsecret go run .
 
 # Regenerate swagger (annotations in main.go + handler comments)
@@ -104,109 +96,77 @@ swag init --parseDependency --parseInternal
 # → docs/docs.go, docs/swagger.json, docs/swagger.yaml — DO NOT EDIT
 ```
 
-No Makefile, no linter config, no CI, no Dockerfile.
-
-## Quality
-
-Code quality standard at `docs/standards/CODE_QUALITY.md`: static analysis toolchain, 8-dimension review checklist, layer rules, PRR gate, quality metrics. Run `go vet ./... && go test ./...` before commit; full standard applies before merge.
+No Makefile, no linter config, no Dockerfile. Lint: `go vet`.
 
 ## Testing
 
-Test strategy at `docs/standards/TEST_STRATEGY.md`: test pyramid, Go idioms, coverage targets, race detection, fuzzing, CI gates, outdated practices.
+- All tests use **in-memory repos** + `httptest.NewRecorder`. No DB, no integration.
+- Handler tests: real in-memory repos + real service, gin engine with mock auth middleware (sets user_id, role). No mock services.
+- Service tests: real in-memory repos.
+- Domain tests: struct validation tests.
+- Adding a service method → add to service + both repos + handler + test. No mock setup needed.
+- `go test -count=1 ./...` before commit (fresh run, bypasses cache).
 
-- All tests use **in-memory repos** + `httptest.NewRecorder` — no DB, no integration.
-- `handler_test.go` — creates real in-memory repos + real `service.Service`, gin engine with mock auth middleware (sets user_id, role). No mock services.
-- `company_handler_test.go` — same pattern, uses real `service.CompanyService` + `MemoryCompanyRepo`.
-- `service_test.go` — real in-memory repos, tests full journal lifecycle (draft→submit→approve→post→cancel), login/2FA/refresh/lockout, exchange rates, reports (trial balance, account balance, drill-down), COA ops.
-- `domain/models_test.go` — 22 struct validation tests for all domain models.
-- Test count: 160 across domain (22) + handler (72) + service (66) — all green.
-- Bank module: Statements, Recon, Payment Orders, Batches, Loans, Term Deposits, Reports. 11 tables in `004_bank_module.sql`. PG + memory repos. `BankService` 35+ methods. `BankHandler` 16 endpoints. 16 handler tests.
+## Migration System
 
-- Adding a new service method: add a field to `mockService` in `handler_test.go`? **No** — current tests use real service. Just add the method to service, repos, and write endpoint test in handler_test.go.
+Uses `golang-migrate/migrate/v4`. Migration files in `migrations/` named `{version}_{title}.up.sql` / `.down.sql`. Version numbers are sequential (000001-000010 currently). Auto-runs on startup when PG is configured.
+
+Adding a migration: write `.up.sql` + `.down.sql` in `migrations/` with next version number. That's it — golang-migrate discovers them automatically.
+
+Legacy `.sql` files without version numbers (e.g. `001_gl_schema.sql.deprecated`, `003_cash_schema.sql`) are unused — do not reference.
+
+## Repository Files
+
+Per-module naming: `pg_<module>.go` + `memory_<module>.go` in `internal/repository/`. Not monolithic. Adding a module = two new files.
+
+| Module | PG file | Memory file |
+|--------|---------|-------------|
+| GL | `pg.go` | `memory.go` |
+| Company | `pg_company.go` | `memory_company.go` |
+| Tax | `pg_tax.go` | `memory_tax.go` |
+| Bank | `pg_bank.go` | `memory_bank.go` |
+| Cash | `pg_cash.go` | `memory_cash.go` |
+| Purchase | `pg_purchase.go` | `memory_purchase.go` |
+| Sale | `pg_sale.go` | `memory_sale.go` |
+| Warehouse | `pg_warehouse.go` | `memory_warehouse.go` |
+| FA | `pg_fa.go` | `memory_fa.go` |
+
+PG repos use GORM (`*gorm.DB`). Memory repos use `sync.RWMutex` + maps + auto-generated IDs.
+
+ID convention: memory repos copy struct before mutation, generate ID for copy, write ID back to original pointer. Always use same pointer after Create.
+
+## Module Readiness
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| GL | PROD | Core accounts, journal, periods, reports, COA, opening balances |
+| Auth | PROD | Login, JWT (RS256), TOTP, refresh, rate limit, lockout |
+| Company | PROD | Company, branches, departments, employees, fiscal years, bank accounts |
+| Cash | PROD | Receipts, payments, transfers, petty cash, advances |
+| Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
+| Tax | ~20% — NOT PROD | Declaration stubs, e-invoice CRUD, rates CRUD. Missing: declaration engine, XML gen, GDT API, full lifecycle |
+| Purchase | ~0% | Interface + PG repos exist. Service layer incomplete |
+| Sale | ~0% | Interface + PG repos exist. Service layer incomplete |
+| Warehouse | ~0% | Interface + PG repos exist. Service layer incomplete |
+| FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
+
+Full tax/purchase/warehouse specs at `docs/`.
+
+## Adding a Feature — Step Order
+
+1. Interface method in `internal/domain/interfaces.go`
+2. Repository impl in `internal/repository/pg_*.go` + `memory_*.go`
+3. Service method in `internal/service/service.go` (or `<module>_service.go`)
+4. Handler method in `internal/handler/handler.go` (or `<module>_handler.go`) + route registration in `RegisterFixedAssetRoutes` / `RegisterPurchaseRoutes` etc.
+5. Tests in `internal/handler/<module>_handler_test.go`
+6. Wire in `main.go`
+7. `go vet ./... && go test -count=1 ./...`
 
 ## Gotchas
 
 - **`JWT_SECRET` required** — server panics if unset.
-- **RSA non-deterministic** — same `JWT_SECRET` ≠ same keys. All tokens die on restart.
-- **Migrations every startup** — raw SQL exec via `db.RunMigrations`, no version table. Adding a migration = write `.sql` in `migrations/` and append path to `db/pg.go` `migrations` slice.
-- **`001_gl_schema.sql.deprecated`** in `migrations/` — unused file, do not reference.
-- **`GenerateToken` uses HMAC-SHA256** with hardcoded fallback secret — test-only dead code. Production uses `GenerateAccessToken` (RS256).
+- **RSA non-deterministic** — same seed ≠ same keys. Tokens die on restart.
 - **Go 1.26.5** — `range-over-func` and other modern Go features available.
-- **`CompanyService` uses separate `CompanyRepository`** (not the GL service interface). Wired independently in main.go.
-- **Memory repos auto-generate IDs** — they copy the struct and generate an ID for the copy, then write it back to the original pointer (`c.ID = cp.ID`). Always use the same pointer after Create.
-- **`pg_company.go`** is a separate file from `pg.go` — both in `internal/repository/`. All PG repos are in those two files.
-- **Domain models split by bounded context** — 7 `models_*.go` files in `internal/domain/`. All same package, zero import changes when adding a model. Add to correct file or create new `models_*.go`.
-
-## Tax Module — NOT PROD READY
-
-Tax documentation at `docs/tax/` — comprehensive analysis from BA Lead + Chief Accountant perspective (20+ yrs each). Researched: MISA, Fast, BravoERP, Tryton, GDT, EY, PwC, KPMG, Deloitte, gov portals.
-
-**Verdict: Tax module ~20% complete. NOT production-ready.**
-
-What exists (foundation only):
-- Circular 99 COA tax accounts (20+ tax accounts)
-- Company tax code/office fields + validation
-- E-invoice pattern CRUD, digital signature CRUD, GDT integration profile stub
-- `TestIntegration` is no-op
-
-What's MISSING (~80%):
-- Tax declaration engine (VAT/CIT/PIT/TTDB/BVMT/FCT forms)
-- Tax rate tables (configurable with effective dates)
-- Tax calculation from journal entries
-- XML generation (01/GTGT, 03/TNDN, 05/KK-TNCN, etc.)
-- GDT API client for `thuedientu.gdt.gov.vn`
-- E-invoice issuance pipeline (TXML → sign → submit → issue)
-- Tax payment tracking + reconciliation
-- Tax calendar + deadline alerts
-- Tax audit support
-- Global minimum tax (Pillar 2) — account 82112 exists, no logic
-
-See `docs/tax/TAX_READINESS.md` for full matrix. See `docs/tax/TAX_BRD.md`, `TAX_SPECS.md`, `TAX_USE_CASES.md`, `TAX_WORKFLOWS.md`, `TAX_TEMPLATES.md`, `TAX_RULES.md`, `TAX_DATA_FLOWS.md` for full design.
-
-## Purchase Module — NOT STARTED
-
-Purchase docs at `docs/purchase/` — comprehensive analysis. Researched: MISA AMIS, Fast Accounting, Bravo ERP, Tryton, GDT, IAS 2, IFRS 15, Circular 99/2025, Decree 123/2020, Decree 254/2026.
-
-**Verdict: Purchase module ~0% complete. NOT production-ready.**
-
-What exists: **NOTHING**. Zero code, zero schema, zero endpoints.
-
-What's specified (9 docs, 2184 lines total):
-- `PURCHASE_BRD.md` — 9 FR sections, regulatory matrix, integration points
-- `PURCHASE_SPECS.md` — 9 data models, 33 API endpoints, state machines, GL posting map
-- `PURCHASE_USE_CASES.md` — 9 use cases (happy/alt/exception paths)
-- `PURCHASE_WORKFLOWS.md` — 7 workflows (P2P, domestic, import, return, month-end, e-invoice, payment)
-- `PURCHASE_RULES.md` — 21 business rules (accounting, validation, security, period-end, compliance)
-- `PURCHASE_DATA_FLOWS.md` — ERD, data flows, GL integration, e-invoice flow, volume estimates
-- `PURCHASE_TEMPLATES.md` — 10 templates (PO, GRN, invoice, aging, 3-way match, S01-DN, S02-DN, XML, credit note, scorecard)
-- `PURCHASE_USER_JOURNEYS.md` — 7 user journeys (AP clerk, warehouse, chief accountant, purchasing, CFO, tax, auditor)
-- `PURCHASE_READINESS.md` — Gap analysis vs MISA/Fast/Bravo, 4-phase roadmap, risk assessment
-
-Key accounts: 151 (goods in transit), 152 (raw materials), 153 (tools), 156 (goods), 331 (AP), 1331 (VAT input), 3332/3333/33312 (import taxes), 515 (discount), 635 (FX loss).
-
-First build priority: domain models + PG schema → PG + memory repos → service → handler → routes.
-
-## Warehouse Module — NOT STARTED
-
-Warehouse workflow doc at `docs/warehouse/` — end-to-end enterprise workflow. v2.0 updated for Circular 99/2025/TT-BTC (TK 611 eliminated). Benchmarked: MISA AMIS Kho hàng (06/2026), FAST Fast Inventory (03/2026), Bravo 10 ERP, Odoo 19.0 Inventory, SAP MM-IM.
-
-**Verdict: Warehouse module ~0% complete.**
-
-What's specified (1 doc, 1037 lines):
-- `WARE_MODULE_WORKFLOW.md` — 20 sections covering 17 granular workflows. Every step uses 6-field structured table (State/Lifecycle, Actor, Input, Validations, Output/GL, Exception). 30 movement types with full GL posting matrix per TT 99/2025. COA reference (151-158, 2294, 632, 611, 711, 811). State machines (8 entities). Proposed data model (8 entities: Warehouse, Item, ItemCategory, StockBalance, InventoryTransaction, StockTransfer, StockAdjustment, StockTake, InventoryValuationRun). Integration maps. MISA multi-step receipt/issue included.
-
-Key COA accounts: 151 (goods in transit), 152 (raw materials), 153 (tools), 154 (WIP), 155 (finished goods), 156 (goods), 157 (consignment), 158 (bonded), 2294 (provision), 632 (COGS), 611 (cost variance), 711/811 (gain/loss).
-
-Cost methods: Weighted Avg, FIFO, Specific ID, Standard Cost.
-
-Build order: models_warehouse.go + 007_warehouse_schema.sql → PG repos + memory repos → WarehouseService → WarehouseHandler → routes → main.go wire.
-
-**Adding a Feature — Step Order**
-
-1. Interface method in `internal/domain/interfaces.go`
-2. Repository impl in `internal/repository/pg.go` (or `pg_company.go`) + `internal/repository/memory.go` (or `memory_company.go`)
-3. Service method in `internal/service/service.go` (or `company.go`)
-4. Handler method in `internal/handler/handler.go` (or `company.go`) + route registration
-5. Test in `internal/handler/handler_test.go` (or `company_handler_test.go`)
-6. Wire in `main.go`
-7. `go vet ./... && go test ./...`
+- **`GenerateToken` (HMAC-SHA256 with hardcoded secret)** — test-only dead code. Production uses `GenerateAccessToken` (RS256).
+- **Config** from `config.yaml` + env vars via viper. Env overrides (e.g. `JWT_SECRET`, `DATABASE_URL`).
+- **Audit logging** via `internal/handler/audit.go` middleware — logs all state-mutating operations.
