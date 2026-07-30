@@ -2,20 +2,20 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 
 	"gotax/internal/domain"
 )
 
 type PGCompanyRepo struct {
-	pool *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewPGCompanyRepo(pool *pgxpool.Pool) *PGCompanyRepo {
-	return &PGCompanyRepo{pool: pool}
+func NewPGCompanyRepo(db *gorm.DB) *PGCompanyRepo {
+	return &PGCompanyRepo{db: db}
 }
 
 // ─── Company ────────────────────────────────────────────────────────
@@ -24,165 +24,108 @@ func (r *PGCompanyRepo) Create(ctx context.Context, c *domain.Company) error {
 	if c.ID == "" {
 		c.ID = "CMP" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO companies (id,tenant_id,legal_name_vn,legal_name_en,short_name,legal_form,tax_code,
-		 business_reg_no,business_reg_date,business_reg_place,reg_address,reg_province,reg_district,
-		 head_office_address,head_office_province,head_office_district,phone,email,website,
-		 legal_rep_name,legal_rep_title,legal_rep_id_number,chief_accountant,chief_accountant_email,
-		 tax_office_code,tax_office_name,accounting_regime,fiscal_year_start_month,default_currency,
-		 secondary_currency,company_type,company_size,status,parent_company_id,logo_url,settings)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)`,
-		c.ID, c.TenantID, c.LegalNameVN, nullStr(c.LegalNameEN), nullStr(c.ShortName), c.LegalForm, c.TaxCode,
-		nullStr(c.BusinessRegNo), nullStr(c.BusinessRegDate), nullStr(c.BusinessRegPlace),
-		c.RegAddress, nullStr(c.RegProvince), nullStr(c.RegDistrict),
-		nullStr(c.HeadOfficeAddress), nullStr(c.HeadOfficeProvince), nullStr(c.HeadOfficeDistrict),
-		nullStr(c.Phone), nullStr(c.Email), nullStr(c.Website),
-		nullStr(c.LegalRepName), nullStr(c.LegalRepTitle), nullStr(c.LegalRepIDNumber),
-		nullStr(c.ChiefAccountant), nullStr(c.ChiefAccountantEmail),
-		nullStr(c.TaxOfficeCode), nullStr(c.TaxOfficeName),
-		c.AccountingRegime, c.FiscalYearStartMonth, c.DefaultCurrency,
-		nullStr(c.SecondaryCurrency), nullStr(string(c.CompanyType)), nullStr(string(c.CompanySize)),
-		c.Status, nullStr(c.ParentCompanyID), nullStr(c.LogoURL), c.Settings)
-	return err
+	m := &domain.CompanyGORM{
+		ID:          c.ID,
+		TenantID:    c.TenantID,
+		Name:        c.LegalNameVN,
+		TaxCode:     c.TaxCode,
+		Address:     c.RegAddress,
+		Phone:       strPtr(c.Phone),
+		Email:       strPtr(c.Email),
+		Website:     strPtr(c.Website),
+		LegalRepName: strPtr(c.LegalRepName),
+		LegalRepID:  strPtr(c.LegalRepIDNumber),
+		ChiefAccountant: strPtr(c.ChiefAccountant),
+		TaxOffice:   strPtr(c.TaxOfficeName),
+		IsActive:    c.Status != domain.CompanyStatusDissolved,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	if c.LegalNameEN != "" {
+		m.NameEn = strPtr(c.LegalNameEN)
+	}
+	if c.RegProvince != "" {
+		m.City = strPtr(c.RegProvince)
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetByID(ctx context.Context, id string) (*domain.Company, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,tenant_id,legal_name_vn,COALESCE(legal_name_en,''),COALESCE(short_name,''),
-		 legal_form,tax_code,COALESCE(business_reg_no,''),COALESCE(business_reg_date,''),
-		 COALESCE(business_reg_place,''),reg_address,COALESCE(reg_province,''),COALESCE(reg_district,''),
-		 COALESCE(head_office_address,''),COALESCE(head_office_province,''),COALESCE(head_office_district,''),
-		 COALESCE(phone,''),COALESCE(email,''),COALESCE(website,''),
-		 COALESCE(legal_rep_name,''),COALESCE(legal_rep_title,''),COALESCE(legal_rep_id_number,''),
-		 COALESCE(chief_accountant,''),COALESCE(chief_accountant_email,''),
-		 COALESCE(tax_office_code,''),COALESCE(tax_office_name,''),
-		 accounting_regime,fiscal_year_start_month,default_currency,
-		 COALESCE(secondary_currency,''),COALESCE(company_type,''),COALESCE(company_size,''),
-		 status,COALESCE(parent_company_id,''),COALESCE(logo_url,''),COALESCE(settings,'{}'),
-		 created_at,updated_at
-		 FROM companies WHERE id=$1`, id)
-	return scanCompany(row)
+	var m domain.CompanyGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormCompanyToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetByTaxCode(ctx context.Context, tenantID, taxCode string) (*domain.Company, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,tenant_id,legal_name_vn,COALESCE(legal_name_en,''),COALESCE(short_name,''),
-		 legal_form,tax_code,COALESCE(business_reg_no,''),COALESCE(business_reg_date,''),
-		 COALESCE(business_reg_place,''),reg_address,COALESCE(reg_province,''),COALESCE(reg_district,''),
-		 COALESCE(head_office_address,''),COALESCE(head_office_province,''),COALESCE(head_office_district,''),
-		 COALESCE(phone,''),COALESCE(email,''),COALESCE(website,''),
-		 COALESCE(legal_rep_name,''),COALESCE(legal_rep_title,''),COALESCE(legal_rep_id_number,''),
-		 COALESCE(chief_accountant,''),COALESCE(chief_accountant_email,''),
-		 COALESCE(tax_office_code,''),COALESCE(tax_office_name,''),
-		 accounting_regime,fiscal_year_start_month,default_currency,
-		 COALESCE(secondary_currency,''),COALESCE(company_type,''),COALESCE(company_size,''),
-		 status,COALESCE(parent_company_id,''),COALESCE(logo_url,''),COALESCE(settings,'{}'),
-		 created_at,updated_at
-		 FROM companies WHERE tenant_id=$1 AND tax_code=$2`, tenantID, taxCode)
-	return scanCompany(row)
+	var m domain.CompanyGORM
+	if err := r.db.WithContext(ctx).Where("tenant_id = ? AND tax_code = ?", tenantID, taxCode).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormCompanyToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetAll(ctx context.Context, tenantID string) ([]domain.Company, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,tenant_id,legal_name_vn,COALESCE(legal_name_en,''),COALESCE(short_name,''),
-		 legal_form,tax_code,COALESCE(business_reg_no,''),COALESCE(business_reg_date,''),
-		 COALESCE(business_reg_place,''),reg_address,COALESCE(reg_province,''),COALESCE(reg_district,''),
-		 COALESCE(head_office_address,''),COALESCE(head_office_province,''),COALESCE(head_office_district,''),
-		 COALESCE(phone,''),COALESCE(email,''),COALESCE(website,''),
-		 COALESCE(legal_rep_name,''),COALESCE(legal_rep_title,''),COALESCE(legal_rep_id_number,''),
-		 COALESCE(chief_accountant,''),COALESCE(chief_accountant_email,''),
-		 COALESCE(tax_office_code,''),COALESCE(tax_office_name,''),
-		 accounting_regime,fiscal_year_start_month,default_currency,
-		 COALESCE(secondary_currency,''),COALESCE(company_type,''),COALESCE(company_size,''),
-		 status,COALESCE(parent_company_id,''),COALESCE(logo_url,''),COALESCE(settings,'{}'),
-		 created_at,updated_at
-		 FROM companies WHERE tenant_id=$1 ORDER BY legal_name_vn`, tenantID)
-	if err != nil {
+	var ms []domain.CompanyGORM
+	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("name ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanCompanies(rows)
+	out := make([]domain.Company, len(ms))
+	for i := range ms {
+		out[i] = *gormCompanyToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) Update(ctx context.Context, c *domain.Company) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE companies SET legal_name_vn=$1,legal_name_en=$2,short_name=$3,legal_form=$4,tax_code=$5,
-		 business_reg_no=$6,business_reg_date=$7,business_reg_place=$8,reg_address=$9,
-		 reg_province=$10,reg_district=$11,head_office_address=$12,head_office_province=$13,
-		 head_office_district=$14,phone=$15,email=$16,website=$17,legal_rep_name=$18,
-		 legal_rep_title=$19,legal_rep_id_number=$20,chief_accountant=$21,chief_accountant_email=$22,
-		 tax_office_code=$23,tax_office_name=$24,accounting_regime=$25,fiscal_year_start_month=$26,
-		 default_currency=$27,secondary_currency=$28,company_type=$29,company_size=$30,
-		 parent_company_id=$31,logo_url=$32,settings=$33,updated_at=NOW()
-		 WHERE id=$34`,
-		c.LegalNameVN, nullStr(c.LegalNameEN), nullStr(c.ShortName), c.LegalForm, c.TaxCode,
-		nullStr(c.BusinessRegNo), nullStr(c.BusinessRegDate), nullStr(c.BusinessRegPlace),
-		c.RegAddress, nullStr(c.RegProvince), nullStr(c.RegDistrict),
-		nullStr(c.HeadOfficeAddress), nullStr(c.HeadOfficeProvince), nullStr(c.HeadOfficeDistrict),
-		nullStr(c.Phone), nullStr(c.Email), nullStr(c.Website),
-		nullStr(c.LegalRepName), nullStr(c.LegalRepTitle), nullStr(c.LegalRepIDNumber),
-		nullStr(c.ChiefAccountant), nullStr(c.ChiefAccountantEmail),
-		nullStr(c.TaxOfficeCode), nullStr(c.TaxOfficeName),
-		c.AccountingRegime, c.FiscalYearStartMonth, c.DefaultCurrency,
-		nullStr(c.SecondaryCurrency), nullStr(string(c.CompanyType)), nullStr(string(c.CompanySize)),
-		nullStr(c.ParentCompanyID), nullStr(c.LogoURL), c.Settings, c.ID)
-	return err
+	updates := map[string]any{
+		"name":        c.LegalNameVN,
+		"tax_code":    c.TaxCode,
+		"address":     c.RegAddress,
+		"phone":       c.Phone,
+		"email":       c.Email,
+		"website":     c.Website,
+		"legal_rep_name": c.LegalRepName,
+		"legal_rep_id": c.LegalRepIDNumber,
+		"chief_accountant": c.ChiefAccountant,
+		"tax_office":  c.TaxOfficeName,
+		"updated_at":  time.Now(),
+	}
+	if c.LegalNameEN != "" {
+		updates["name_en"] = c.LegalNameEN
+	}
+	if c.RegProvince != "" {
+		updates["city"] = c.RegProvince
+	}
+	return r.db.WithContext(ctx).Model(&domain.CompanyGORM{}).Where("id = ?", c.ID).Updates(updates).Error
 }
 
 func (r *PGCompanyRepo) Deactivate(ctx context.Context, id, reason string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE companies SET status='DISSOLVED',updated_at=NOW() WHERE id=$1`, id)
-	return err
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&domain.CompanyGORM{}).Where("id = ?", id).Updates(map[string]any{
+		"is_active":          false,
+		"deactivated_at":     &now,
+		"deactivation_reason": reason,
+		"updated_at":         now,
+	}).Error
 }
 
 func (r *PGCompanyRepo) GetHierarchy(ctx context.Context, companyID string) ([]domain.Company, error) {
-	rows, err := r.pool.Query(ctx,
+	var ms []domain.CompanyGORM
+	if err := r.db.WithContext(ctx).Raw(
 		`WITH RECURSIVE tree AS (
-		 SELECT id,tenant_id,legal_name_vn,COALESCE(legal_name_en,''),COALESCE(short_name,''),
-		  legal_form,tax_code,COALESCE(business_reg_no,''),COALESCE(business_reg_date,''),
-		  COALESCE(business_reg_place,''),reg_address,COALESCE(reg_province,''),COALESCE(reg_district,''),
-		  COALESCE(head_office_address,''),COALESCE(head_office_province,''),COALESCE(head_office_district,''),
-		  COALESCE(phone,''),COALESCE(email,''),COALESCE(website,''),
-		  COALESCE(legal_rep_name,''),COALESCE(legal_rep_title,''),COALESCE(legal_rep_id_number,''),
-		  COALESCE(chief_accountant,''),COALESCE(chief_accountant_email,''),
-		  COALESCE(tax_office_code,''),COALESCE(tax_office_name,''),
-		  accounting_regime,fiscal_year_start_month,default_currency,
-		  COALESCE(secondary_currency,''),COALESCE(company_type,''),COALESCE(company_size,''),
-		  status,COALESCE(parent_company_id,''),COALESCE(logo_url,''),COALESCE(settings,'{}'),
-		  created_at,updated_at
-		 FROM companies WHERE id=$1
+		 SELECT * FROM companies WHERE id = ?
 		 UNION
-		 SELECT c.id,c.tenant_id,c.legal_name_vn,COALESCE(c.legal_name_en,''),COALESCE(c.short_name,''),
-		  c.legal_form,c.tax_code,COALESCE(c.business_reg_no,''),COALESCE(c.business_reg_date,''),
-		  COALESCE(c.business_reg_place,''),c.reg_address,COALESCE(c.reg_province,''),COALESCE(c.reg_district,''),
-		  COALESCE(c.head_office_address,''),COALESCE(c.head_office_province,''),COALESCE(c.head_office_district,''),
-		  COALESCE(c.phone,''),COALESCE(c.email,''),COALESCE(c.website,''),
-		  COALESCE(c.legal_rep_name,''),COALESCE(c.legal_rep_title,''),COALESCE(c.legal_rep_id_number,''),
-		  COALESCE(c.chief_accountant,''),COALESCE(c.chief_accountant_email,''),
-		  COALESCE(c.tax_office_code,''),COALESCE(c.tax_office_name,''),
-		  c.accounting_regime,c.fiscal_year_start_month,c.default_currency,
-		  COALESCE(c.secondary_currency,''),COALESCE(c.company_type,''),COALESCE(c.company_size,''),
-		  c.status,COALESCE(c.parent_company_id,''),COALESCE(c.logo_url,''),COALESCE(c.settings,'{}'),
-		  c.created_at,c.updated_at
-		 FROM companies c INNER JOIN tree t ON c.parent_company_id=t.id)
-		SELECT id,tenant_id,legal_name_vn,COALESCE(legal_name_en,''),COALESCE(short_name,''),
-		 legal_form,tax_code,COALESCE(business_reg_no,''),COALESCE(business_reg_date,''),
-		 COALESCE(business_reg_place,''),reg_address,COALESCE(reg_province,''),COALESCE(reg_district,''),
-		 COALESCE(head_office_address,''),COALESCE(head_office_province,''),COALESCE(head_office_district,''),
-		 COALESCE(phone,''),COALESCE(email,''),COALESCE(website,''),
-		 COALESCE(legal_rep_name,''),COALESCE(legal_rep_title,''),COALESCE(legal_rep_id_number,''),
-		 COALESCE(chief_accountant,''),COALESCE(chief_accountant_email,''),
-		 COALESCE(tax_office_code,''),COALESCE(tax_office_name,''),
-		 accounting_regime,fiscal_year_start_month,default_currency,
-		 COALESCE(secondary_currency,''),COALESCE(company_type,''),COALESCE(company_size,''),
-		 status,COALESCE(parent_company_id,''),COALESCE(logo_url,''),COALESCE(settings,'{}'),
-		 created_at,updated_at
-		 FROM tree`, companyID)
-	if err != nil {
+		 SELECT c.* FROM companies c INNER JOIN tree t ON c.parent_company_id = t.id)
+		SELECT * FROM tree`, companyID).Scan(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanCompanies(rows)
+	out := make([]domain.Company, len(ms))
+	for i := range ms {
+		out[i] = *gormCompanyToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 // ─── Branch ─────────────────────────────────────────────────────────
@@ -191,49 +134,57 @@ func (r *PGCompanyRepo) CreateBranch(ctx context.Context, b *domain.CompanyBranc
 	if b.ID == "" {
 		b.ID = "BR" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO company_branches (id,company_id,branch_name,branch_tax_code,branch_type,address,phone,email,manager_name,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		b.ID, b.CompanyID, b.BranchName, b.BranchTaxCode, b.BranchType,
-		nullStr(b.Address), nullStr(b.Phone), nullStr(b.Email), nullStr(b.ManagerName), b.Status)
-	return err
+	m := &domain.CompanyBranchGORM{
+		ID:        b.ID,
+		CompanyID: b.CompanyID,
+		Code:      b.BranchTaxCode,
+		Name:      b.BranchName,
+		Address:   strPtr(b.Address),
+		Phone:     strPtr(b.Phone),
+		ManagerName: strPtr(b.ManagerName),
+		IsActive:  true,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetBranchByID(ctx context.Context, id string) (*domain.CompanyBranch, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,branch_name,branch_tax_code,branch_type,
-		 COALESCE(address,''),COALESCE(phone,''),COALESCE(email,''),COALESCE(manager_name,''),
-		 status,created_at,updated_at
-		 FROM company_branches WHERE id=$1`, id)
-	return scanBranch(row)
+	var m domain.CompanyBranchGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormBranchToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetBranchesByCompany(ctx context.Context, companyID string) ([]domain.CompanyBranch, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,branch_name,branch_tax_code,branch_type,
-		 COALESCE(address,''),COALESCE(phone,''),COALESCE(email,''),COALESCE(manager_name,''),
-		 status,created_at,updated_at
-		 FROM company_branches WHERE company_id=$1 ORDER BY branch_name`, companyID)
-	if err != nil {
+	var ms []domain.CompanyBranchGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("name ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanBranches(rows)
+	out := make([]domain.CompanyBranch, len(ms))
+	for i := range ms {
+		out[i] = *gormBranchToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) UpdateBranch(ctx context.Context, b *domain.CompanyBranch) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE company_branches SET branch_name=$1,branch_tax_code=$2,branch_type=$3,
-		 address=$4,phone=$5,email=$6,manager_name=$7,updated_at=NOW() WHERE id=$8`,
-		b.BranchName, b.BranchTaxCode, b.BranchType,
-		nullStr(b.Address), nullStr(b.Phone), nullStr(b.Email), nullStr(b.ManagerName), b.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.CompanyBranchGORM{}).Where("id = ?", b.ID).Updates(map[string]any{
+		"code":       b.BranchTaxCode,
+		"name":       b.BranchName,
+		"address":    b.Address,
+		"phone":      b.Phone,
+		"manager_name": b.ManagerName,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 func (r *PGCompanyRepo) DeactivateBranch(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE company_branches SET status='INACTIVE',updated_at=NOW() WHERE id=$1`, id)
-	return err
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&domain.CompanyBranchGORM{}).Where("id = ?", id).Updates(map[string]any{
+		"is_active":  false,
+		"deactivated_at": &now,
+		"updated_at": now,
+	}).Error
 }
 
 // ─── Fiscal Year ────────────────────────────────────────────────────
@@ -242,37 +193,45 @@ func (r *PGCompanyRepo) CreateFiscalYear(ctx context.Context, fy *domain.FiscalY
 	if fy.ID == "" {
 		fy.ID = "FY" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO fiscal_years (id,company_id,year,start_month,is_short_year,start_date,end_date,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		fy.ID, fy.CompanyID, fy.Year, fy.StartMonth, fy.IsShortYear,
-		nullStr(fy.StartDate), nullStr(fy.EndDate), fy.Status)
-	return err
+	sd, _ := time.Parse("2006-01-02", fy.StartDate)
+	ed, _ := time.Parse("2006-01-02", fy.EndDate)
+	m := &domain.FiscalYearGORM{
+		ID:        fy.ID,
+		CompanyID: fy.CompanyID,
+		Year:      fy.Year,
+		StartDate: sd,
+		EndDate:   ed,
+		IsClosed:  fy.Status == "CLOSED",
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetFiscalYearByID(ctx context.Context, id string) (*domain.FiscalYear, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,year,start_month,is_short_year,COALESCE(start_date,''),COALESCE(end_date,''),
-		 status,created_at FROM fiscal_years WHERE id=$1`, id)
-	return scanFiscalYear(row)
+	var m domain.FiscalYearGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormFiscalYearToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetFiscalYearsByCompany(ctx context.Context, companyID string) ([]domain.FiscalYear, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,year,start_month,is_short_year,COALESCE(start_date,''),COALESCE(end_date,''),
-		 status,created_at FROM fiscal_years WHERE company_id=$1 ORDER BY year DESC`, companyID)
-	if err != nil {
+	var ms []domain.FiscalYearGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("year DESC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanFiscalYears(rows)
+	out := make([]domain.FiscalYear, len(ms))
+	for i := range ms {
+		out[i] = *gormFiscalYearToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) GetFiscalYearByYear(ctx context.Context, companyID string, year int) (*domain.FiscalYear, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,year,start_month,is_short_year,COALESCE(start_date,''),COALESCE(end_date,''),
-		 status,created_at FROM fiscal_years WHERE company_id=$1 AND year=$2`, companyID, year)
-	return scanFiscalYear(row)
+	var m domain.FiscalYearGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND year = ?", companyID, year).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormFiscalYearToDomain(&m), nil
 }
 
 // ─── Period V2 ──────────────────────────────────────────────────────
@@ -281,69 +240,79 @@ func (r *PGCompanyRepo) CreatePeriod(ctx context.Context, p *domain.PeriodV2) er
 	if p.ID == "" {
 		p.ID = "P2" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO periods_v2 (id,company_id,fiscal_year_id,period_type,period_number,label,
-		 start_date,end_date,status,opened_at,closed_at,closed_by,reopened_count)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		p.ID, p.CompanyID, p.FiscalYearID, p.PeriodType, p.PeriodNumber, p.Label,
-		p.StartDate, p.EndDate, p.Status,
-		nullStr(p.OpenedAt), nullStr(p.ClosedAt), nullStr(p.ClosedBy), p.ReopenedCount)
-	return err
+	sd, _ := time.Parse("2006-01-02", p.StartDate)
+	ed, _ := time.Parse("2006-01-02", p.EndDate)
+	m := &domain.PeriodV2GORM{
+		ID:           p.ID,
+		FiscalYearID: p.FiscalYearID,
+		PeriodNumber: p.PeriodNumber,
+		StartDate:    sd,
+		EndDate:      ed,
+		Status:       string(p.Status),
+		ReopenCount:  p.ReopenedCount,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetPeriodByID(ctx context.Context, id string) (*domain.PeriodV2, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,fiscal_year_id,period_type,period_number,label,start_date,end_date,
-		 status,COALESCE(opened_at,''),COALESCE(closed_at,''),COALESCE(closed_by,''),
-		 reopened_count FROM periods_v2 WHERE id=$1`, id)
-	return scanPeriodV2(row)
+	var m domain.PeriodV2GORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormPeriodToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetPeriodsByFiscalYear(ctx context.Context, fiscalYearID string) ([]domain.PeriodV2, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,fiscal_year_id,period_type,period_number,label,start_date,end_date,
-		 status,COALESCE(opened_at,''),COALESCE(closed_at,''),COALESCE(closed_by,''),
-		 reopened_count FROM periods_v2 WHERE fiscal_year_id=$1 ORDER BY period_number`, fiscalYearID)
-	if err != nil {
+	var ms []domain.PeriodV2GORM
+	if err := r.db.WithContext(ctx).Where("fiscal_year_id = ?", fiscalYearID).Order("period_number ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanPeriodsV2(rows)
+	out := make([]domain.PeriodV2, len(ms))
+	for i := range ms {
+		out[i] = *gormPeriodToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) GetPeriodsByCompany(ctx context.Context, companyID string) ([]domain.PeriodV2, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT p.id,p.company_id,p.fiscal_year_id,p.period_type,p.period_number,p.label,p.start_date,p.end_date,
-		 p.status,COALESCE(p.opened_at,''),COALESCE(p.closed_at,''),COALESCE(p.closed_by,''),
-		 p.reopened_count FROM periods_v2 p
-		 JOIN fiscal_years fy ON fy.id=p.fiscal_year_id
-		 WHERE p.company_id=$1 ORDER BY fy.year DESC, p.period_number`, companyID)
-	if err != nil {
+	var ms []domain.PeriodV2GORM
+	if err := r.db.WithContext(ctx).
+		Joins("JOIN fiscal_years fy ON fy.id = period_v2.fiscal_year_id").
+		Where("fy.company_id = ?", companyID).
+		Order("fy.year DESC, period_v2.period_number ASC").
+		Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanPeriodsV2(rows)
+	out := make([]domain.PeriodV2, len(ms))
+	for i := range ms {
+		out[i] = *gormPeriodToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) GetOpenPeriod(ctx context.Context, companyID string) (*domain.PeriodV2, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,fiscal_year_id,period_type,period_number,label,start_date,end_date,
-		 status,COALESCE(opened_at,''),COALESCE(closed_at,''),COALESCE(closed_by,''),
-		 reopened_count FROM periods_v2 WHERE company_id=$1 AND status='OPEN' LIMIT 1`, companyID)
-	return scanPeriodV2(row)
+	var m domain.PeriodV2GORM
+	if err := r.db.WithContext(ctx).
+		Joins("JOIN fiscal_years fy ON fy.id = period_v2.fiscal_year_id").
+		Where("fy.company_id = ? AND period_v2.status = 'OPEN'", companyID).
+		First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormPeriodToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) UpdatePeriodStatus(ctx context.Context, id string, status domain.PeriodStatusV2, closedBy string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE periods_v2 SET status=$1,closed_at=$2,closed_by=$3 WHERE id=$4`,
-		status, time.Now().Format(time.RFC3339), closedBy, id)
-	return err
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&domain.PeriodV2GORM{}).Where("id = ?", id).Updates(map[string]any{
+		"status":    string(status),
+		"closed_at": &now,
+		"closed_by": closedBy,
+	}).Error
 }
 
 func (r *PGCompanyRepo) IncrementReopenCount(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE periods_v2 SET reopened_count=reopened_count+1 WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.PeriodV2GORM{}).Where("id = ?", id).
+		UpdateColumn("reopen_count", gorm.Expr("reopen_count + 1")).Error
 }
 
 // ─── Department ─────────────────────────────────────────────────────
@@ -352,36 +321,44 @@ func (r *PGCompanyRepo) CreateDepartment(ctx context.Context, d *domain.Departme
 	if d.ID == "" {
 		d.ID = "DEPT" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO departments (id,company_id,code,name,parent_id,manager_id,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		d.ID, d.CompanyID, d.Code, d.Name, nullStr(d.ParentID), nullStr(d.ManagerID), d.Status)
-	return err
+	m := &domain.DepartmentGORM{
+		ID:        d.ID,
+		CompanyID: d.CompanyID,
+		Code:      d.Code,
+		Name:      d.Name,
+		ManagerID: strPtr(d.ManagerID),
+		IsActive:  true,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetDepartmentByID(ctx context.Context, id string) (*domain.Department, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,COALESCE(parent_id,''),COALESCE(manager_id,''),
-		 status,created_at,updated_at FROM departments WHERE id=$1`, id)
-	return scanDepartment(row)
+	var m domain.DepartmentGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormDepartmentToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetDepartmentsByCompany(ctx context.Context, companyID string) ([]domain.Department, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,code,name,COALESCE(parent_id,''),COALESCE(manager_id,''),
-		 status,created_at,updated_at FROM departments WHERE company_id=$1 ORDER BY name`, companyID)
-	if err != nil {
+	var ms []domain.DepartmentGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("name ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanDepartments(rows)
+	out := make([]domain.Department, len(ms))
+	for i := range ms {
+		out[i] = *gormDepartmentToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) UpdateDepartment(ctx context.Context, d *domain.Department) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE departments SET code=$1,name=$2,parent_id=$3,manager_id=$4,updated_at=NOW() WHERE id=$5`,
-		d.Code, d.Name, nullStr(d.ParentID), nullStr(d.ManagerID), d.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.DepartmentGORM{}).Where("id = ?", d.ID).Updates(map[string]any{
+		"code":       d.Code,
+		"name":       d.Name,
+		"manager_id": d.ManagerID,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // ─── Employee ───────────────────────────────────────────────────────
@@ -390,64 +367,65 @@ func (r *PGCompanyRepo) CreateEmployee(ctx context.Context, e *domain.Employee) 
 	if e.ID == "" {
 		e.ID = "EMP" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO employees (id,company_id,employee_code,full_name,title,email,phone,department_id,
-		 personal_tax_code,social_insurance_no,bank_account_no,user_id,status,hire_date,termination_date)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-		e.ID, e.CompanyID, e.EmployeeCode, e.FullName,
-		nullStr(e.Title), nullStr(e.Email), nullStr(e.Phone), nullStr(e.DepartmentID),
-		nullStr(e.PersonalTaxCode), nullStr(e.SocialInsuranceNo), nullStr(e.BankAccountNo),
-		nullStr(e.UserID), e.Status, nullStr(e.HireDate), nullStr(e.TerminationDate))
-	return err
+	m := &domain.EmployeeGORM{
+		ID:        e.ID,
+		CompanyID: e.CompanyID,
+		Code:      e.EmployeeCode,
+		FullName:  e.FullName,
+		Email:     strPtr(e.Email),
+		Phone:     strPtr(e.Phone),
+		DeptID:    strPtr(e.DepartmentID),
+		Position:  strPtr(e.Title),
+		IsActive:  e.Status != domain.EmployeeTerminated,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetEmployeeByID(ctx context.Context, id string) (*domain.Employee, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,employee_code,full_name,COALESCE(title,''),COALESCE(email,''),COALESCE(phone,''),
-		 COALESCE(department_id,''),COALESCE(personal_tax_code,''),COALESCE(social_insurance_no,''),
-		 COALESCE(bank_account_no,''),COALESCE(user_id,''),status,COALESCE(hire_date,''),
-		 COALESCE(termination_date,''),created_at,updated_at FROM employees WHERE id=$1`, id)
-	return scanEmployee(row)
+	var m domain.EmployeeGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormEmployeeToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetEmployeesByCompany(ctx context.Context, companyID string) ([]domain.Employee, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,employee_code,full_name,COALESCE(title,''),COALESCE(email,''),COALESCE(phone,''),
-		 COALESCE(department_id,''),COALESCE(personal_tax_code,''),COALESCE(social_insurance_no,''),
-		 COALESCE(bank_account_no,''),COALESCE(user_id,''),status,COALESCE(hire_date,''),
-		 COALESCE(termination_date,''),created_at,updated_at FROM employees WHERE company_id=$1 ORDER BY full_name`, companyID)
-	if err != nil {
+	var ms []domain.EmployeeGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("full_name ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanEmployees(rows)
+	out := make([]domain.Employee, len(ms))
+	for i := range ms {
+		out[i] = *gormEmployeeToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) GetEmployeeByCode(ctx context.Context, companyID, code string) (*domain.Employee, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,employee_code,full_name,COALESCE(title,''),COALESCE(email,''),COALESCE(phone,''),
-		 COALESCE(department_id,''),COALESCE(personal_tax_code,''),COALESCE(social_insurance_no,''),
-		 COALESCE(bank_account_no,''),COALESCE(user_id,''),status,COALESCE(hire_date,''),
-		 COALESCE(termination_date,''),created_at,updated_at
-		 FROM employees WHERE company_id=$1 AND employee_code=$2`, companyID, code)
-	return scanEmployee(row)
+	var m domain.EmployeeGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND code = ?", companyID, code).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormEmployeeToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) UpdateEmployee(ctx context.Context, e *domain.Employee) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE employees SET employee_code=$1,full_name=$2,title=$3,email=$4,phone=$5,department_id=$6,
-		 personal_tax_code=$7,social_insurance_no=$8,bank_account_no=$9,user_id=$10,
-		 hire_date=$11,termination_date=$12,updated_at=NOW() WHERE id=$13`,
-		e.EmployeeCode, e.FullName, nullStr(e.Title), nullStr(e.Email), nullStr(e.Phone),
-		nullStr(e.DepartmentID), nullStr(e.PersonalTaxCode), nullStr(e.SocialInsuranceNo),
-		nullStr(e.BankAccountNo), nullStr(e.UserID), nullStr(e.HireDate), nullStr(e.TerminationDate), e.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.EmployeeGORM{}).Where("id = ?", e.ID).Updates(map[string]any{
+		"code":       e.EmployeeCode,
+		"full_name":  e.FullName,
+		"email":      e.Email,
+		"phone":      e.Phone,
+		"dept_id":    e.DepartmentID,
+		"position":   e.Title,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 func (r *PGCompanyRepo) DeactivateEmployee(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE employees SET status='TERMINATED',updated_at=NOW() WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.EmployeeGORM{}).Where("id = ?", id).Updates(map[string]any{
+		"is_active":  false,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // ─── Bank Account ───────────────────────────────────────────────────
@@ -456,48 +434,59 @@ func (r *PGCompanyRepo) CreateBankAccount(ctx context.Context, ba *domain.Compan
 	if ba.ID == "" {
 		ba.ID = "BA" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO company_bank_accounts (id,company_id,bank_code,bank_name,branch_name,account_number,
-		 account_holder,currency,is_default,is_verified,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		ba.ID, ba.CompanyID, nullStr(ba.BankCode), ba.BankName, nullStr(ba.BranchName),
-		ba.AccountNumber, ba.AccountHolder, ba.Currency, ba.IsDefault, ba.IsVerified, ba.Status)
-	return err
+	m := &domain.CompanyBankAccountGORM{
+		ID:            ba.ID,
+		CompanyID:     ba.CompanyID,
+		BankName:      ba.BankName,
+		BankCode:      strPtr(ba.BankCode),
+		Branch:        strPtr(ba.BranchName),
+		AccountNumber: ba.AccountNumber,
+		AccountName:   ba.AccountHolder,
+		Currency:      ba.Currency,
+		IsPrimary:     ba.IsDefault,
+		IsActive:      ba.Status != domain.BankAccountClosed,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetBankAccountByID(ctx context.Context, id string) (*domain.CompanyBankAccount, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,COALESCE(bank_code,''),bank_name,COALESCE(branch_name,''),
-		 account_number,account_holder,currency,is_default,is_verified,status,created_at,updated_at
-		 FROM company_bank_accounts WHERE id=$1`, id)
-	return scanBankAccount(row)
+	var m domain.CompanyBankAccountGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormBankAccountToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetBankAccountsByCompany(ctx context.Context, companyID string) ([]domain.CompanyBankAccount, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,COALESCE(bank_code,''),bank_name,COALESCE(branch_name,''),
-		 account_number,account_holder,currency,is_default,is_verified,status,created_at,updated_at
-		 FROM company_bank_accounts WHERE company_id=$1 ORDER BY is_default DESC, bank_name`, companyID)
-	if err != nil {
+	var ms []domain.CompanyBankAccountGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("is_primary DESC, bank_name ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanBankAccounts(rows)
+	out := make([]domain.CompanyBankAccount, len(ms))
+	for i := range ms {
+		out[i] = *gormBankAccountToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) UpdateBankAccount(ctx context.Context, ba *domain.CompanyBankAccount) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE company_bank_accounts SET bank_code=$1,bank_name=$2,branch_name=$3,account_number=$4,
-		 account_holder=$5,currency=$6,is_default=$7,is_verified=$8,updated_at=NOW() WHERE id=$9`,
-		nullStr(ba.BankCode), ba.BankName, nullStr(ba.BranchName), ba.AccountNumber,
-		ba.AccountHolder, ba.Currency, ba.IsDefault, ba.IsVerified, ba.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.CompanyBankAccountGORM{}).Where("id = ?", ba.ID).Updates(map[string]any{
+		"bank_name":      ba.BankName,
+		"bank_code":      ba.BankCode,
+		"branch":         ba.BranchName,
+		"account_number": ba.AccountNumber,
+		"account_name":   ba.AccountHolder,
+		"currency":       ba.Currency,
+		"is_primary":     ba.IsDefault,
+		"updated_at":     time.Now(),
+	}).Error
 }
 
 func (r *PGCompanyRepo) DeactivateBankAccount(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE company_bank_accounts SET status='CLOSED',updated_at=NOW() WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.CompanyBankAccountGORM{}).Where("id = ?", id).Updates(map[string]any{
+		"is_active":  false,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // ─── E-Invoice ──────────────────────────────────────────────────────
@@ -506,42 +495,44 @@ func (r *PGCompanyRepo) CreateEInvoicePattern(ctx context.Context, inv *domain.E
 	if inv.ID == "" {
 		inv.ID = "INV" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO e_invoice_patterns (id,company_id,pattern_code,serial,form,invoice_type,status,gdt_status,description)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		inv.ID, inv.CompanyID, inv.PatternCode, inv.Serial,
-		nullStr(inv.Form), nullStr(inv.InvoiceType), inv.Status,
-		nullStr(inv.GDTStatus), nullStr(inv.Description))
-	return err
+	m := &domain.EInvoicePatternGORM{
+		ID:          inv.ID,
+		CompanyID:   inv.CompanyID,
+		Pattern:     inv.PatternCode,
+		Serial:      inv.Serial,
+		InvoiceType: inv.InvoiceType,
+		IsActive:    inv.Status != domain.EInvoiceCancelled,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetEInvoicePatternByID(ctx context.Context, id string) (*domain.EInvoicePattern, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,pattern_code,serial,COALESCE(form,''),COALESCE(invoice_type,''),
-		 status,COALESCE(gdt_status,''),COALESCE(description,''),created_at,updated_at
-		 FROM e_invoice_patterns WHERE id=$1`, id)
-	return scanEInvoicePattern(row)
+	var m domain.EInvoicePatternGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormEInvoicePatternToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetEInvoicePatternsByCompany(ctx context.Context, companyID string) ([]domain.EInvoicePattern, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,pattern_code,serial,COALESCE(form,''),COALESCE(invoice_type,''),
-		 status,COALESCE(gdt_status,''),COALESCE(description,''),created_at,updated_at
-		 FROM e_invoice_patterns WHERE company_id=$1 ORDER BY pattern_code`, companyID)
-	if err != nil {
+	var ms []domain.EInvoicePatternGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("pattern ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanEInvoicePatterns(rows)
+	out := make([]domain.EInvoicePattern, len(ms))
+	for i := range ms {
+		out[i] = *gormEInvoicePatternToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) UpdateEInvoicePattern(ctx context.Context, inv *domain.EInvoicePattern) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE e_invoice_patterns SET pattern_code=$1,serial=$2,form=$3,invoice_type=$4,
-		 status=$5,gdt_status=$6,description=$7,updated_at=NOW() WHERE id=$8`,
-		inv.PatternCode, inv.Serial, nullStr(inv.Form), nullStr(inv.InvoiceType),
-		inv.Status, nullStr(inv.GDTStatus), nullStr(inv.Description), inv.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.EInvoicePatternGORM{}).Where("id = ?", inv.ID).Updates(map[string]any{
+		"pattern":      inv.PatternCode,
+		"serial":       inv.Serial,
+		"invoice_type": inv.InvoiceType,
+		"updated_at":   time.Now(),
+	}).Error
 }
 
 // ─── Digital Signature ──────────────────────────────────────────────
@@ -550,47 +541,51 @@ func (r *PGCompanyRepo) CreateDigitalSignature(ctx context.Context, sig *domain.
 	if sig.ID == "" {
 		sig.ID = "SIG" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO digital_signatures (id,company_id,signature_type,provider,serial_number,owner_name,
-		 certificate_subject,certificate_issuer,valid_from,valid_to,status,is_default)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		sig.ID, sig.CompanyID, sig.SignatureType, nullStr(sig.Provider), sig.SerialNumber,
-		nullStr(sig.OwnerName), nullStr(sig.CertificateSubject), nullStr(sig.CertificateIssuer),
-		sig.ValidFrom, sig.ValidTo, sig.Status, sig.IsDefault)
-	return err
+	vf, _ := time.Parse("2006-01-02", sig.ValidFrom)
+	vt, _ := time.Parse("2006-01-02", sig.ValidTo)
+	m := &domain.DigitalSignatureGORM{
+		ID:           sig.ID,
+		CompanyID:    sig.CompanyID,
+		Name:         sig.SerialNumber,
+		SerialNumber: sig.SerialNumber,
+		Issuer:       strPtr(sig.CertificateIssuer),
+		ValidFrom:    vf,
+		ValidTo:      vt,
+		IsActive:     sig.Status == domain.SignatureActive,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetDigitalSignatureByID(ctx context.Context, id string) (*domain.DigitalSignature, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,signature_type,COALESCE(provider,''),serial_number,COALESCE(owner_name,''),
-		 COALESCE(certificate_subject,''),COALESCE(certificate_issuer,''),valid_from,valid_to,
-		 status,is_default,created_at,updated_at
-		 FROM digital_signatures WHERE id=$1`, id)
-	return scanDigitalSignature(row)
+	var m domain.DigitalSignatureGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormDigitalSignatureToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetDigitalSignaturesByCompany(ctx context.Context, companyID string) ([]domain.DigitalSignature, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,signature_type,COALESCE(provider,''),serial_number,COALESCE(owner_name,''),
-		 COALESCE(certificate_subject,''),COALESCE(certificate_issuer,''),valid_from,valid_to,
-		 status,is_default,created_at,updated_at
-		 FROM digital_signatures WHERE company_id=$1 ORDER BY is_default DESC`, companyID)
-	if err != nil {
+	var ms []domain.DigitalSignatureGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("is_active DESC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanDigitalSignatures(rows)
+	out := make([]domain.DigitalSignature, len(ms))
+	for i := range ms {
+		out[i] = *gormDigitalSignatureToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) UpdateDigitalSignature(ctx context.Context, sig *domain.DigitalSignature) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE digital_signatures SET signature_type=$1,provider=$2,serial_number=$3,owner_name=$4,
-		 certificate_subject=$5,certificate_issuer=$6,valid_from=$7,valid_to=$8,status=$9,
-		 is_default=$10,updated_at=NOW() WHERE id=$11`,
-		sig.SignatureType, nullStr(sig.Provider), sig.SerialNumber, nullStr(sig.OwnerName),
-		nullStr(sig.CertificateSubject), nullStr(sig.CertificateIssuer),
-		sig.ValidFrom, sig.ValidTo, sig.Status, sig.IsDefault, sig.ID)
-	return err
+	vf, _ := time.Parse("2006-01-02", sig.ValidFrom)
+	vt, _ := time.Parse("2006-01-02", sig.ValidTo)
+	return r.db.WithContext(ctx).Model(&domain.DigitalSignatureGORM{}).Where("id = ?", sig.ID).Updates(map[string]any{
+		"serial_number": sig.SerialNumber,
+		"issuer":        sig.CertificateIssuer,
+		"valid_from":    vf,
+		"valid_to":      vt,
+		"updated_at":    time.Now(),
+	}).Error
 }
 
 // ─── Integration ────────────────────────────────────────────────────
@@ -599,269 +594,287 @@ func (r *PGCompanyRepo) CreateIntegrationProfile(ctx context.Context, prof *doma
 	if prof.ID == "" {
 		prof.ID = "INT" + time.Now().Format("20060102150405")
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO integration_profiles (id,company_id,integration_type,endpoint_url,status,
-		 last_connected_at,last_error_at,last_error_msg,config)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		prof.ID, prof.CompanyID, prof.IntegrationType, nullStr(prof.EndpointURL), prof.Status,
-		nullStr(prof.LastConnectedAt), nullStr(prof.LastErrorAt), nullStr(prof.LastErrorMsg), prof.Config)
-	return err
+	m := &domain.IntegrationProfileGORM{
+		ID:        prof.ID,
+		CompanyID: prof.CompanyID,
+		Type:      string(prof.IntegrationType),
+		Name:      string(prof.IntegrationType),
+		IsActive:  prof.Status == domain.IntegrationConnected,
+	}
+	return r.db.WithContext(ctx).Create(m).Error
 }
 
 func (r *PGCompanyRepo) GetIntegrationProfileByID(ctx context.Context, id string) (*domain.IntegrationProfile, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,integration_type,COALESCE(endpoint_url,''),status,
-		 COALESCE(last_connected_at,''),COALESCE(last_error_at,''),COALESCE(last_error_msg,''),
-		 COALESCE(config,'{}'),created_at,updated_at
-		 FROM integration_profiles WHERE id=$1`, id)
-	return scanIntegrationProfile(row)
+	var m domain.IntegrationProfileGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormIntegrationToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) GetIntegrationProfilesByCompany(ctx context.Context, companyID string) ([]domain.IntegrationProfile, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,integration_type,COALESCE(endpoint_url,''),status,
-		 COALESCE(last_connected_at,''),COALESCE(last_error_at,''),COALESCE(last_error_msg,''),
-		 COALESCE(config,'{}'),created_at,updated_at
-		 FROM integration_profiles WHERE company_id=$1 ORDER BY integration_type`, companyID)
-	if err != nil {
+	var ms []domain.IntegrationProfileGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("type ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanIntegrationProfiles(rows)
+	out := make([]domain.IntegrationProfile, len(ms))
+	for i := range ms {
+		out[i] = *gormIntegrationToDomain(&ms[i])
+	}
+	return out, nil
 }
 
 func (r *PGCompanyRepo) GetIntegrationByType(ctx context.Context, companyID string, itype domain.IntegrationType) (*domain.IntegrationProfile, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id,company_id,integration_type,COALESCE(endpoint_url,''),status,
-		 COALESCE(last_connected_at,''),COALESCE(last_error_at,''),COALESCE(last_error_msg,''),
-		 COALESCE(config,'{}'),created_at,updated_at
-		 FROM integration_profiles WHERE company_id=$1 AND integration_type=$2`, companyID, itype)
-	return scanIntegrationProfile(row)
+	var m domain.IntegrationProfileGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND type = ?", companyID, string(itype)).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return gormIntegrationToDomain(&m), nil
 }
 
 func (r *PGCompanyRepo) UpdateIntegrationProfile(ctx context.Context, prof *domain.IntegrationProfile) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE integration_profiles SET integration_type=$1,endpoint_url=$2,status=$3,
-		 last_connected_at=$4,last_error_at=$5,last_error_msg=$6,config=$7,updated_at=NOW() WHERE id=$8`,
-		prof.IntegrationType, nullStr(prof.EndpointURL), prof.Status,
-		nullStr(prof.LastConnectedAt), nullStr(prof.LastErrorAt), nullStr(prof.LastErrorMsg), prof.Config, prof.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.IntegrationProfileGORM{}).Where("id = ?", prof.ID).Updates(map[string]any{
+		"type":       string(prof.IntegrationType),
+		"is_active":  prof.Status == domain.IntegrationConnected,
+		"updated_at": time.Now(),
+	}).Error
 }
 
-// ─── Scanners ───────────────────────────────────────────────────────
+// ─── Converters ─────────────────────────────────────────────────────
 
-func scanCompany(row scannable) (*domain.Company, error) {
-	c := &domain.Company{}
-	err := row.Scan(&c.ID, &c.TenantID, &c.LegalNameVN, &c.LegalNameEN, &c.ShortName,
-		&c.LegalForm, &c.TaxCode, &c.BusinessRegNo, &c.BusinessRegDate, &c.BusinessRegPlace,
-		&c.RegAddress, &c.RegProvince, &c.RegDistrict,
-		&c.HeadOfficeAddress, &c.HeadOfficeProvince, &c.HeadOfficeDistrict,
-		&c.Phone, &c.Email, &c.Website,
-		&c.LegalRepName, &c.LegalRepTitle, &c.LegalRepIDNumber,
-		&c.ChiefAccountant, &c.ChiefAccountantEmail,
-		&c.TaxOfficeCode, &c.TaxOfficeName,
-		&c.AccountingRegime, &c.FiscalYearStartMonth, &c.DefaultCurrency,
-		&c.SecondaryCurrency, &c.CompanyType, &c.CompanySize,
-		&c.Status, &c.ParentCompanyID, &c.LogoURL, &c.Settings,
-		&c.CreatedAt, &c.UpdatedAt)
-	return c, err
-}
-
-func scanCompanies(rows pgx.Rows) ([]domain.Company, error) {
-	defer rows.Close()
-	var companies []domain.Company
-	for rows.Next() {
-		c, err := scanCompany(rows)
-		if err != nil {
-			return nil, err
-		}
-		companies = append(companies, *c)
+func gormCompanyToDomain(m *domain.CompanyGORM) *domain.Company {
+	d := &domain.Company{
+		ID:        m.ID,
+		TenantID:  m.TenantID,
+		LegalNameVN: m.Name,
+		TaxCode:   m.TaxCode,
+		RegAddress: m.Address,
+		Status:    domain.CompanyStatusActive,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
 	}
-	return companies, nil
-}
-
-func scanBranch(row scannable) (*domain.CompanyBranch, error) {
-	b := &domain.CompanyBranch{}
-	err := row.Scan(&b.ID, &b.CompanyID, &b.BranchName, &b.BranchTaxCode, &b.BranchType,
-		&b.Address, &b.Phone, &b.Email, &b.ManagerName, &b.Status, &b.CreatedAt, &b.UpdatedAt)
-	return b, err
-}
-
-func scanBranches(rows pgx.Rows) ([]domain.CompanyBranch, error) {
-	defer rows.Close()
-	var branches []domain.CompanyBranch
-	for rows.Next() {
-		b, err := scanBranch(rows)
-		if err != nil {
-			return nil, err
-		}
-		branches = append(branches, *b)
+	if m.NameEn != nil {
+		d.LegalNameEN = *m.NameEn
 	}
-	return branches, nil
-}
-
-func scanFiscalYear(row scannable) (*domain.FiscalYear, error) {
-	f := &domain.FiscalYear{}
-	err := row.Scan(&f.ID, &f.CompanyID, &f.Year, &f.StartMonth, &f.IsShortYear,
-		&f.StartDate, &f.EndDate, &f.Status, &f.CreatedAt)
-	return f, err
-}
-
-func scanFiscalYears(rows pgx.Rows) ([]domain.FiscalYear, error) {
-	defer rows.Close()
-	var years []domain.FiscalYear
-	for rows.Next() {
-		f, err := scanFiscalYear(rows)
-		if err != nil {
-			return nil, err
-		}
-		years = append(years, *f)
+	if m.City != nil {
+		d.RegProvince = *m.City
 	}
-	return years, nil
-}
-
-func scanPeriodV2(row scannable) (*domain.PeriodV2, error) {
-	p := &domain.PeriodV2{}
-	err := row.Scan(&p.ID, &p.CompanyID, &p.FiscalYearID, &p.PeriodType, &p.PeriodNumber, &p.Label,
-		&p.StartDate, &p.EndDate, &p.Status, &p.OpenedAt, &p.ClosedAt, &p.ClosedBy, &p.ReopenedCount)
-	return p, err
-}
-
-func scanPeriodsV2(rows pgx.Rows) ([]domain.PeriodV2, error) {
-	defer rows.Close()
-	var periods []domain.PeriodV2
-	for rows.Next() {
-		p, err := scanPeriodV2(rows)
-		if err != nil {
-			return nil, err
-		}
-		periods = append(periods, *p)
+	if m.Phone != nil {
+		d.Phone = *m.Phone
 	}
-	return periods, nil
-}
-
-func scanDepartment(row scannable) (*domain.Department, error) {
-	d := &domain.Department{}
-	err := row.Scan(&d.ID, &d.CompanyID, &d.Code, &d.Name, &d.ParentID, &d.ManagerID,
-		&d.Status, &d.CreatedAt, &d.UpdatedAt)
-	return d, err
-}
-
-func scanDepartments(rows pgx.Rows) ([]domain.Department, error) {
-	defer rows.Close()
-	var depts []domain.Department
-	for rows.Next() {
-		d, err := scanDepartment(rows)
-		if err != nil {
-			return nil, err
-		}
-		depts = append(depts, *d)
+	if m.Email != nil {
+		d.Email = *m.Email
 	}
-	return depts, nil
-}
-
-func scanEmployee(row scannable) (*domain.Employee, error) {
-	e := &domain.Employee{}
-	err := row.Scan(&e.ID, &e.CompanyID, &e.EmployeeCode, &e.FullName,
-		&e.Title, &e.Email, &e.Phone, &e.DepartmentID,
-		&e.PersonalTaxCode, &e.SocialInsuranceNo, &e.BankAccountNo, &e.UserID,
-		&e.Status, &e.HireDate, &e.TerminationDate, &e.CreatedAt, &e.UpdatedAt)
-	return e, err
-}
-
-func scanEmployees(rows pgx.Rows) ([]domain.Employee, error) {
-	defer rows.Close()
-	var emps []domain.Employee
-	for rows.Next() {
-		e, err := scanEmployee(rows)
-		if err != nil {
-			return nil, err
-		}
-		emps = append(emps, *e)
+	if m.Website != nil {
+		d.Website = *m.Website
 	}
-	return emps, nil
-}
-
-func scanBankAccount(row scannable) (*domain.CompanyBankAccount, error) {
-	ba := &domain.CompanyBankAccount{}
-	err := row.Scan(&ba.ID, &ba.CompanyID, &ba.BankCode, &ba.BankName, &ba.BranchName,
-		&ba.AccountNumber, &ba.AccountHolder, &ba.Currency, &ba.IsDefault, &ba.IsVerified,
-		&ba.Status, &ba.CreatedAt, &ba.UpdatedAt)
-	return ba, err
-}
-
-func scanBankAccounts(rows pgx.Rows) ([]domain.CompanyBankAccount, error) {
-	defer rows.Close()
-	var accounts []domain.CompanyBankAccount
-	for rows.Next() {
-		ba, err := scanBankAccount(rows)
-		if err != nil {
-			return nil, err
-		}
-		accounts = append(accounts, *ba)
+	if m.LegalRepName != nil {
+		d.LegalRepName = *m.LegalRepName
 	}
-	return accounts, nil
-}
-
-func scanEInvoicePattern(row scannable) (*domain.EInvoicePattern, error) {
-	inv := &domain.EInvoicePattern{}
-	err := row.Scan(&inv.ID, &inv.CompanyID, &inv.PatternCode, &inv.Serial,
-		&inv.Form, &inv.InvoiceType, &inv.Status, &inv.GDTStatus, &inv.Description,
-		&inv.CreatedAt, &inv.UpdatedAt)
-	return inv, err
-}
-
-func scanEInvoicePatterns(rows pgx.Rows) ([]domain.EInvoicePattern, error) {
-	defer rows.Close()
-	var patterns []domain.EInvoicePattern
-	for rows.Next() {
-		inv, err := scanEInvoicePattern(rows)
-		if err != nil {
-			return nil, err
-		}
-		patterns = append(patterns, *inv)
+	if m.LegalRepID != nil {
+		d.LegalRepIDNumber = *m.LegalRepID
 	}
-	return patterns, nil
-}
-
-func scanDigitalSignature(row scannable) (*domain.DigitalSignature, error) {
-	sig := &domain.DigitalSignature{}
-	err := row.Scan(&sig.ID, &sig.CompanyID, &sig.SignatureType, &sig.Provider, &sig.SerialNumber,
-		&sig.OwnerName, &sig.CertificateSubject, &sig.CertificateIssuer,
-		&sig.ValidFrom, &sig.ValidTo, &sig.Status, &sig.IsDefault, &sig.CreatedAt, &sig.UpdatedAt)
-	return sig, err
-}
-
-func scanDigitalSignatures(rows pgx.Rows) ([]domain.DigitalSignature, error) {
-	defer rows.Close()
-	var sigs []domain.DigitalSignature
-	for rows.Next() {
-		sig, err := scanDigitalSignature(rows)
-		if err != nil {
-			return nil, err
-		}
-		sigs = append(sigs, *sig)
+	if m.ChiefAccountant != nil {
+		d.ChiefAccountant = *m.ChiefAccountant
 	}
-	return sigs, nil
-}
-
-func scanIntegrationProfile(row scannable) (*domain.IntegrationProfile, error) {
-	prof := &domain.IntegrationProfile{}
-	err := row.Scan(&prof.ID, &prof.CompanyID, &prof.IntegrationType, &prof.EndpointURL,
-		&prof.Status, &prof.LastConnectedAt, &prof.LastErrorAt, &prof.LastErrorMsg,
-		&prof.Config, &prof.CreatedAt, &prof.UpdatedAt)
-	return prof, err
-}
-
-func scanIntegrationProfiles(rows pgx.Rows) ([]domain.IntegrationProfile, error) {
-	defer rows.Close()
-	var profs []domain.IntegrationProfile
-	for rows.Next() {
-		prof, err := scanIntegrationProfile(rows)
-		if err != nil {
-			return nil, err
-		}
-		profs = append(profs, *prof)
+	if m.TaxOffice != nil {
+		d.TaxOfficeName = *m.TaxOffice
 	}
-	return profs, nil
+	if !m.IsActive {
+		d.Status = domain.CompanyStatusDissolved
+	}
+	return d
 }
+
+func gormBranchToDomain(m *domain.CompanyBranchGORM) *domain.CompanyBranch {
+	d := &domain.CompanyBranch{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		BranchName: m.Name,
+		BranchTaxCode: m.Code,
+		Status:    "ACTIVE",
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+		Address:   "",
+		Phone:     "",
+	}
+	if !m.IsActive {
+		d.Status = "INACTIVE"
+	}
+	if m.Address != nil {
+		d.Address = *m.Address
+	}
+	if m.Phone != nil {
+		d.Phone = *m.Phone
+	}
+	if m.ManagerName != nil {
+		d.ManagerName = *m.ManagerName
+	}
+	return d
+}
+
+func gormFiscalYearToDomain(m *domain.FiscalYearGORM) *domain.FiscalYear {
+	d := &domain.FiscalYear{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		Year:      m.Year,
+		StartDate: m.StartDate.Format("2006-01-02"),
+		EndDate:   m.EndDate.Format("2006-01-02"),
+		Status:    "OPEN",
+		CreatedAt: m.CreatedAt,
+	}
+	if m.IsClosed {
+		d.Status = "CLOSED"
+	}
+	return d
+}
+
+func gormPeriodToDomain(m *domain.PeriodV2GORM) *domain.PeriodV2 {
+	d := &domain.PeriodV2{
+		ID:            m.ID,
+		FiscalYearID:  m.FiscalYearID,
+		PeriodNumber:  m.PeriodNumber,
+		Label:         fmt.Sprintf("Period %d", m.PeriodNumber),
+		StartDate:     m.StartDate.Format("2006-01-02"),
+		EndDate:       m.EndDate.Format("2006-01-02"),
+		Status:        domain.PeriodStatusV2(m.Status),
+		ReopenedCount: m.ReopenCount,
+	}
+	if m.ClosedAt != nil {
+		d.ClosedAt = m.ClosedAt.Format(time.RFC3339)
+	}
+	if m.ClosedBy != nil {
+		d.ClosedBy = *m.ClosedBy
+	}
+	return d
+}
+
+func gormDepartmentToDomain(m *domain.DepartmentGORM) *domain.Department {
+	d := &domain.Department{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		Code:      m.Code,
+		Name:      m.Name,
+		Status:    "ACTIVE",
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = "INACTIVE"
+	}
+	if m.ManagerID != nil {
+		d.ManagerID = *m.ManagerID
+	}
+	return d
+}
+
+func gormEmployeeToDomain(m *domain.EmployeeGORM) *domain.Employee {
+	d := &domain.Employee{
+		ID:           m.ID,
+		CompanyID:    m.CompanyID,
+		EmployeeCode: m.Code,
+		FullName:     m.FullName,
+		Status:       domain.EmployeeActive,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = domain.EmployeeTerminated
+	}
+	if m.Email != nil {
+		d.Email = *m.Email
+	}
+	if m.Phone != nil {
+		d.Phone = *m.Phone
+	}
+	if m.DeptID != nil {
+		d.DepartmentID = *m.DeptID
+	}
+	if m.Position != nil {
+		d.Title = *m.Position
+	}
+	if m.IDNumber != nil {
+		d.PersonalTaxCode = *m.IDNumber
+	}
+	return d
+}
+
+func gormBankAccountToDomain(m *domain.CompanyBankAccountGORM) *domain.CompanyBankAccount {
+	d := &domain.CompanyBankAccount{
+		ID:            m.ID,
+		CompanyID:     m.CompanyID,
+		BankName:      m.BankName,
+		AccountNumber: m.AccountNumber,
+		AccountHolder: m.AccountName,
+		Currency:      m.Currency,
+		IsDefault:     m.IsPrimary,
+		Status:        domain.BankAccountActive,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = domain.BankAccountClosed
+	}
+	if m.BankCode != nil {
+		d.BankCode = *m.BankCode
+	}
+	if m.Branch != nil {
+		d.BranchName = *m.Branch
+	}
+	return d
+}
+
+func gormEInvoicePatternToDomain(m *domain.EInvoicePatternGORM) *domain.EInvoicePattern {
+	d := &domain.EInvoicePattern{
+		ID:          m.ID,
+		CompanyID:   m.CompanyID,
+		PatternCode: m.Pattern,
+		Serial:      m.Serial,
+		InvoiceType: m.InvoiceType,
+		Status:      domain.EInvoiceActive,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = domain.EInvoiceCancelled
+	}
+	return d
+}
+
+func gormDigitalSignatureToDomain(m *domain.DigitalSignatureGORM) *domain.DigitalSignature {
+	d := &domain.DigitalSignature{
+		ID:           m.ID,
+		CompanyID:    m.CompanyID,
+		SerialNumber: m.SerialNumber,
+		ValidFrom:    m.ValidFrom.Format("2006-01-02"),
+		ValidTo:      m.ValidTo.Format("2006-01-02"),
+		Status:       domain.SignatureActive,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = domain.SignatureExpired
+	}
+	if m.Issuer != nil {
+		d.CertificateIssuer = *m.Issuer
+	}
+	return d
+}
+
+func gormIntegrationToDomain(m *domain.IntegrationProfileGORM) *domain.IntegrationProfile {
+	d := &domain.IntegrationProfile{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		IntegrationType: domain.IntegrationType(m.Type),
+		Status:          domain.IntegrationConnected,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+	}
+	if !m.IsActive {
+		d.Status = domain.IntegrationDisconnected
+	}
+	return d
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+

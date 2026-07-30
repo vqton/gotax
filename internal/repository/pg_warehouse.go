@@ -3,667 +3,980 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 
 	"gotax/internal/domain"
 )
 
-type PGWarehouseRepo struct {
-	pool *pgxpool.Pool
-}
+// ─── Warehouse ───────────────────────────────────────────────────────────
 
-func NewPGWarehouseRepo(pool *pgxpool.Pool) *PGWarehouseRepo {
-	return &PGWarehouseRepo{pool: pool}
-}
+type PGWarehouseRepo struct{ db *gorm.DB }
 
-// ─── Warehouse ────────────────────────────────────────────────────────
+func NewPGWarehouseRepo(db *gorm.DB) *PGWarehouseRepo { return &PGWarehouseRepo{db} }
 
 func (r *PGWarehouseRepo) CreateWarehouse(ctx context.Context, w *domain.Warehouse) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO warehouses (id,company_id,code,name,address,manager,is_active,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		w.ID, w.CompanyID, w.Code, w.Name, nullStr(w.Address), nullStr(w.Manager), true, now, now,
-	).Scan(&w.ID)
-}
-
-func (r *PGWarehouseRepo) scanWarehouse(row pgx.Row) (domain.Warehouse, error) {
-	var w domain.Warehouse
-	err := row.Scan(&w.ID, &w.CompanyID, &w.Code, &w.Name, &w.Address, &w.Manager, &w.IsActive, &w.CreatedAt, &w.UpdatedAt)
-	return w, err
+	m := warehouseToGORM(w)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	w.ID = m.ID
+	w.CreatedAt = m.CreatedAt
+	w.UpdatedAt = m.UpdatedAt
+	return nil
 }
 
 func (r *PGWarehouseRepo) GetWarehouseByID(ctx context.Context, id string) (*domain.Warehouse, error) {
-	w, err := r.scanWarehouse(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,address,manager,is_active,created_at,updated_at FROM warehouses WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrWarehouseNotFound }
+	var m domain.WarehouseGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrWarehouseNotFound
+		}
 		return nil, err
 	}
-	return &w, nil
+	return gormWHToDomain(&m), nil
 }
 
 func (r *PGWarehouseRepo) ListWarehouses(ctx context.Context, companyID string) ([]domain.Warehouse, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,code,name,address,manager,is_active,created_at,updated_at FROM warehouses WHERE company_id=$1 ORDER BY code`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.Warehouse
-	for rows.Next() {
-		w, err := r.scanWarehouse(rows)
-		if err != nil { return nil, err }
-		out = append(out, w)
+	var models []domain.WarehouseGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("code").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.Warehouse, len(models))
+	for i := range models {
+		out[i] = *gormWHToDomain(&models[i])
 	}
 	return out, nil
 }
 
 func (r *PGWarehouseRepo) UpdateWarehouse(ctx context.Context, w *domain.Warehouse) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE warehouses SET code=$1,name=$2,address=$3,manager=$4,is_active=$5,updated_at=$6 WHERE id=$7`,
-		w.Code, w.Name, nullStr(w.Address), nullStr(w.Manager), w.IsActive, now, w.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.WarehouseGORM{}).Where("id = ?", w.ID).Updates(map[string]interface{}{
+		"code":       w.Code,
+		"name":       w.Name,
+		"location":   nullStrG(w.Address),
+		"manager_id": nullStrG(w.Manager),
+		"is_active":  w.IsActive,
+	}).Error
 }
 
 func (r *PGWarehouseRepo) DeleteWarehouse(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM warehouses WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.WarehouseGORM{}).Error
 }
 
 func (r *PGWarehouseRepo) GetWarehouseByCode(ctx context.Context, companyID, code string) (*domain.Warehouse, error) {
-	w, err := r.scanWarehouse(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,address,manager,is_active,created_at,updated_at FROM warehouses WHERE company_id=$1 AND code=$2`, companyID, code))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrWarehouseNotFound }
+	var m domain.WarehouseGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND code = ?", companyID, code).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrWarehouseNotFound
+		}
 		return nil, err
 	}
-	return &w, nil
+	return gormWHToDomain(&m), nil
 }
 
-// ─── Item Category ────────────────────────────────────────────────────
-
-func (r *PGWarehouseRepo) CreateCategory(ctx context.Context, c *domain.ItemCategory) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO item_categories (id,company_id,code,name,description,parent_id,is_active,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		c.ID, c.CompanyID, c.Code, c.Name, nullStr(c.Description), nullStr(c.ParentID), true, now, now,
-	).Scan(&c.ID)
+func warehouseToGORM(w *domain.Warehouse) domain.WarehouseGORM {
+	return domain.WarehouseGORM{
+		ID:        w.ID,
+		CompanyID: w.CompanyID,
+		Code:      w.Code,
+		Name:      w.Name,
+		Location:  nullStrG(w.Address),
+		ManagerID: nullStrG(w.Manager),
+		IsActive:  w.IsActive,
+	}
 }
 
-func (r *PGWarehouseRepo) scanCategory(row pgx.Row) (domain.ItemCategory, error) {
-	var c domain.ItemCategory
-	err := row.Scan(&c.ID, &c.CompanyID, &c.Code, &c.Name, &c.Description, &c.ParentID, &c.IsActive, &c.CreatedAt, &c.UpdatedAt)
-	return c, err
+func gormWHToDomain(m *domain.WarehouseGORM) *domain.Warehouse {
+	w := &domain.Warehouse{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		Code:      m.Code,
+		Name:      m.Name,
+		IsActive:  m.IsActive,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+	if m.Location != nil {
+		w.Address = *m.Location
+	}
+	if m.ManagerID != nil {
+		w.Manager = *m.ManagerID
+	}
+	return w
 }
 
-func (r *PGWarehouseRepo) GetCategoryByID(ctx context.Context, id string) (*domain.ItemCategory, error) {
-	c, err := r.scanCategory(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,description,parent_id,is_active,created_at,updated_at FROM item_categories WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrCategoryNotFound }
+// ─── Item Category ───────────────────────────────────────────────────────
+
+type PGItemCategoryRepo struct{ db *gorm.DB }
+
+func NewPGItemCategoryRepo(db *gorm.DB) *PGItemCategoryRepo { return &PGItemCategoryRepo{db} }
+
+func (r *PGItemCategoryRepo) CreateCategory(ctx context.Context, c *domain.ItemCategory) error {
+	m := itemCategoryToGORM(c)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	c.ID = m.ID
+	c.CreatedAt = m.CreatedAt
+	c.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *PGItemCategoryRepo) GetCategoryByID(ctx context.Context, id string) (*domain.ItemCategory, error) {
+	var m domain.ItemCategoryGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrCategoryNotFound
+		}
 		return nil, err
 	}
-	return &c, nil
+	return gormCategoryToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListCategories(ctx context.Context, companyID string) ([]domain.ItemCategory, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,code,name,description,parent_id,is_active,created_at,updated_at FROM item_categories WHERE company_id=$1 ORDER BY code`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.ItemCategory
-	for rows.Next() {
-		c, err := r.scanCategory(rows)
-		if err != nil { return nil, err }
-		out = append(out, c)
+func (r *PGItemCategoryRepo) ListCategories(ctx context.Context, companyID string) ([]domain.ItemCategory, error) {
+	var models []domain.ItemCategoryGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("code").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.ItemCategory, len(models))
+	for i := range models {
+		out[i] = *gormCategoryToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateCategory(ctx context.Context, c *domain.ItemCategory) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE item_categories SET code=$1,name=$2,description=$3,parent_id=$4,is_active=$5,updated_at=$6 WHERE id=$7`,
-		c.Code, c.Name, nullStr(c.Description), nullStr(c.ParentID), c.IsActive, now, c.ID)
-	return err
+func (r *PGItemCategoryRepo) UpdateCategory(ctx context.Context, c *domain.ItemCategory) error {
+	return r.db.WithContext(ctx).Model(&domain.ItemCategoryGORM{}).Where("id = ?", c.ID).Updates(map[string]interface{}{
+		"code":      c.Code,
+		"name":      c.Name,
+		"parent_id": nullStrG(c.ParentID),
+		"is_active": c.IsActive,
+	}).Error
 }
 
-func (r *PGWarehouseRepo) DeleteCategory(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM item_categories WHERE id=$1`, id)
-	return err
+func (r *PGItemCategoryRepo) DeleteCategory(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.ItemCategoryGORM{}).Error
 }
 
-func (r *PGWarehouseRepo) GetCategoryByCode(ctx context.Context, companyID, code string) (*domain.ItemCategory, error) {
-	c, err := r.scanCategory(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,description,parent_id,is_active,created_at,updated_at FROM item_categories WHERE company_id=$1 AND code=$2`, companyID, code))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrCategoryNotFound }
+func (r *PGItemCategoryRepo) GetCategoryByCode(ctx context.Context, companyID, code string) (*domain.ItemCategory, error) {
+	var m domain.ItemCategoryGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND code = ?", companyID, code).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrCategoryNotFound
+		}
 		return nil, err
 	}
-	return &c, nil
+	return gormCategoryToDomain(&m), nil
 }
 
-// ─── Item ─────────────────────────────────────────────────────────────
-
-func (r *PGWarehouseRepo) CreateItem(ctx context.Context, i *domain.Item) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO items (id,company_id,code,name,category_id,unit,base_price,min_stock,max_stock,valuation_method,tax_rate,is_active,notes,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-		i.ID, i.CompanyID, i.Code, i.Name, nullStr(i.CategoryID), i.Unit, i.BasePrice, i.MinStock, i.MaxStock, string(i.ValuationMethod), i.TaxRate, true, nullStr(i.Notes), now, now,
-	).Scan(&i.ID)
+func itemCategoryToGORM(c *domain.ItemCategory) domain.ItemCategoryGORM {
+	return domain.ItemCategoryGORM{
+		ID:        c.ID,
+		CompanyID: c.CompanyID,
+		Code:      c.Code,
+		Name:      c.Name,
+		ParentID:  nullStrG(c.ParentID),
+		IsActive:  c.IsActive,
+	}
 }
 
-func (r *PGWarehouseRepo) scanItem(row pgx.Row) (domain.Item, error) {
-	var i domain.Item
-	var vm string
-	err := row.Scan(&i.ID, &i.CompanyID, &i.Code, &i.Name, &i.CategoryID, &i.Unit, &i.BasePrice, &i.MinStock, &i.MaxStock, &vm, &i.TaxRate, &i.IsActive, &i.Notes, &i.CreatedAt, &i.UpdatedAt)
-	i.ValuationMethod = domain.ValuationMethod(vm)
-	return i, err
+func gormCategoryToDomain(m *domain.ItemCategoryGORM) *domain.ItemCategory {
+	c := &domain.ItemCategory{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		Code:      m.Code,
+		Name:      m.Name,
+		IsActive:  m.IsActive,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+	if m.ParentID != nil {
+		c.ParentID = *m.ParentID
+	}
+	return c
 }
 
-func (r *PGWarehouseRepo) GetItemByID(ctx context.Context, id string) (*domain.Item, error) {
-	i, err := r.scanItem(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,category_id,unit,base_price,min_stock,max_stock,valuation_method,tax_rate,is_active,notes,created_at,updated_at FROM items WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrItemNotFound }
+// ─── Item ────────────────────────────────────────────────────────────────
+
+type PGItemRepo struct{ db *gorm.DB }
+
+func NewPGItemRepo(db *gorm.DB) *PGItemRepo { return &PGItemRepo{db} }
+
+func (r *PGItemRepo) CreateItem(ctx context.Context, i *domain.Item) error {
+	m := itemToGORM(i)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	i.ID = m.ID
+	i.CreatedAt = m.CreatedAt
+	i.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *PGItemRepo) GetItemByID(ctx context.Context, id string) (*domain.Item, error) {
+	var m domain.ItemGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrItemNotFound
+		}
 		return nil, err
 	}
-	return &i, nil
+	return gormItemToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListItems(ctx context.Context, companyID string) ([]domain.Item, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,code,name,category_id,unit,base_price,min_stock,max_stock,valuation_method,tax_rate,is_active,notes,created_at,updated_at FROM items WHERE company_id=$1 ORDER BY code`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.Item
-	for rows.Next() {
-		i, err := r.scanItem(rows)
-		if err != nil { return nil, err }
-		out = append(out, i)
+func (r *PGItemRepo) ListItems(ctx context.Context, companyID string) ([]domain.Item, error) {
+	var models []domain.ItemGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("code").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.Item, len(models))
+	for i := range models {
+		out[i] = *gormItemToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateItem(ctx context.Context, i *domain.Item) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE items SET code=$1,name=$2,category_id=$3,unit=$4,base_price=$5,min_stock=$6,max_stock=$7,valuation_method=$8,tax_rate=$9,is_active=$10,notes=$11,updated_at=$12 WHERE id=$13`,
-		i.Code, i.Name, nullStr(i.CategoryID), i.Unit, i.BasePrice, i.MinStock, i.MaxStock, string(i.ValuationMethod), i.TaxRate, i.IsActive, nullStr(i.Notes), now, i.ID)
-	return err
+func (r *PGItemRepo) UpdateItem(ctx context.Context, i *domain.Item) error {
+	return r.db.WithContext(ctx).Model(&domain.ItemGORM{}).Where("id = ?", i.ID).Updates(map[string]interface{}{
+		"code":          i.Code,
+		"name":          i.Name,
+		"category_id":   nullStrG(i.CategoryID),
+		"unit":          nullStrG(i.Unit),
+		"cost_method":   string(i.ValuationMethod),
+		"is_active":     i.IsActive,
+	}).Error
 }
 
-func (r *PGWarehouseRepo) DeleteItem(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM items WHERE id=$1`, id)
-	return err
+func (r *PGItemRepo) DeleteItem(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.ItemGORM{}).Error
 }
 
-func (r *PGWarehouseRepo) GetItemByCode(ctx context.Context, companyID, code string) (*domain.Item, error) {
-	i, err := r.scanItem(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,code,name,category_id,unit,base_price,min_stock,max_stock,valuation_method,tax_rate,is_active,notes,created_at,updated_at FROM items WHERE company_id=$1 AND code=$2`, companyID, code))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrItemNotFound }
+func (r *PGItemRepo) GetItemByCode(ctx context.Context, companyID, code string) (*domain.Item, error) {
+	var m domain.ItemGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND code = ?", companyID, code).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrItemNotFound
+		}
 		return nil, err
 	}
-	return &i, nil
+	return gormItemToDomain(&m), nil
 }
 
-// ─── Stock Balance ────────────────────────────────────────────────────
-
-func (r *PGWarehouseRepo) CreateStockBalance(ctx context.Context, b *domain.StockBalance) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO stock_balances (id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-		b.ID, b.CompanyID, b.WarehouseID, b.ItemID, b.Period, b.Quantity, b.UnitCost, b.TotalCost, nullTime(b.LastTransactionAt), now, now,
-	).Scan(&b.ID)
+func itemToGORM(i *domain.Item) domain.ItemGORM {
+	return domain.ItemGORM{
+		ID:          i.ID,
+		CompanyID:   i.CompanyID,
+		Code:        i.Code,
+		Name:        i.Name,
+		CategoryID:  nullStrG(i.CategoryID),
+		Unit:        nullStrG(i.Unit),
+		CostMethod:  string(i.ValuationMethod),
+		IsActive:    i.IsActive,
+	}
 }
 
-func (r *PGWarehouseRepo) scanBalance(row pgx.Row) (domain.StockBalance, error) {
-	var b domain.StockBalance
-	err := row.Scan(&b.ID, &b.CompanyID, &b.WarehouseID, &b.ItemID, &b.Period, &b.Quantity, &b.UnitCost, &b.TotalCost, &b.LastTransactionAt, &b.CreatedAt, &b.UpdatedAt)
-	return b, err
+func gormItemToDomain(m *domain.ItemGORM) *domain.Item {
+	i := &domain.Item{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		Code:            m.Code,
+		Name:            m.Name,
+		ValuationMethod: domain.ValuationMethod(m.CostMethod),
+		IsActive:        m.IsActive,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+	}
+	if m.CategoryID != nil {
+		i.CategoryID = *m.CategoryID
+	}
+	if m.Unit != nil {
+		i.Unit = *m.Unit
+	}
+	return i
 }
 
-func (r *PGWarehouseRepo) GetStockBalanceByID(ctx context.Context, id string) (*domain.StockBalance, error) {
-	b, err := r.scanBalance(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at FROM stock_balances WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrBalanceNotFound }
+// ─── Stock Balance ───────────────────────────────────────────────────────
+
+type PGStockBalanceRepo struct{ db *gorm.DB }
+
+func NewPGStockBalanceRepo(db *gorm.DB) *PGStockBalanceRepo { return &PGStockBalanceRepo{db} }
+
+func (r *PGStockBalanceRepo) CreateStockBalance(ctx context.Context, b *domain.StockBalance) error {
+	m := stockBalanceToGORM(b)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	b.ID = m.ID
+	b.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *PGStockBalanceRepo) GetStockBalanceByID(ctx context.Context, id string) (*domain.StockBalance, error) {
+	var m domain.StockBalanceGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrBalanceNotFound
+		}
 		return nil, err
 	}
-	return &b, nil
+	return gormStockBalanceToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) FindStockBalance(ctx context.Context, companyID, warehouseID, itemID, period string) (*domain.StockBalance, error) {
-	b, err := r.scanBalance(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at
-		 FROM stock_balances WHERE company_id=$1 AND warehouse_id=$2 AND item_id=$3 AND period=$4`,
-		companyID, warehouseID, itemID, period))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrBalanceNotFound }
+func (r *PGStockBalanceRepo) FindStockBalance(ctx context.Context, companyID, warehouseID, itemID, period string) (*domain.StockBalance, error) {
+	var m domain.StockBalanceGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND warehouse_id = ? AND item_id = ? AND period = ?",
+		companyID, warehouseID, itemID, period).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrBalanceNotFound
+		}
 		return nil, err
 	}
-	return &b, nil
+	return gormStockBalanceToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListStockBalances(ctx context.Context, companyID, warehouseID string) ([]domain.StockBalance, error) {
-	q := `SELECT id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at
-		  FROM stock_balances WHERE company_id=$1`
-	args := []any{companyID}
+func (r *PGStockBalanceRepo) ListStockBalances(ctx context.Context, companyID, warehouseID string) ([]domain.StockBalance, error) {
+	q := r.db.WithContext(ctx).Model(&domain.StockBalanceGORM{}).Where("company_id = ?", companyID)
 	if warehouseID != "" {
-		q += ` AND warehouse_id=$2`
-		args = append(args, warehouseID)
+		q = q.Where("warehouse_id = ?", warehouseID)
 	}
-	q += ` ORDER BY item_id,period`
-	rows, err := r.pool.Query(ctx, q, args...)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.StockBalance
-	for rows.Next() {
-		b, err := r.scanBalance(rows)
-		if err != nil { return nil, err }
-		out = append(out, b)
+	var models []domain.StockBalanceGORM
+	if err := q.Order("item_id, period").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.StockBalance, len(models))
+	for i := range models {
+		out[i] = *gormStockBalanceToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateStockBalance(ctx context.Context, b *domain.StockBalance) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE stock_balances SET warehouse_id=$1,item_id=$2,period=$3,quantity=$4,unit_cost=$5,total_cost=$6,last_transaction_at=$7,updated_at=$8 WHERE id=$9`,
-		b.WarehouseID, b.ItemID, b.Period, b.Quantity, b.UnitCost, b.TotalCost, nullTime(b.LastTransactionAt), now, b.ID)
-	return err
+func (r *PGStockBalanceRepo) UpdateStockBalance(ctx context.Context, b *domain.StockBalance) error {
+	return r.db.WithContext(ctx).Model(&domain.StockBalanceGORM{}).Where("id = ?", b.ID).Updates(map[string]interface{}{
+		"qty_on_hand": b.Quantity,
+		"unit_cost":   b.UnitCost,
+		"total_value": b.TotalCost,
+	}).Error
 }
 
-func (r *PGWarehouseRepo) UpsertStockBalance(ctx context.Context, b *domain.StockBalance) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO stock_balances (id,company_id,warehouse_id,item_id,period,quantity,unit_cost,total_cost,last_transaction_at,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		 ON CONFLICT (company_id, warehouse_id, item_id, period) DO UPDATE
-		 SET quantity=$6,unit_cost=$7,total_cost=$8,last_transaction_at=$9,updated_at=$11
-		 RETURNING id`,
-		b.ID, b.CompanyID, b.WarehouseID, b.ItemID, b.Period, b.Quantity, b.UnitCost, b.TotalCost, nullTime(b.LastTransactionAt), now, now,
-	).Scan(&b.ID)
-}
-
-// ─── Inventory Transaction ────────────────────────────────────────────
-
-func (r *PGWarehouseRepo) CreateInventoryTransaction(ctx context.Context, t *domain.InventoryTransaction) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO inventory_transactions (id,company_id,warehouse_id,item_id,trans_type,ref_type,ref_id,qty_before,quantity,qty_after,unit_cost,total_cost,created_by,created_at,notes)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-		t.ID, t.CompanyID, t.WarehouseID, t.ItemID, string(t.TransType), nullStr(t.RefType), nullStr(t.RefID), t.QtyBefore, t.Quantity, t.QtyAfter, t.UnitCost, t.TotalCost, t.CreatedBy, now, nullStr(t.Notes),
-	).Scan(&t.ID)
-}
-
-func (r *PGWarehouseRepo) scanTxn(row pgx.Row) (domain.InventoryTransaction, error) {
-	var t domain.InventoryTransaction
-	var tt string
-	err := row.Scan(&t.ID, &t.CompanyID, &t.WarehouseID, &t.ItemID, &tt, &t.RefType, &t.RefID, &t.QtyBefore, &t.Quantity, &t.QtyAfter, &t.UnitCost, &t.TotalCost, &t.CreatedBy, &t.CreatedAt, &t.Notes)
-	t.TransType = domain.TransactionType(tt)
-	return t, err
-}
-
-func (r *PGWarehouseRepo) GetInventoryTransactionByID(ctx context.Context, id string) (*domain.InventoryTransaction, error) {
-	t, err := r.scanTxn(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,warehouse_id,item_id,trans_type,ref_type,ref_id,qty_before,quantity,qty_after,unit_cost,total_cost,created_by,created_at,notes FROM inventory_transactions WHERE id=$1`, id))
+func (r *PGStockBalanceRepo) UpsertStockBalance(ctx context.Context, b *domain.StockBalance) error {
+	m := domain.StockBalanceGORM{}
+	err := r.db.WithContext(ctx).
+		Where("company_id = ? AND warehouse_id = ? AND item_id = ? AND period = ?",
+			b.CompanyID, b.WarehouseID, b.ItemID, b.Period).
+		Assign(map[string]interface{}{
+			"qty_on_hand": b.Quantity,
+			"unit_cost":   b.UnitCost,
+			"total_value": b.TotalCost,
+		}).
+		FirstOrCreate(&m).Error
 	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrTransNotFound }
+		return err
+	}
+	b.ID = m.ID
+	return nil
+}
+
+func stockBalanceToGORM(b *domain.StockBalance) domain.StockBalanceGORM {
+	return domain.StockBalanceGORM{
+		ID:          b.ID,
+		CompanyID:   b.CompanyID,
+		WarehouseID: b.WarehouseID,
+		ItemID:      b.ItemID,
+		Period:      b.Period,
+		QtyOnHand:   b.Quantity,
+		UnitCost:    b.UnitCost,
+		TotalValue:  b.TotalCost,
+	}
+}
+
+func gormStockBalanceToDomain(m *domain.StockBalanceGORM) *domain.StockBalance {
+	return &domain.StockBalance{
+		ID:          m.ID,
+		CompanyID:   m.CompanyID,
+		WarehouseID: m.WarehouseID,
+		ItemID:      m.ItemID,
+		Period:      m.Period,
+		Quantity:    m.QtyOnHand,
+		UnitCost:    m.UnitCost,
+		TotalCost:   m.TotalValue,
+		UpdatedAt:   m.UpdatedAt,
+	}
+}
+
+// ─── Inventory Transaction ──────────────────────────────────────────────
+
+type PGInventoryTransactionRepo struct{ db *gorm.DB }
+
+func NewPGInventoryTransactionRepo(db *gorm.DB) *PGInventoryTransactionRepo {
+	return &PGInventoryTransactionRepo{db}
+}
+
+func (r *PGInventoryTransactionRepo) CreateInventoryTransaction(ctx context.Context, t *domain.InventoryTransaction) error {
+	m := invTxnToGORM(t)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	t.ID = m.ID
+	t.CreatedAt = m.CreatedAt
+	return nil
+}
+
+func (r *PGInventoryTransactionRepo) GetInventoryTransactionByID(ctx context.Context, id string) (*domain.InventoryTransaction, error) {
+	var m domain.InventoryTransactionGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrTransNotFound
+		}
 		return nil, err
 	}
-	return &t, nil
+	return gormInvTxnToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListInventoryTransactions(ctx context.Context, companyID, warehouseID, itemID string, offset, limit int) ([]domain.InventoryTransaction, int, error) {
-	where := ` WHERE company_id=$1`
-	args := []any{companyID}
-	argIdx := 2
+func (r *PGInventoryTransactionRepo) ListInventoryTransactions(ctx context.Context, companyID, warehouseID, itemID string, offset, limit int) ([]domain.InventoryTransaction, int, error) {
+	q := r.db.WithContext(ctx).Model(&domain.InventoryTransactionGORM{}).Where("company_id = ?", companyID)
 	if warehouseID != "" {
-		where += fmt.Sprintf(` AND warehouse_id=$%d`, argIdx)
-		args = append(args, warehouseID)
-		argIdx++
+		q = q.Where("warehouse_id = ?", warehouseID)
 	}
 	if itemID != "" {
-		where += fmt.Sprintf(` AND item_id=$%d`, argIdx)
-		args = append(args, itemID)
-		argIdx++
+		q = q.Where("item_id = ?", itemID)
 	}
-	var total int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM inventory_transactions`+where, args...).Scan(&total)
-	if err != nil { return nil, 0, err }
-	if limit <= 0 { limit = 50 }
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,warehouse_id,item_id,trans_type,ref_type,ref_id,qty_before,quantity,qty_after,unit_cost,total_cost,created_by,created_at,notes FROM inventory_transactions`+where+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", argIdx)+` OFFSET $`+fmt.Sprintf("%d", argIdx+1),
-		append(args, limit, offset)...)
-	if err != nil { return nil, 0, err }
-	defer rows.Close()
-	var out []domain.InventoryTransaction
-	for rows.Next() {
-		t, err := r.scanTxn(rows)
-		if err != nil { return nil, 0, err }
-		out = append(out, t)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return out, total, nil
+	if limit <= 0 {
+		limit = 50
+	}
+	var models []domain.InventoryTransactionGORM
+	if err := q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]domain.InventoryTransaction, len(models))
+	for i := range models {
+		out[i] = *gormInvTxnToDomain(&models[i])
+	}
+	return out, int(total), nil
 }
 
-// ─── Stock Transfer ───────────────────────────────────────────────────
+func invTxnToGORM(t *domain.InventoryTransaction) domain.InventoryTransactionGORM {
+	return domain.InventoryTransactionGORM{
+		ID:           t.ID,
+		CompanyID:    t.CompanyID,
+		WarehouseID:  t.WarehouseID,
+		ItemID:       t.ItemID,
+		MovementType: string(t.TransType),
+		Qty:          t.Quantity,
+		UnitCost:     t.UnitCost,
+		TotalValue:   t.TotalCost,
+		RefDocID:     nullStrG(t.RefID),
+		RefDocType:   nullStrG(t.RefType),
+		Note:         nullStrG(t.Notes),
+		CreatedBy:    t.CreatedBy,
+	}
+}
 
-func (r *PGWarehouseRepo) CreateStockTransfer(ctx context.Context, t *domain.StockTransfer) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO stock_transfers (id,company_id,transfer_number,from_warehouse_id,to_warehouse_id,status,transfer_date,created_by,approved_by,approved_at,completed_by,completed_at,cancelled_reason,notes,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-		t.ID, t.CompanyID, t.TransferNumber, t.FromWarehouseID, t.ToWarehouseID, string(t.Status), nullStr(t.TransferDate), t.CreatedBy, nullStr(t.ApprovedBy), nullStr(t.ApprovedAt), nullStr(t.CompletedBy), nullStr(t.CompletedAt), nullStr(t.CancelledReason), nullStr(t.Notes), now, now,
-	).Scan(&t.ID)
-	if err != nil { return err }
+func gormInvTxnToDomain(m *domain.InventoryTransactionGORM) *domain.InventoryTransaction {
+	t := &domain.InventoryTransaction{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		WarehouseID: m.WarehouseID,
+		ItemID:    m.ItemID,
+		TransType: domain.TransactionType(m.MovementType),
+		Quantity:  m.Qty,
+		UnitCost:  m.UnitCost,
+		TotalCost: m.TotalValue,
+		CreatedBy: m.CreatedBy,
+		CreatedAt: m.CreatedAt,
+	}
+	if m.RefDocID != nil {
+		t.RefID = *m.RefDocID
+	}
+	if m.RefDocType != nil {
+		t.RefType = *m.RefDocType
+	}
+	if m.Note != nil {
+		t.Notes = *m.Note
+	}
+	return t
+}
+
+// ─── Stock Transfer ──────────────────────────────────────────────────────
+
+type PGStockTransferRepo struct{ db *gorm.DB }
+
+func NewPGStockTransferRepo(db *gorm.DB) *PGStockTransferRepo { return &PGStockTransferRepo{db} }
+
+func (r *PGStockTransferRepo) CreateStockTransfer(ctx context.Context, t *domain.StockTransfer) error {
+	m := stockTransferToGORM(t)
+	items := make([]domain.TransferItemGORM, len(t.Items))
+	for i, it := range t.Items {
+		items[i] = transferItemToGORM(&it)
+	}
+	m.Items = items
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	t.ID = m.ID
+	t.CreatedAt = m.CreatedAt
+	t.UpdatedAt = m.UpdatedAt
 	for i := range t.Items {
-		t.Items[i].TransferID = t.ID
-		if err := r.CreateTransferItem(ctx, &t.Items[i]); err != nil { return err }
+		if i < len(m.Items) {
+			t.Items[i].ID = fmt.Sprint(m.Items[i].ID)
+		}
 	}
 	return nil
 }
 
-func (r *PGWarehouseRepo) scanTransfer(row pgx.Row) (domain.StockTransfer, error) {
-	var t domain.StockTransfer
-	var st string
-	err := row.Scan(&t.ID, &t.CompanyID, &t.TransferNumber, &t.FromWarehouseID, &t.ToWarehouseID, &st, &t.TransferDate, &t.CreatedBy, &t.ApprovedBy, &t.ApprovedAt, &t.CompletedBy, &t.CompletedAt, &t.CancelledReason, &t.Notes, &t.CreatedAt, &t.UpdatedAt)
-	t.Status = domain.TransferStatus(st)
-	return t, err
-}
-
-func (r *PGWarehouseRepo) GetStockTransferByID(ctx context.Context, id string) (*domain.StockTransfer, error) {
-	t, err := r.scanTransfer(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,transfer_number,from_warehouse_id,to_warehouse_id,status,transfer_date,created_by,approved_by,approved_at,completed_by,completed_at,cancelled_reason,notes,created_at,updated_at FROM stock_transfers WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrTransferNotFound }
+func (r *PGStockTransferRepo) GetStockTransferByID(ctx context.Context, id string) (*domain.StockTransfer, error) {
+	var m domain.StockTransferGORM
+	if err := r.db.WithContext(ctx).Preload("Items").Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrTransferNotFound
+		}
 		return nil, err
 	}
-	items, err := r.GetTransferItems(ctx, id)
-	if err != nil { return nil, err }
-	t.Items = items
-	return &t, nil
+	return gormStockTransferToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListStockTransfers(ctx context.Context, companyID string) ([]domain.StockTransfer, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,transfer_number,from_warehouse_id,to_warehouse_id,status,transfer_date,created_by,approved_by,approved_at,completed_by,completed_at,cancelled_reason,notes,created_at,updated_at FROM stock_transfers WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.StockTransfer
-	for rows.Next() {
-		t, err := r.scanTransfer(rows)
-		if err != nil { return nil, err }
-		out = append(out, t)
+func (r *PGStockTransferRepo) ListStockTransfers(ctx context.Context, companyID string) ([]domain.StockTransfer, error) {
+	var models []domain.StockTransferGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.StockTransfer, len(models))
+	for i := range models {
+		out[i] = *gormStockTransferToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateStockTransfer(ctx context.Context, t *domain.StockTransfer) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE stock_transfers SET from_warehouse_id=$1,to_warehouse_id=$2,status=$3,transfer_date=$4,approved_by=$5,approved_at=$6,completed_by=$7,completed_at=$8,cancelled_reason=$9,notes=$10,updated_at=$11 WHERE id=$12`,
-		t.FromWarehouseID, t.ToWarehouseID, string(t.Status), nullStr(t.TransferDate), nullStr(t.ApprovedBy), nullStr(t.ApprovedAt), nullStr(t.CompletedBy), nullStr(t.CompletedAt), nullStr(t.CancelledReason), nullStr(t.Notes), now, t.ID)
-	return err
+func (r *PGStockTransferRepo) UpdateStockTransfer(ctx context.Context, t *domain.StockTransfer) error {
+	return r.db.WithContext(ctx).Model(&domain.StockTransferGORM{}).Where("id = ?", t.ID).Updates(map[string]interface{}{
+		"from_warehouse_id": t.FromWarehouseID,
+		"to_warehouse_id":   t.ToWarehouseID,
+		"status":            string(t.Status),
+	}).Error
 }
 
-func (r *PGWarehouseRepo) UpdateStockTransferStatus(ctx context.Context, id string, status domain.TransferStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE stock_transfers SET status=$1,updated_at=$2 WHERE id=$3`, string(status), now, id)
-	return err
+func (r *PGStockTransferRepo) UpdateStockTransferStatus(ctx context.Context, id string, status domain.TransferStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.StockTransferGORM{}).Where("id = ?", id).Update("status", string(status)).Error
 }
 
-func (r *PGWarehouseRepo) GetTransferItems(ctx context.Context, transferID string) ([]domain.TransferItem, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,transfer_id,item_id,quantity,unit_cost FROM transfer_items WHERE transfer_id=$1`, transferID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.TransferItem
-	for rows.Next() {
-		var it domain.TransferItem
-		if err := rows.Scan(&it.ID, &it.TransferID, &it.ItemID, &it.Quantity, &it.UnitCost); err != nil { return nil, err }
-		out = append(out, it)
+func (r *PGStockTransferRepo) GetTransferItems(ctx context.Context, transferID string) ([]domain.TransferItem, error) {
+	var models []domain.TransferItemGORM
+	if err := r.db.WithContext(ctx).Where("transfer_id = ?", transferID).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.TransferItem, len(models))
+	for i := range models {
+		out[i] = *gormTransferItemToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) CreateTransferItem(ctx context.Context, it *domain.TransferItem) error {
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO transfer_items (id,transfer_id,item_id,quantity,unit_cost) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-		it.ID, it.TransferID, it.ItemID, it.Quantity, it.UnitCost,
-	).Scan(&it.ID)
+func (r *PGStockTransferRepo) CreateTransferItem(ctx context.Context, it *domain.TransferItem) error {
+	m := transferItemToGORM(it)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	it.ID = fmt.Sprint(m.ID)
+	return nil
 }
 
-// ─── Stock Adjustment ─────────────────────────────────────────────────
+func stockTransferToGORM(t *domain.StockTransfer) domain.StockTransferGORM {
+	return domain.StockTransferGORM{
+		ID:              t.ID,
+		CompanyID:       t.CompanyID,
+		FromWarehouseID: t.FromWarehouseID,
+		ToWarehouseID:   t.ToWarehouseID,
+		Status:          string(t.Status),
+		CreatedBy:       t.CreatedBy,
+	}
+}
 
-func (r *PGWarehouseRepo) CreateStockAdjustment(ctx context.Context, a *domain.StockAdjustment) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO stock_adjustments (id,company_id,warehouse_id,adjustment_number,adj_type,reason,status,created_by,approved_by,approved_at,posted_at,rejected_reason,notes,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-		a.ID, a.CompanyID, a.WarehouseID, a.AdjustmentNumber, string(a.AdjType), nullStr(a.Reason), string(a.Status), a.CreatedBy, nullStr(a.ApprovedBy), nullStr(a.ApprovedAt), nullStr(a.PostedAt), nullStr(a.RejectedReason), nullStr(a.Notes), now, now,
-	).Scan(&a.ID)
-	if err != nil { return err }
+func gormStockTransferToDomain(m *domain.StockTransferGORM) *domain.StockTransfer {
+	t := &domain.StockTransfer{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		FromWarehouseID: m.FromWarehouseID,
+		ToWarehouseID:   m.ToWarehouseID,
+		Status:          domain.TransferStatus(m.Status),
+		CreatedBy:       m.CreatedBy,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+	}
+	if m.Items != nil {
+		t.Items = make([]domain.TransferItem, len(m.Items))
+		for i, it := range m.Items {
+			t.Items[i] = *gormTransferItemToDomain(&it)
+		}
+	}
+	return t
+}
+
+func transferItemToGORM(it *domain.TransferItem) domain.TransferItemGORM {
+	return domain.TransferItemGORM{
+		TransferID: it.TransferID,
+		ItemID:     it.ItemID,
+		Qty:        it.Quantity,
+	}
+}
+
+func gormTransferItemToDomain(m *domain.TransferItemGORM) *domain.TransferItem {
+	it := &domain.TransferItem{
+		ID:         fmt.Sprint(m.ID),
+		TransferID: m.TransferID,
+		ItemID:     m.ItemID,
+		Quantity:   m.Qty,
+	}
+	return it
+}
+
+// ─── Stock Adjustment ───────────────────────────────────────────────────
+
+type PGStockAdjustmentRepo struct{ db *gorm.DB }
+
+func NewPGStockAdjustmentRepo(db *gorm.DB) *PGStockAdjustmentRepo { return &PGStockAdjustmentRepo{db} }
+
+func (r *PGStockAdjustmentRepo) CreateStockAdjustment(ctx context.Context, a *domain.StockAdjustment) error {
+	m := stockAdjToGORM(a)
+	items := make([]domain.AdjItemGORM, len(a.Items))
+	for i, it := range a.Items {
+		items[i] = adjItemToGORM(&it)
+	}
+	m.Items = items
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	a.ID = m.ID
+	a.CreatedAt = m.CreatedAt
+	a.UpdatedAt = m.UpdatedAt
 	for i := range a.Items {
-		a.Items[i].AdjustmentID = a.ID
-		if err := r.CreateAdjustmentItem(ctx, &a.Items[i]); err != nil { return err }
+		if i < len(m.Items) {
+			a.Items[i].ID = fmt.Sprint(m.Items[i].ID)
+		}
 	}
 	return nil
 }
 
-func (r *PGWarehouseRepo) scanAdjustment(row pgx.Row) (domain.StockAdjustment, error) {
-	var a domain.StockAdjustment
-	var at, st string
-	err := row.Scan(&a.ID, &a.CompanyID, &a.WarehouseID, &a.AdjustmentNumber, &at, &a.Reason, &st, &a.CreatedBy, &a.ApprovedBy, &a.ApprovedAt, &a.PostedAt, &a.RejectedReason, &a.Notes, &a.CreatedAt, &a.UpdatedAt)
-	a.AdjType = domain.AdjType(at)
-	a.Status = domain.AdjStatus(st)
-	return a, err
-}
-
-func (r *PGWarehouseRepo) GetStockAdjustmentByID(ctx context.Context, id string) (*domain.StockAdjustment, error) {
-	a, err := r.scanAdjustment(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,warehouse_id,adjustment_number,adj_type,reason,status,created_by,approved_by,approved_at,posted_at,rejected_reason,notes,created_at,updated_at FROM stock_adjustments WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrAdjNotFound }
+func (r *PGStockAdjustmentRepo) GetStockAdjustmentByID(ctx context.Context, id string) (*domain.StockAdjustment, error) {
+	var m domain.StockAdjustmentGORM
+	if err := r.db.WithContext(ctx).Preload("Items").Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrAdjNotFound
+		}
 		return nil, err
 	}
-	items, err := r.GetAdjustmentItems(ctx, id)
-	if err != nil { return nil, err }
-	a.Items = items
-	return &a, nil
+	return gormStockAdjToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListStockAdjustments(ctx context.Context, companyID string) ([]domain.StockAdjustment, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,warehouse_id,adjustment_number,adj_type,reason,status,created_by,approved_by,approved_at,posted_at,rejected_reason,notes,created_at,updated_at FROM stock_adjustments WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.StockAdjustment
-	for rows.Next() {
-		a, err := r.scanAdjustment(rows)
-		if err != nil { return nil, err }
-		out = append(out, a)
+func (r *PGStockAdjustmentRepo) ListStockAdjustments(ctx context.Context, companyID string) ([]domain.StockAdjustment, error) {
+	var models []domain.StockAdjustmentGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.StockAdjustment, len(models))
+	for i := range models {
+		out[i] = *gormStockAdjToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateStockAdjustment(ctx context.Context, a *domain.StockAdjustment) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE stock_adjustments SET warehouse_id=$1,adj_type=$2,reason=$3,status=$4,approved_by=$5,approved_at=$6,posted_at=$7,rejected_reason=$8,notes=$9,updated_at=$10 WHERE id=$11`,
-		a.WarehouseID, string(a.AdjType), nullStr(a.Reason), string(a.Status), nullStr(a.ApprovedBy), nullStr(a.ApprovedAt), nullStr(a.PostedAt), nullStr(a.RejectedReason), nullStr(a.Notes), now, a.ID)
-	return err
+func (r *PGStockAdjustmentRepo) UpdateStockAdjustment(ctx context.Context, a *domain.StockAdjustment) error {
+	return r.db.WithContext(ctx).Model(&domain.StockAdjustmentGORM{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+		"warehouse_id": a.WarehouseID,
+		"reason":       a.Reason,
+		"status":       string(a.Status),
+	}).Error
 }
 
-func (r *PGWarehouseRepo) UpdateStockAdjustmentStatus(ctx context.Context, id string, status domain.AdjStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE stock_adjustments SET status=$1,updated_at=$2 WHERE id=$3`, string(status), now, id)
-	return err
+func (r *PGStockAdjustmentRepo) UpdateStockAdjustmentStatus(ctx context.Context, id string, status domain.AdjStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.StockAdjustmentGORM{}).Where("id = ?", id).Update("status", string(status)).Error
 }
 
-func (r *PGWarehouseRepo) GetAdjustmentItems(ctx context.Context, adjustmentID string) ([]domain.AdjItem, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,adjustment_id,item_id,qty_before,qty_after,unit_cost,reason FROM adjustment_items WHERE adjustment_id=$1`, adjustmentID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.AdjItem
-	for rows.Next() {
-		var it domain.AdjItem
-		if err := rows.Scan(&it.ID, &it.AdjustmentID, &it.ItemID, &it.QtyBefore, &it.QtyAfter, &it.UnitCost, &it.Reason); err != nil { return nil, err }
-		out = append(out, it)
+func (r *PGStockAdjustmentRepo) GetAdjustmentItems(ctx context.Context, adjustmentID string) ([]domain.AdjItem, error) {
+	var models []domain.AdjItemGORM
+	if err := r.db.WithContext(ctx).Where("adjustment_id = ?", adjustmentID).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.AdjItem, len(models))
+	for i := range models {
+		out[i] = *gormAdjItemToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) CreateAdjustmentItem(ctx context.Context, it *domain.AdjItem) error {
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO adjustment_items (id,adjustment_id,item_id,qty_before,qty_after,unit_cost,reason) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-		it.ID, it.AdjustmentID, it.ItemID, it.QtyBefore, it.QtyAfter, it.UnitCost, nullStr(it.Reason),
-	).Scan(&it.ID)
+func (r *PGStockAdjustmentRepo) CreateAdjustmentItem(ctx context.Context, it *domain.AdjItem) error {
+	m := adjItemToGORM(it)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	it.ID = fmt.Sprint(m.ID)
+	return nil
 }
 
-// ─── Stock Take ───────────────────────────────────────────────────────
+func stockAdjToGORM(a *domain.StockAdjustment) domain.StockAdjustmentGORM {
+	reason := a.Reason
+	if reason == "" {
+		reason = "adjustment"
+	}
+	return domain.StockAdjustmentGORM{
+		ID:        a.ID,
+		CompanyID: a.CompanyID,
+		WarehouseID: a.WarehouseID,
+		Reason:    reason,
+		Status:    string(a.Status),
+		CreatedBy: a.CreatedBy,
+	}
+}
 
-func (r *PGWarehouseRepo) CreateStockTake(ctx context.Context, t *domain.StockTake) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO stock_takes (id,company_id,warehouse_id,take_number,status,take_date,created_by,verified_by,verified_at,posted_at,notes,created_at,updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-		t.ID, t.CompanyID, t.WarehouseID, t.TakeNumber, string(t.Status), nullStr(t.TakeDate), t.CreatedBy, nullStr(t.VerifiedBy), nullStr(t.VerifiedAt), nullStr(t.PostedAt), nullStr(t.Notes), now, now,
-	).Scan(&t.ID)
-	if err != nil { return err }
+func gormStockAdjToDomain(m *domain.StockAdjustmentGORM) *domain.StockAdjustment {
+	a := &domain.StockAdjustment{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		WarehouseID: m.WarehouseID,
+		Reason:    m.Reason,
+		Status:    domain.AdjStatus(m.Status),
+		CreatedBy: m.CreatedBy,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+	if m.Items != nil {
+		a.Items = make([]domain.AdjItem, len(m.Items))
+		for i, it := range m.Items {
+			a.Items[i] = *gormAdjItemToDomain(&it)
+		}
+	}
+	return a
+}
+
+func adjItemToGORM(it *domain.AdjItem) domain.AdjItemGORM {
+	return domain.AdjItemGORM{
+		AdjustmentID:  it.AdjustmentID,
+		ItemID:        it.ItemID,
+		QtyOnHand:     it.QtyBefore,
+		QtyCounted:    it.QtyAfter,
+		QtyAdjustment: it.QtyAfter - it.QtyBefore,
+		Reason:        nullStrG(it.Reason),
+	}
+}
+
+func gormAdjItemToDomain(m *domain.AdjItemGORM) *domain.AdjItem {
+	it := &domain.AdjItem{
+		ID:           fmt.Sprint(m.ID),
+		AdjustmentID: m.AdjustmentID,
+		ItemID:       m.ItemID,
+		QtyBefore:    m.QtyOnHand,
+		QtyAfter:     m.QtyCounted,
+	}
+	if m.Reason != nil {
+		it.Reason = *m.Reason
+	}
+	return it
+}
+
+// ─── Stock Take ─────────────────────────────────────────────────────────
+
+type PGStockTakeRepo struct{ db *gorm.DB }
+
+func NewPGStockTakeRepo(db *gorm.DB) *PGStockTakeRepo { return &PGStockTakeRepo{db} }
+
+func (r *PGStockTakeRepo) CreateStockTake(ctx context.Context, t *domain.StockTake) error {
+	m := stockTakeToGORM(t)
+	items := make([]domain.TakeItemGORM, len(t.Items))
+	for i, it := range t.Items {
+		items[i] = takeItemToGORM(&it)
+	}
+	m.Items = items
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	t.ID = m.ID
+	t.CreatedAt = m.CreatedAt
+	t.UpdatedAt = m.UpdatedAt
 	for i := range t.Items {
-		t.Items[i].TakeID = t.ID
-		if err := r.CreateTakeItem(ctx, &t.Items[i]); err != nil { return err }
+		if i < len(m.Items) {
+			t.Items[i].ID = fmt.Sprint(m.Items[i].ID)
+		}
 	}
 	return nil
 }
 
-func (r *PGWarehouseRepo) scanTake(row pgx.Row) (domain.StockTake, error) {
-	var t domain.StockTake
-	var st string
-	err := row.Scan(&t.ID, &t.CompanyID, &t.WarehouseID, &t.TakeNumber, &st, &t.TakeDate, &t.CreatedBy, &t.VerifiedBy, &t.VerifiedAt, &t.PostedAt, &t.Notes, &t.CreatedAt, &t.UpdatedAt)
-	t.Status = domain.TakeStatus(st)
-	return t, err
-}
-
-func (r *PGWarehouseRepo) GetStockTakeByID(ctx context.Context, id string) (*domain.StockTake, error) {
-	t, err := r.scanTake(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,warehouse_id,take_number,status,take_date,created_by,verified_by,verified_at,posted_at,notes,created_at,updated_at FROM stock_takes WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrTakeNotFound }
+func (r *PGStockTakeRepo) GetStockTakeByID(ctx context.Context, id string) (*domain.StockTake, error) {
+	var m domain.StockTakeGORM
+	if err := r.db.WithContext(ctx).Preload("Items").Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrTakeNotFound
+		}
 		return nil, err
 	}
-	items, err := r.GetTakeItems(ctx, id)
-	if err != nil { return nil, err }
-	t.Items = items
-	return &t, nil
+	return gormStockTakeToDomain(&m), nil
 }
 
-func (r *PGWarehouseRepo) ListStockTakes(ctx context.Context, companyID string) ([]domain.StockTake, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,warehouse_id,take_number,status,take_date,created_by,verified_by,verified_at,posted_at,notes,created_at,updated_at FROM stock_takes WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.StockTake
-	for rows.Next() {
-		t, err := r.scanTake(rows)
-		if err != nil { return nil, err }
-		out = append(out, t)
-	}
-	return out, nil
-}
-
-func (r *PGWarehouseRepo) UpdateStockTake(ctx context.Context, t *domain.StockTake) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE stock_takes SET warehouse_id=$1,status=$2,take_date=$3,verified_by=$4,verified_at=$5,posted_at=$6,notes=$7,updated_at=$8 WHERE id=$9`,
-		t.WarehouseID, string(t.Status), nullStr(t.TakeDate), nullStr(t.VerifiedBy), nullStr(t.VerifiedAt), nullStr(t.PostedAt), nullStr(t.Notes), now, t.ID)
-	return err
-}
-
-func (r *PGWarehouseRepo) UpdateStockTakeStatus(ctx context.Context, id string, status domain.TakeStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE stock_takes SET status=$1,updated_at=$2 WHERE id=$3`, string(status), now, id)
-	return err
-}
-
-func (r *PGWarehouseRepo) GetTakeItems(ctx context.Context, takeID string) ([]domain.TakeItem, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,take_id,item_id,expected_qty,actual_qty,unit_cost,variance,notes FROM take_items WHERE take_id=$1`, takeID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.TakeItem
-	for rows.Next() {
-		var it domain.TakeItem
-		if err := rows.Scan(&it.ID, &it.TakeID, &it.ItemID, &it.ExpectedQty, &it.ActualQty, &it.UnitCost, &it.Variance, &it.Notes); err != nil { return nil, err }
-		out = append(out, it)
-	}
-	return out, nil
-}
-
-func (r *PGWarehouseRepo) CreateTakeItem(ctx context.Context, it *domain.TakeItem) error {
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO take_items (id,take_id,item_id,expected_qty,actual_qty,unit_cost,variance,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		it.ID, it.TakeID, it.ItemID, it.ExpectedQty, it.ActualQty, it.UnitCost, it.Variance, nullStr(it.Notes),
-	).Scan(&it.ID)
-}
-
-// ─── Inventory Valuation Run ──────────────────────────────────────────
-
-func (r *PGWarehouseRepo) CreateValuationRun(ctx context.Context, v *domain.InventoryValuationRun) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO valuation_runs (id,company_id,valuation_date,method,status,created_by,completed_at,error_log,notes,created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-		v.ID, v.CompanyID, v.ValuationDate, string(v.Method), string(v.Status), v.CreatedBy, nullStr(v.CompletedAt), nullStr(v.ErrorLog), nullStr(v.Notes), now,
-	).Scan(&v.ID)
-}
-
-func (r *PGWarehouseRepo) scanValuationRun(row pgx.Row) (domain.InventoryValuationRun, error) {
-	var v domain.InventoryValuationRun
-	var vm, st string
-	err := row.Scan(&v.ID, &v.CompanyID, &v.ValuationDate, &vm, &st, &v.CreatedBy, &v.CompletedAt, &v.ErrorLog, &v.Notes, &v.CreatedAt)
-	v.Method = domain.ValuationMethod(vm)
-	v.Status = domain.ValuationRunStatus(st)
-	return v, err
-}
-
-func (r *PGWarehouseRepo) GetValuationRunByID(ctx context.Context, id string) (*domain.InventoryValuationRun, error) {
-	v, err := r.scanValuationRun(r.pool.QueryRow(ctx,
-		`SELECT id,company_id,valuation_date,method,status,created_by,completed_at,error_log,notes,created_at FROM valuation_runs WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows { return nil, domain.ErrValRunNotFound }
+func (r *PGStockTakeRepo) ListStockTakes(ctx context.Context, companyID string) ([]domain.StockTake, error) {
+	var models []domain.StockTakeGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	return &v, nil
-}
-
-func (r *PGWarehouseRepo) ListValuationRuns(ctx context.Context, companyID string) ([]domain.InventoryValuationRun, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id,company_id,valuation_date,method,status,created_by,completed_at,error_log,notes,created_at FROM valuation_runs WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []domain.InventoryValuationRun
-	for rows.Next() {
-		v, err := r.scanValuationRun(rows)
-		if err != nil { return nil, err }
-		out = append(out, v)
+	out := make([]domain.StockTake, len(models))
+	for i := range models {
+		out[i] = *gormStockTakeToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGWarehouseRepo) UpdateValuationRun(ctx context.Context, v *domain.InventoryValuationRun) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx,
-		`UPDATE valuation_runs SET valuation_date=$1,method=$2,status=$3,completed_at=$4,error_log=$5,notes=$6,created_at=$7 WHERE id=$8`,
-		v.ValuationDate, string(v.Method), string(v.Status), nullStr(v.CompletedAt), nullStr(v.ErrorLog), nullStr(v.Notes), now, v.ID)
-	return err
+func (r *PGStockTakeRepo) UpdateStockTake(ctx context.Context, t *domain.StockTake) error {
+	return r.db.WithContext(ctx).Model(&domain.StockTakeGORM{}).Where("id = ?", t.ID).Updates(map[string]interface{}{
+		"warehouse_id": t.WarehouseID,
+		"status":       string(t.Status),
+	}).Error
+}
+
+func (r *PGStockTakeRepo) UpdateStockTakeStatus(ctx context.Context, id string, status domain.TakeStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.StockTakeGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func (r *PGStockTakeRepo) GetTakeItems(ctx context.Context, takeID string) ([]domain.TakeItem, error) {
+	var models []domain.TakeItemGORM
+	if err := r.db.WithContext(ctx).Where("stock_take_id = ?", takeID).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.TakeItem, len(models))
+	for i := range models {
+		out[i] = *gormTakeItemToDomain(&models[i])
+	}
+	return out, nil
+}
+
+func (r *PGStockTakeRepo) CreateTakeItem(ctx context.Context, it *domain.TakeItem) error {
+	m := takeItemToGORM(it)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	it.ID = fmt.Sprint(m.ID)
+	return nil
+}
+
+func stockTakeToGORM(t *domain.StockTake) domain.StockTakeGORM {
+	return domain.StockTakeGORM{
+		ID:        t.ID,
+		CompanyID: t.CompanyID,
+		WarehouseID: t.WarehouseID,
+		Status:    string(t.Status),
+		CreatedBy: t.CreatedBy,
+	}
+}
+
+func gormStockTakeToDomain(m *domain.StockTakeGORM) *domain.StockTake {
+	t := &domain.StockTake{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		WarehouseID: m.WarehouseID,
+		Status:    domain.TakeStatus(m.Status),
+		CreatedBy: m.CreatedBy,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+	if m.Items != nil {
+		t.Items = make([]domain.TakeItem, len(m.Items))
+		for i, it := range m.Items {
+			t.Items[i] = *gormTakeItemToDomain(&it)
+		}
+	}
+	return t
+}
+
+func takeItemToGORM(it *domain.TakeItem) domain.TakeItemGORM {
+	return domain.TakeItemGORM{
+		StockTakeID: it.TakeID,
+		ItemID:      it.ItemID,
+		QtyBook:     it.ExpectedQty,
+		QtyCounted:  it.ActualQty,
+		QtyVariance: it.Variance,
+		Note:        nullStrG(it.Notes),
+	}
+}
+
+func gormTakeItemToDomain(m *domain.TakeItemGORM) *domain.TakeItem {
+	it := &domain.TakeItem{
+		ID:          fmt.Sprint(m.ID),
+		TakeID:      m.StockTakeID,
+		ItemID:      m.ItemID,
+		ExpectedQty: m.QtyBook,
+		ActualQty:   m.QtyCounted,
+		Variance:    m.QtyVariance,
+	}
+	if m.Note != nil {
+		it.Notes = *m.Note
+	}
+	return it
+}
+
+// ─── Inventory Valuation Run ─────────────────────────────────────────────
+
+type PGInventoryValuationRunRepo struct{ db *gorm.DB }
+
+func NewPGInventoryValuationRunRepo(db *gorm.DB) *PGInventoryValuationRunRepo {
+	return &PGInventoryValuationRunRepo{db}
+}
+
+func (r *PGInventoryValuationRunRepo) CreateValuationRun(ctx context.Context, v *domain.InventoryValuationRun) error {
+	m := valRunToGORM(v)
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return err
+	}
+	v.ID = m.ID
+	v.CreatedAt = m.CreatedAt
+	return nil
+}
+
+func (r *PGInventoryValuationRunRepo) GetValuationRunByID(ctx context.Context, id string) (*domain.InventoryValuationRun, error) {
+	var m domain.InventoryValuationRunGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrValRunNotFound
+		}
+		return nil, err
+	}
+	return gormValRunToDomain(&m), nil
+}
+
+func (r *PGInventoryValuationRunRepo) ListValuationRuns(ctx context.Context, companyID string) ([]domain.InventoryValuationRun, error) {
+	var models []domain.InventoryValuationRunGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.InventoryValuationRun, len(models))
+	for i := range models {
+		out[i] = *gormValRunToDomain(&models[i])
+	}
+	return out, nil
+}
+
+func (r *PGInventoryValuationRunRepo) UpdateValuationRun(ctx context.Context, v *domain.InventoryValuationRun) error {
+	return r.db.WithContext(ctx).Model(&domain.InventoryValuationRunGORM{}).Where("id = ?", v.ID).Updates(map[string]interface{}{
+		"method":   string(v.Method),
+		"status":   string(v.Status),
+	}).Error
+}
+
+func valRunToGORM(v *domain.InventoryValuationRun) domain.InventoryValuationRunGORM {
+	return domain.InventoryValuationRunGORM{
+		ID:         v.ID,
+		CompanyID:  v.CompanyID,
+		Method:     string(v.Method),
+		Status:     string(v.Status),
+		ExecutedBy: v.CreatedBy,
+	}
+}
+
+func gormValRunToDomain(m *domain.InventoryValuationRunGORM) *domain.InventoryValuationRun {
+	return &domain.InventoryValuationRun{
+		ID:        m.ID,
+		CompanyID: m.CompanyID,
+		Method:    domain.ValuationMethod(m.Method),
+		Status:    domain.ValuationRunStatus(m.Status),
+		CreatedBy: m.ExecutedBy,
+		CreatedAt: m.CreatedAt,
+	}
 }

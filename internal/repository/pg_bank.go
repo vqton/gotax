@@ -2,425 +2,647 @@ package repository
 
 import (
 	"context"
-	"fmt"
-	"gotax/internal/domain"
 	"math"
-	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
+
+	"gotax/internal/domain"
 )
 
 type PGBankRepo struct {
-	pool *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewPGBankRepo(pool *pgxpool.Pool) *PGBankRepo {
-	return &PGBankRepo{pool: pool}
+func NewPGBankRepo(db *gorm.DB) *PGBankRepo {
+	return &PGBankRepo{db: db}
 }
 
-// ─── Statements ──────────────────────────────────────────────────────────
+// ─── Conversion helpers ────────────────────────────────────────────────
+
+func gormBankStatementToDomain(m *domain.BankStatementGORM) *domain.BankStatement {
+	return &domain.BankStatement{
+		ID:            m.ID,
+		CompanyID:     m.CompanyID,
+		BankAccountID: m.BankAccountID,
+		StatementDate: safeTimeStr(m.StatementDate),
+		FromDate:      safeTimePtrStr(m.FromDate),
+		ToDate:        safeTimePtrStr(m.ToDate),
+		OpeningBalance: m.OpeningBalance,
+		ClosingBalance: m.ClosingBalance,
+		TotalCredits:  m.TotalCredits,
+		TotalDebits:   m.TotalDebits,
+		LineCount:     m.LineCount,
+		Currency:      m.Currency,
+		ImportMethod:  m.ImportMethod,
+		RawFileName:   safeStr(m.RawFileName),
+		RawFileHash:   safeStr(m.RawFileHash),
+		Status:        domain.BankStatementStatus(m.Status),
+		ImportedBy:    m.ImportedBy,
+		ImportedAt:    safeTimePtrRFC3339(m.ImportedAt),
+		Notes:         safeStr(m.Notes),
+	}
+}
+
+func domainToGormBankStatement(s *domain.BankStatement) *domain.BankStatementGORM {
+	return &domain.BankStatementGORM{
+		ID:            s.ID,
+		CompanyID:     s.CompanyID,
+		BankAccountID: s.BankAccountID,
+		StatementDate: parseDate(s.StatementDate),
+		FromDate:      timePtr(parseDate(s.FromDate)),
+		ToDate:        timePtr(parseDate(s.ToDate)),
+		OpeningBalance: s.OpeningBalance,
+		ClosingBalance: s.ClosingBalance,
+		TotalCredits:  s.TotalCredits,
+		TotalDebits:   s.TotalDebits,
+		LineCount:     s.LineCount,
+		Currency:      s.Currency,
+		ImportMethod:  s.ImportMethod,
+		RawFileName:   strPtr(s.RawFileName),
+		RawFileHash:   strPtr(s.RawFileHash),
+		Status:        string(s.Status),
+		ImportedBy:    s.ImportedBy,
+		ImportedAt:    timePtr(parseDateTime(s.ImportedAt)),
+		Notes:         strPtr(s.Notes),
+	}
+}
+
+func gormStatementLineToDomain(l *domain.BankStatementLineGORM) *domain.BankStatementLine {
+	return &domain.BankStatementLine{
+		ID:             l.ID,
+		StatementID:    l.StatementID,
+		TransactionDate: safeTimeStr(l.TransactionDate),
+		ValueDate:      safeTimePtrStr(l.ValueDate),
+		Description:    safeStr(l.Description),
+		DebitAmount:    l.DebitAmount,
+		CreditAmount:   l.CreditAmount,
+		BalanceAfter:   l.BalanceAfter,
+		ReferenceNo:    safeStr(l.ReferenceNo),
+		BankRef:        safeStr(l.BankRef),
+		Counterparty:   safeStr(l.Counterparty),
+		CounterpartyAcc: safeStr(l.CounterpartyAcc),
+		CounterpartyBank: safeStr(l.CounterpartyBank),
+		RawData:        safeStr(l.RawData),
+		MatchStatus:    domain.MatchStatus(l.MatchStatus),
+		MatchedLineID:  safeStr(l.MatchedLineID),
+		MatchedAt:      safeTimePtrRFC3339(l.MatchedAt),
+		MatchedBy:      safeStr(l.MatchedBy),
+		CreatedAt:      safeTimePtrRFC3339(&l.CreatedAt),
+	}
+}
+
+func domainToGormStatementLine(l *domain.BankStatementLine) *domain.BankStatementLineGORM {
+	return &domain.BankStatementLineGORM{
+		ID:             l.ID,
+		StatementID:    l.StatementID,
+		TransactionDate: parseDate(l.TransactionDate),
+		ValueDate:      timePtr(parseDate(l.ValueDate)),
+		Description:    strPtr(l.Description),
+		DebitAmount:    l.DebitAmount,
+		CreditAmount:   l.CreditAmount,
+		BalanceAfter:   l.BalanceAfter,
+		ReferenceNo:    strPtr(l.ReferenceNo),
+		BankRef:        strPtr(l.BankRef),
+		Counterparty:   strPtr(l.Counterparty),
+		CounterpartyAcc: strPtr(l.CounterpartyAcc),
+		CounterpartyBank: strPtr(l.CounterpartyBank),
+		RawData:        strPtr(l.RawData),
+		MatchStatus:    string(l.MatchStatus),
+		MatchedLineID:  strPtr(l.MatchedLineID),
+		MatchedAt:      stringToTimePtr(l.MatchedAt),
+		MatchedBy:      strPtr(l.MatchedBy),
+		CreatedAt:      time.Now(),
+	}
+}
+
+func gormReconToDomain(m *domain.BankReconciliationGORM) *domain.BankReconciliation {
+	return &domain.BankReconciliation{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		BankAccountID:   m.BankAccountID,
+		StatementID:     m.StatementID,
+		FromDate:        safeTimePtrStr(m.FromDate),
+		ToDate:          safeTimePtrStr(m.ToDate),
+		OpeningBalance:  m.OpeningBalance,
+		ClosingBalance:  m.ClosingBalance,
+		StatementBalance: m.StatementBalance,
+		Difference:      m.Difference,
+		Status:          domain.ReconStatus(m.Status),
+		MatchedLines:    m.MatchedLines,
+		UnmatchedLines:  m.UnmatchedLines,
+		WriteOffAmount:  m.WriteOffAmount,
+		CompletedBy:     m.CompletedBy,
+		CompletedAt:     safeTimePtrRFC3339(m.CompletedAt),
+		ReversedAt:      safeTimePtrRFC3339(m.ReversedAt),
+		Notes:           safeStr(m.Notes),
+		CreatedAt:       safeTimePtrRFC3339(&m.CreatedAt),
+	}
+}
+
+func domainToGormRecon(rc *domain.BankReconciliation) *domain.BankReconciliationGORM {
+	return &domain.BankReconciliationGORM{
+		ID:              rc.ID,
+		CompanyID:       rc.CompanyID,
+		BankAccountID:   rc.BankAccountID,
+		StatementID:     rc.StatementID,
+		FromDate:        timePtr(parseDate(rc.FromDate)),
+		ToDate:          timePtr(parseDate(rc.ToDate)),
+		OpeningBalance:  rc.OpeningBalance,
+		ClosingBalance:  rc.ClosingBalance,
+		StatementBalance: rc.StatementBalance,
+		Difference:      rc.Difference,
+		Status:          string(rc.Status),
+		MatchedLines:    rc.MatchedLines,
+		UnmatchedLines:  rc.UnmatchedLines,
+		WriteOffAmount:  rc.WriteOffAmount,
+		CompletedBy:     rc.CompletedBy,
+		CompletedAt:     stringToTimePtr(rc.CompletedAt),
+		ReversedAt:      stringToTimePtr(rc.ReversedAt),
+		Notes:           strPtr(rc.Notes),
+		CreatedAt:       time.Now(),
+	}
+}
+
+func gormReconMatchToDomain(m *domain.BankReconciliationMatchGORM) *domain.BankReconciliationMatch {
+	return &domain.BankReconciliationMatch{
+		ID:              m.ID,
+		ReconciliationID: m.ReconciliationID,
+		StatementLineID: m.StatementLineID,
+		TransactionType: m.TransactionType,
+		TransactionID:   m.TransactionID,
+		TransactionRef:  m.TransactionRef,
+		MatchMethod:     m.MatchMethod,
+		Confidence:      m.Confidence,
+		CreatedAt:       safeTimePtrRFC3339(&m.CreatedAt),
+	}
+}
+
+func domainToGormReconMatch(m *domain.BankReconciliationMatch) *domain.BankReconciliationMatchGORM {
+	return &domain.BankReconciliationMatchGORM{
+		ID:              m.ID,
+		ReconciliationID: m.ReconciliationID,
+		StatementLineID: m.StatementLineID,
+		TransactionType: m.TransactionType,
+		TransactionID:   m.TransactionID,
+		TransactionRef:  m.TransactionRef,
+		MatchMethod:     m.MatchMethod,
+		Confidence:      m.Confidence,
+		CreatedAt:       time.Now(),
+	}
+}
+
+func gormPaymentOrderToDomain(m *domain.PaymentOrderGORM) *domain.PaymentOrder {
+	return &domain.PaymentOrder{
+		ID:             m.ID,
+		CompanyID:      m.CompanyID,
+		PaymentDate:    m.DueDate.Format("2006-01-02"),
+		Amount:         m.Amount,
+		Currency:       m.Currency,
+		BeneficiaryName: m.PayeeName,
+		PaymentContent: safeStr(m.Purpose),
+		Status:         domain.PaymentOrderStatus(m.Status),
+		CreatedBy:      m.CreatedBy,
+		CreatedAt:      m.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      m.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormPaymentOrder(po *domain.PaymentOrder) *domain.PaymentOrderGORM {
+	dueDate, _ := time.Parse("2006-01-02", po.PaymentDate)
+	now := time.Now()
+	return &domain.PaymentOrderGORM{
+		ID:        po.ID,
+		CompanyID: po.CompanyID,
+		PayeeName: po.BeneficiaryName,
+		PayeeBank: nullStrG(po.BeneficiaryBank),
+		PayeeAccount: nullStrG(po.BeneficiaryAcc),
+		Amount:    po.Amount,
+		Currency:  po.Currency,
+		Status:    string(po.Status),
+		DueDate:   dueDate,
+		Purpose:   nullStrG(po.PaymentContent),
+		CreatedBy: po.CreatedBy,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+func gormPaymentBatchToDomain(m *domain.PaymentOrderBatchGORM) *domain.PaymentOrderBatch {
+	return &domain.PaymentOrderBatch{
+		ID:          m.ID,
+		CompanyID:   m.CompanyID,
+		BatchName:   m.BatchNumber,
+		TotalAmount: m.TotalAmount,
+		OrderCount:  m.OrderCount,
+		Status:      domain.BatchStatus(m.Status),
+		CreatedBy:   safeStr(m.SubmittedBy),
+		CreatedAt:   m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormPaymentBatch(b *domain.PaymentOrderBatch) *domain.PaymentOrderBatchGORM {
+	now := time.Now()
+	return &domain.PaymentOrderBatchGORM{
+		ID:          b.ID,
+		CompanyID:   b.CompanyID,
+		BatchNumber: b.BatchName,
+		TotalAmount: b.TotalAmount,
+		OrderCount:  b.OrderCount,
+		Status:      string(b.Status),
+		SubmittedBy: nullStrG(b.CreatedBy),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+}
+
+func gormLoanToDomain(m *domain.LoanAgreementGORM) *domain.LoanAgreement {
+	return &domain.LoanAgreement{
+		ID:                m.ID,
+		CompanyID:         m.CompanyID,
+		BankAccountID:     m.LenderName,
+		PrincipalAmount:   m.Principal,
+		Currency:          m.Currency,
+		InterestRate:      m.InterestRate,
+		StartDate:         m.StartDate.Format("2006-01-02"),
+		MaturityDate:      m.MaturityDate.Format("2006-01-02"),
+		Status:            domain.LoanStatus(m.Status),
+		CreatedAt:         m.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         m.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormLoan(l *domain.LoanAgreement) *domain.LoanAgreementGORM {
+	startDate, _ := time.Parse("2006-01-02", l.StartDate)
+	maturityDate, _ := time.Parse("2006-01-02", l.MaturityDate)
+	now := time.Now()
+	return &domain.LoanAgreementGORM{
+		ID:           l.ID,
+		CompanyID:    l.CompanyID,
+		LenderName:   l.BankAccountID,
+		Principal:    l.PrincipalAmount,
+		Currency:     l.Currency,
+		InterestRate: l.InterestRate,
+		StartDate:    startDate,
+		MaturityDate: maturityDate,
+		Status:       string(l.Status),
+		CreatedBy:    "",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
+func gormDisbursementToDomain(m *domain.LoanDisbursementGORM) *domain.LoanDisbursement {
+	return &domain.LoanDisbursement{
+		ID:           m.ID,
+		LoanID:       m.LoanID,
+		DisbursementDate: m.DisburseDate.Format("2006-01-02"),
+		Amount:       m.Amount,
+		ReferenceNo:  safeStr(m.BankRef),
+		Notes:        safeStr(m.Note),
+		CreatedAt:    m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormDisbursement(d *domain.LoanDisbursement) *domain.LoanDisbursementGORM {
+	disburseDate, _ := time.Parse("2006-01-02", d.DisbursementDate)
+	return &domain.LoanDisbursementGORM{
+		ID:        d.ID,
+		LoanID:    d.LoanID,
+		DisburseDate: disburseDate,
+		Amount:    d.Amount,
+		BankRef:   nullStrG(d.ReferenceNo),
+		Note:      nullStrG(d.Notes),
+		CreatedAt: time.Now(),
+	}
+}
+
+func gormRepaymentToDomain(m *domain.LoanRepaymentGORM) *domain.LoanRepayment {
+	return &domain.LoanRepayment{
+		ID:             m.ID,
+		LoanID:         m.LoanID,
+		RepaymentDate:  m.RepayDate.Format("2006-01-02"),
+		PrincipalAmount: m.Principal,
+		InterestAmount: m.Interest,
+		TotalAmount:    m.TotalAmount,
+		CreatedAt:      m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormRepayment(rp *domain.LoanRepayment) *domain.LoanRepaymentGORM {
+	repayDate, _ := time.Parse("2006-01-02", rp.RepaymentDate)
+	return &domain.LoanRepaymentGORM{
+		ID:          rp.ID,
+		LoanID:      rp.LoanID,
+		RepayDate:   repayDate,
+		Principal:   rp.PrincipalAmount,
+		Interest:    rp.InterestAmount,
+		TotalAmount: rp.TotalAmount,
+		CreatedBy:   "",
+		CreatedAt:   time.Now(),
+	}
+}
+
+func gormDepositToDomain(m *domain.TermDepositGORM) *domain.TermDeposit {
+	return &domain.TermDeposit{
+		ID:          m.ID,
+		CompanyID:   m.CompanyID,
+		DepositNo:   safeStr(m.CertificateNumber),
+		Amount:      m.Principal,
+		Currency:    m.Currency,
+		InterestRate: m.InterestRate,
+		TermDays:    m.TermDays,
+		StartDate:   m.StartDate.Format("2006-01-02"),
+		MaturityDate: m.MaturityDate.Format("2006-01-02"),
+		AutoRenewal: m.AutoRenew,
+		Status:      domain.DepositStatus(m.Status),
+		MaturedAt:   safeTimePtrRFC3339(m.MaturedAt),
+		CreatedAt:   m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormDeposit(d *domain.TermDeposit) *domain.TermDepositGORM {
+	startDate, _ := time.Parse("2006-01-02", d.StartDate)
+	maturityDate, _ := time.Parse("2006-01-02", d.MaturityDate)
+	now := time.Now()
+	return &domain.TermDepositGORM{
+		ID:          d.ID,
+		CompanyID:   d.CompanyID,
+		Principal:   d.Amount,
+		Currency:    d.Currency,
+		InterestRate: d.InterestRate,
+		TermDays:    d.TermDays,
+		StartDate:   startDate,
+		MaturityDate: maturityDate,
+		AutoRenew:   d.AutoRenewal,
+		Status:      string(d.Status),
+		MaturedAt:   stringToTimePtr(d.MaturedAt),
+		CreatedBy:   "",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────
+
+func stringToTimePtr(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t, err = time.Parse("2006-01-02", s)
+		if err != nil {
+			return nil
+		}
+		return &t
+	}
+	return &t
+}
+
+// ─── Statements ────────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateStatement(ctx context.Context, s *domain.BankStatement) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO bank_statements (id, company_id, bank_account_id,
-			statement_date, from_date, to_date, opening_balance, closing_balance,
-			total_credits, total_debits, line_count, currency, status,
-			import_method, raw_file_name, raw_file_hash, imported_by, imported_at, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-		RETURNING id`,
-		s.ID, s.CompanyID, s.BankAccountID,
-		s.StatementDate, s.FromDate, s.ToDate, s.OpeningBalance, s.ClosingBalance,
-		s.TotalCredits, s.TotalDebits, s.LineCount, s.Currency, s.Status,
-		s.ImportMethod, s.RawFileName, s.RawFileHash, s.ImportedBy, now, s.Notes,
-	).Scan(&s.ID)
-}
-
-func scanStatement(row pgx.CollectableRow) (domain.BankStatement, error) {
-	var s domain.BankStatement
-	err := row.Scan(&s.ID, &s.CompanyID, &s.BankAccountID,
-		&s.StatementDate, &s.FromDate, &s.ToDate, &s.OpeningBalance, &s.ClosingBalance,
-		&s.TotalCredits, &s.TotalDebits, &s.LineCount, &s.Currency, &s.Status,
-		&s.ImportMethod, &s.RawFileName, &s.RawFileHash, &s.ImportedBy, &s.ImportedAt, &s.Notes)
-	return s, err
+	m := domainToGormBankStatement(s)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	s.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetStatement(ctx context.Context, id string) (*domain.BankStatement, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id,
-			statement_date, from_date, to_date, opening_balance, closing_balance,
-			total_credits, total_debits, line_count, currency, status,
-			import_method, raw_file_name, raw_file_hash, imported_by, imported_at, notes
-		FROM bank_statements WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.BankStatementGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrBankStatementNotFound
 	}
-	s, err := pgx.CollectOneRow(rows, scanStatement)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrBankStatementNotFound
-		}
-		return nil, err
-	}
-	return &s, nil
+	return gormBankStatementToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListStatements(ctx context.Context, companyID, bankAccountID string, limit, offset int) ([]domain.BankStatement, int, error) {
-	var total int
-	err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM bank_statements WHERE company_id=$1 AND bank_account_id=$2`,
-		companyID, bankAccountID).Scan(&total)
-	if err != nil {
+	var total int64
+	if err := r.db.WithContext(ctx).Model(&domain.BankStatementGORM{}).
+		Where("company_id = ? AND bank_account_id = ?", companyID, bankAccountID).
+		Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id,
-			statement_date, from_date, to_date, opening_balance, closing_balance,
-			total_credits, total_debits, line_count, currency, status,
-			import_method, raw_file_name, raw_file_hash, imported_by, imported_at, notes
-		FROM bank_statements
-		WHERE company_id=$1 AND bank_account_id=$2
-		ORDER BY statement_date DESC
-		LIMIT $3 OFFSET $4`, companyID, bankAccountID, limit, offset)
-	if err != nil {
+	var models []domain.BankStatementGORM
+	if err := r.db.WithContext(ctx).
+		Where("company_id = ? AND bank_account_id = ?", companyID, bankAccountID).
+		Order("statement_date DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, 0, err
 	}
-	items, err := pgx.CollectRows(rows, scanStatement)
-	if err != nil {
-		return nil, 0, err
+	out := make([]domain.BankStatement, len(models))
+	for i := range models {
+		out[i] = *gormBankStatementToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.BankStatement{}
+	if out == nil {
+		out = []domain.BankStatement{}
 	}
-	return items, total, nil
+	return out, int(total), nil
 }
 
 func (r *PGBankRepo) DeleteStatement(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx,
-		`DELETE FROM bank_statements WHERE id=$1 AND status=$2`,
-		id, domain.BankStatementImported)
-	if err != nil {
-		return err
+	res := r.db.WithContext(ctx).Where("id = ? AND status = ?", id, domain.BankStatementImported).Delete(&domain.BankStatementGORM{})
+	if res.Error != nil {
+		return res.Error
 	}
-	if tag.RowsAffected() == 0 {
+	if res.RowsAffected == 0 {
 		return domain.ErrBankStatementNotFound
 	}
 	return nil
 }
 
-// ─── Statement Lines ──────────────────────────────────────────────────────
+// ─── Statement Lines ────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateStatementLines(ctx context.Context, lines []domain.BankStatementLine) error {
 	if len(lines) == 0 {
 		return nil
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	rows := make([][]any, len(lines))
-	for i, l := range lines {
-		rows[i] = []any{l.ID, l.StatementID, l.TransactionDate,
-			l.ValueDate, l.Description, l.DebitAmount, l.CreditAmount,
-			l.BalanceAfter, l.ReferenceNo, l.BankRef, l.Counterparty,
-			l.CounterpartyAcc, l.CounterpartyBank, l.RawData,
-			l.MatchStatus, l.MatchedLineID, l.MatchedAt, l.MatchedBy, now}
+	models := make([]domain.BankStatementLineGORM, len(lines))
+	for i := range lines {
+		m := domainToGormStatementLine(&lines[i])
+		models[i] = *m
 	}
-	_, err := r.pool.CopyFrom(ctx,
-		pgx.Identifier{"bank_statement_lines"},
-		[]string{"id", "statement_id", "transaction_date", "value_date",
-			"description", "debit_amount", "credit_amount", "balance_after",
-			"reference_no", "bank_ref", "counterparty", "counterparty_acc",
-			"counterparty_bank", "raw_data", "match_status", "matched_line_id",
-			"matched_at", "matched_by", "created_at"},
-		pgx.CopyFromRows(rows))
-	return err
-}
-
-func scanStatementLine(row pgx.CollectableRow) (domain.BankStatementLine, error) {
-	var l domain.BankStatementLine
-	err := row.Scan(&l.ID, &l.StatementID, &l.TransactionDate,
-		&l.ValueDate, &l.Description, &l.DebitAmount, &l.CreditAmount,
-		&l.BalanceAfter, &l.ReferenceNo, &l.BankRef, &l.Counterparty,
-		&l.CounterpartyAcc, &l.CounterpartyBank, &l.RawData,
-		&l.MatchStatus, &l.MatchedLineID, &l.MatchedAt, &l.MatchedBy, &l.CreatedAt)
-	return l, err
+	return r.db.WithContext(ctx).Create(&models).Error
 }
 
 func (r *PGBankRepo) GetStatementLines(ctx context.Context, statementID string) ([]domain.BankStatementLine, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, statement_id, transaction_date, value_date,
-			description, debit_amount, credit_amount, balance_after,
-			reference_no, bank_ref, counterparty, counterparty_acc,
-			counterparty_bank, raw_data, match_status, matched_line_id,
-			matched_at, matched_by, created_at
-		FROM bank_statement_lines WHERE statement_id=$1 ORDER BY transaction_date`, statementID)
-	if err != nil {
+	var models []domain.BankStatementLineGORM
+	if err := r.db.WithContext(ctx).Where("statement_id = ?", statementID).Order("transaction_date").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, scanStatementLine)
-	if err != nil {
-		return nil, err
+	out := make([]domain.BankStatementLine, len(models))
+	for i := range models {
+		out[i] = *gormStatementLineToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.BankStatementLine{}
+	if out == nil {
+		out = []domain.BankStatementLine{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) GetStatementLinesByStatus(ctx context.Context, statementID string, status domain.MatchStatus) ([]domain.BankStatementLine, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, statement_id, transaction_date, value_date,
-			description, debit_amount, credit_amount, balance_after,
-			reference_no, bank_ref, counterparty, counterparty_acc,
-			counterparty_bank, raw_data, match_status, matched_line_id,
-			matched_at, matched_by, created_at
-		FROM bank_statement_lines
-		WHERE statement_id=$1 AND match_status=$2
-		ORDER BY transaction_date`, statementID, status)
-	if err != nil {
+	var models []domain.BankStatementLineGORM
+	if err := r.db.WithContext(ctx).Where("statement_id = ? AND match_status = ?", statementID, string(status)).Order("transaction_date").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, scanStatementLine)
-	if err != nil {
-		return nil, err
+	out := make([]domain.BankStatementLine, len(models))
+	for i := range models {
+		out[i] = *gormStatementLineToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.BankStatementLine{}
+	if out == nil {
+		out = []domain.BankStatementLine{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdateStatementLineMatch(ctx context.Context, lineID string, matchStatus domain.MatchStatus, matchedLineID, matchedBy string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE bank_statement_lines
-		SET match_status=$1, matched_line_id=$2, matched_by=$3, matched_at=$4
-		WHERE id=$5`,
-		matchStatus, matchedLineID, matchedBy, now, lineID)
-	if err != nil {
-		return err
+	res := r.db.WithContext(ctx).Model(&domain.BankStatementLineGORM{}).Where("id = ?", lineID).Updates(map[string]interface{}{
+		"match_status":   string(matchStatus),
+		"matched_line_id": matchedLineID,
+		"matched_by":     matchedBy,
+		"matched_at":     time.Now().Format(time.RFC3339),
+	})
+	if res.Error != nil {
+		return res.Error
 	}
-	if tag.RowsAffected() == 0 {
+	if res.RowsAffected == 0 {
 		return domain.ErrStatementLineNotFound
 	}
 	return nil
 }
 
-// ─── Reconciliation ────────────────────────────────────────────────────────
+// ─── Reconciliation ──────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateReconciliation(ctx context.Context, rc *domain.BankReconciliation) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_id,
-			from_date, to_date, opening_balance, closing_balance, statement_balance,
-			difference, status, matched_lines, unmatched_lines, write_off_amount,
-			completed_by, completed_at, notes, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-		RETURNING id`,
-		rc.ID, rc.CompanyID, rc.BankAccountID, rc.StatementID,
-		rc.FromDate, rc.ToDate, rc.OpeningBalance, rc.ClosingBalance, rc.StatementBalance,
-		rc.Difference, rc.Status, rc.MatchedLines, rc.UnmatchedLines, rc.WriteOffAmount,
-		rc.CompletedBy, rc.CompletedAt, rc.Notes, now,
-	).Scan(&rc.ID)
-}
-
-func scanRecon(row pgx.CollectableRow) (domain.BankReconciliation, error) {
-	var rc domain.BankReconciliation
-	err := row.Scan(&rc.ID, &rc.CompanyID, &rc.BankAccountID, &rc.StatementID,
-		&rc.FromDate, &rc.ToDate, &rc.OpeningBalance, &rc.ClosingBalance, &rc.StatementBalance,
-		&rc.Difference, &rc.Status, &rc.MatchedLines, &rc.UnmatchedLines, &rc.WriteOffAmount,
-		&rc.CompletedBy, &rc.CompletedAt, &rc.ReversedAt, &rc.Notes, &rc.CreatedAt)
-	return rc, err
+	m := domainToGormRecon(rc)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	rc.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetReconciliation(ctx context.Context, id string) (*domain.BankReconciliation, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, statement_id,
-			from_date, to_date, opening_balance, closing_balance, statement_balance,
-			difference, status, matched_lines, unmatched_lines, write_off_amount,
-			completed_by, completed_at, reversed_at, notes, created_at
-		FROM bank_reconciliations WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.BankReconciliationGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrReconciliationNotFound
 	}
-	rc, err := pgx.CollectOneRow(rows, scanRecon)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrReconciliationNotFound
-		}
-		return nil, err
-	}
-	return &rc, nil
+	return gormReconToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListReconciliations(ctx context.Context, companyID, bankAccountID string) ([]domain.BankReconciliation, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, statement_id,
-			from_date, to_date, opening_balance, closing_balance, statement_balance,
-			difference, status, matched_lines, unmatched_lines, write_off_amount,
-			completed_by, completed_at, reversed_at, notes, created_at
-		FROM bank_reconciliations
-		WHERE company_id=$1 AND bank_account_id=$2
-		ORDER BY from_date DESC`, companyID, bankAccountID)
-	if err != nil {
+	var models []domain.BankReconciliationGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND bank_account_id = ?", companyID, bankAccountID).Order("from_date DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, scanRecon)
-	if err != nil {
-		return nil, err
+	out := make([]domain.BankReconciliation, len(models))
+	for i := range models {
+		out[i] = *gormReconToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.BankReconciliation{}
+	if out == nil {
+		out = []domain.BankReconciliation{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdateReconciliation(ctx context.Context, rc *domain.BankReconciliation) error {
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE bank_reconciliations
-		SET closing_balance=$1, statement_balance=$2, difference=$3, status=$4,
-			matched_lines=$5, unmatched_lines=$6, write_off_amount=$7,
-			completed_by=$8, completed_at=$9, notes=$10
-		WHERE id=$11`,
-		rc.ClosingBalance, rc.StatementBalance, rc.Difference, rc.Status,
-		rc.MatchedLines, rc.UnmatchedLines, rc.WriteOffAmount,
-		rc.CompletedBy, rc.CompletedAt, rc.Notes, rc.ID)
-	if err != nil {
-		return err
+	res := r.db.WithContext(ctx).Model(&domain.BankReconciliationGORM{}).Where("id = ?", rc.ID).Updates(map[string]interface{}{
+		"closing_balance":  rc.ClosingBalance,
+		"statement_balance": rc.StatementBalance,
+		"difference":       rc.Difference,
+		"status":           string(rc.Status),
+		"matched_lines":    rc.MatchedLines,
+		"unmatched_lines":  rc.UnmatchedLines,
+		"write_off_amount": rc.WriteOffAmount,
+		"completed_by":     rc.CompletedBy,
+		"completed_at":     rc.CompletedAt,
+		"notes":            rc.Notes,
+	})
+	if res.Error != nil {
+		return res.Error
 	}
-	if tag.RowsAffected() == 0 {
+	if res.RowsAffected == 0 {
 		return domain.ErrReconciliationNotFound
 	}
 	return nil
 }
 
-// ─── Reconciliation Matches ───────────────────────────────────────────────
+// ─── Reconciliation Matches ─────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateReconciliationMatch(ctx context.Context, m *domain.BankReconciliationMatch) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO bank_reconciliation_matches (id, reconciliation_id, statement_line_id,
-			transaction_type, transaction_id, transaction_ref, match_method, confidence, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		m.ID, m.ReconciliationID, m.StatementLineID,
-		m.TransactionType, m.TransactionID, m.TransactionRef, m.MatchMethod, m.Confidence, now,
-	).Scan(&m.ID)
+	gm := domainToGormReconMatch(m)
+	if err := r.db.WithContext(ctx).Create(gm).Error; err != nil {
+		return err
+	}
+	m.ID = gm.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetReconciliationMatches(ctx context.Context, reconID string) ([]domain.BankReconciliationMatch, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, reconciliation_id, statement_line_id,
-			transaction_type, transaction_id, transaction_ref, match_method, confidence, created_at
-		FROM bank_reconciliation_matches WHERE reconciliation_id=$1`, reconID)
-	if err != nil {
+	var models []domain.BankReconciliationMatchGORM
+	if err := r.db.WithContext(ctx).Where("reconciliation_id = ?", reconID).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.BankReconciliationMatch])
-	if err != nil {
-		return nil, err
+	out := make([]domain.BankReconciliationMatch, len(models))
+	for i := range models {
+		out[i] = *gormReconMatchToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.BankReconciliationMatch{}
+	if out == nil {
+		out = []domain.BankReconciliationMatch{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) DeleteReconciliationMatch(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM bank_reconciliation_matches WHERE id=$1`, id)
-	if err != nil {
-		return err
+	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.BankReconciliationMatchGORM{})
+	if res.Error != nil {
+		return res.Error
 	}
-	if tag.RowsAffected() == 0 {
+	if res.RowsAffected == 0 {
 		return domain.ErrReconciliationNotFound
 	}
 	return nil
 }
 
-// ─── Payment Orders ──────────────────────────────────────────────────────
+// ─── Payment Orders ────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreatePaymentOrder(ctx context.Context, po *domain.PaymentOrder) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO payment_orders (id, company_id, payment_date, amount, currency,
-			exchange_rate, beneficiary_name, beneficiary_acc, beneficiary_bank,
-			beneficiary_branch, beneficiary_code, from_bank_acc_id, payment_content,
-			urgent, payment_type, status, created_by, approved_by, approved_at,
-			submitted_at, bank_ref, failure_reason, error_code, print_count,
-			created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING id`,
-		po.ID, po.CompanyID, po.PaymentDate, po.Amount, po.Currency,
-		po.ExchangeRate, po.BeneficiaryName, po.BeneficiaryAcc, po.BeneficiaryBank,
-		po.BeneficiaryBranch, po.BeneficiaryCode, po.FromBankAccID, po.PaymentContent,
-		po.Urgent, po.PaymentType, po.Status, po.CreatedBy,
-		po.ApprovedBy, po.ApprovedAt, po.SubmittedAt, po.BankRef,
-		po.FailureReason, po.ErrorCode, po.PrintCount, now, now,
-	).Scan(&po.ID)
-}
-
-func scanPaymentOrder(row pgx.CollectableRow) (domain.PaymentOrder, error) {
-	var po domain.PaymentOrder
-	err := row.Scan(&po.ID, &po.CompanyID, &po.PaymentDate, &po.Amount, &po.Currency,
-		&po.ExchangeRate, &po.BeneficiaryName, &po.BeneficiaryAcc, &po.BeneficiaryBank,
-		&po.BeneficiaryBranch, &po.BeneficiaryCode, &po.FromBankAccID, &po.PaymentContent,
-		&po.Urgent, &po.PaymentType, &po.Status, &po.CreatedBy, &po.ApprovedBy,
-		&po.ApprovedAt, &po.SubmittedAt, &po.BankRef, &po.FailureReason, &po.ErrorCode,
-		&po.PrintCount, &po.CreatedAt, &po.UpdatedAt)
-	return po, err
+	m := domainToGormPaymentOrder(po)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	po.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetPaymentOrder(ctx context.Context, id string) (*domain.PaymentOrder, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, payment_date, amount, currency, exchange_rate,
-			beneficiary_name, beneficiary_acc, beneficiary_bank, beneficiary_branch,
-			beneficiary_code, from_bank_acc_id, payment_content, urgent, payment_type,
-			status, created_by, approved_by, approved_at, submitted_at, bank_ref,
-			failure_reason, error_code, print_count, created_at, updated_at
-		FROM payment_orders WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.PaymentOrderGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrPaymentOrderNotFound
 	}
-	po, err := pgx.CollectOneRow(rows, scanPaymentOrder)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrPaymentOrderNotFound
-		}
-		return nil, err
-	}
-	return &po, nil
+	return gormPaymentOrderToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListPaymentOrders(ctx context.Context, filter domain.PaymentOrderFilter) ([]domain.PaymentOrder, int, error) {
-	where := []string{"company_id=$1"}
-	args := []any{filter.CompanyID}
-	argIdx := 2
-
+	q := r.db.WithContext(ctx).Model(&domain.PaymentOrderGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.Status != "" {
-		where = append(where, fmt.Sprintf("status=$%d", argIdx))
-		args = append(args, filter.Status)
-		argIdx++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.PaymentType != "" {
-		where = append(where, fmt.Sprintf("payment_type=$%d", argIdx))
-		args = append(args, filter.PaymentType)
-		argIdx++
+		q = q.Where("payment_type = ?", string(filter.PaymentType))
 	}
 	if filter.FromDate != "" {
-		where = append(where, fmt.Sprintf("payment_date>=$%d", argIdx))
-		args = append(args, filter.FromDate)
-		argIdx++
+		q = q.Where("due_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where = append(where, fmt.Sprintf("payment_date<=$%d", argIdx))
-		args = append(args, filter.ToDate)
-		argIdx++
+		q = q.Where("due_date <= ?", filter.ToDate)
 	}
 
-	wClause := strings.Join(where, " AND ")
-
-	var total int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM payment_orders WHERE `+wClause, args...).Scan(&total)
-	if err != nil {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -433,435 +655,269 @@ func (r *PGBankRepo) ListPaymentOrders(ctx context.Context, filter domain.Paymen
 		offset = 0
 	}
 
-	sql := `SELECT id, company_id, payment_date, amount, currency, exchange_rate,
-		beneficiary_name, beneficiary_acc, beneficiary_bank, beneficiary_branch,
-		beneficiary_code, from_bank_acc_id, payment_content, urgent, payment_type,
-		status, created_by, approved_by, approved_at, submitted_at, bank_ref,
-		failure_reason, error_code, print_count, created_at, updated_at
-	FROM payment_orders WHERE ` + wClause + ` ORDER BY payment_date DESC`
-
-	args = append(args, limit, offset)
-	sql += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
-
-	rows, err := r.pool.Query(ctx, sql, args...)
-	if err != nil {
+	var models []domain.PaymentOrderGORM
+	if err := q.Order("due_date DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, 0, err
 	}
-	items, err := pgx.CollectRows(rows, scanPaymentOrder)
-	if err != nil {
-		return nil, 0, err
+	out := make([]domain.PaymentOrder, len(models))
+	for i := range models {
+		out[i] = *gormPaymentOrderToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.PaymentOrder{}
+	if out == nil {
+		out = []domain.PaymentOrder{}
 	}
-	return items, total, nil
+	return out, int(total), nil
 }
 
 func (r *PGBankRepo) UpdatePaymentOrder(ctx context.Context, po *domain.PaymentOrder) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE payment_orders
-		SET payment_date=$1, amount=$2, currency=$3, exchange_rate=$4,
-			beneficiary_name=$5, beneficiary_acc=$6, beneficiary_bank=$7,
-			beneficiary_branch=$8, beneficiary_code=$9, payment_content=$10,
-			urgent=$11, payment_type=$12, status=$13, approved_by=$14,
-			approved_at=$15, submitted_at=$16, bank_ref=$17, failure_reason=$18,
-			error_code=$19, updated_at=$20
-		WHERE id=$21`,
-		po.PaymentDate, po.Amount, po.Currency, po.ExchangeRate,
-		po.BeneficiaryName, po.BeneficiaryAcc, po.BeneficiaryBank,
-		po.BeneficiaryBranch, po.BeneficiaryCode, po.PaymentContent,
-		po.Urgent, po.PaymentType, po.Status, po.ApprovedBy,
-		po.ApprovedAt, po.SubmittedAt, po.BankRef, po.FailureReason,
-		po.ErrorCode, now, po.ID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrPaymentOrderNotFound
-	}
-	return nil
+	m := domainToGormPaymentOrder(po)
+	return r.db.WithContext(ctx).Model(&domain.PaymentOrderGORM{}).Where("id = ?", po.ID).Updates(map[string]interface{}{
+		"payee_name":    m.PayeeName,
+		"payee_bank":    m.PayeeBank,
+		"payee_account": m.PayeeAccount,
+		"amount":        m.Amount,
+		"currency":      m.Currency,
+		"status":        m.Status,
+		"due_date":      m.DueDate,
+		"purpose":       m.Purpose,
+		"updated_at":    time.Now(),
+	}).Error
 }
 
-// ─── Payment Order Batches ───────────────────────────────────────────────
+// ─── Payment Order Batches ─────────────────────────────────────────────
 
 func (r *PGBankRepo) CreatePaymentOrderBatch(ctx context.Context, b *domain.PaymentOrderBatch) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO payment_order_batches (id, company_id, batch_name, batch_date,
-			total_amount, currency, order_count, status, created_by, submitted_at, bank_ref, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-		b.ID, b.CompanyID, b.BatchName, b.BatchDate,
-		b.TotalAmount, b.Currency, b.OrderCount, b.Status, b.CreatedBy,
-		b.SubmittedAt, b.BankRef, now,
-	).Scan(&b.ID)
-}
-
-func scanPaymentBatch(row pgx.CollectableRow) (domain.PaymentOrderBatch, error) {
-	var b domain.PaymentOrderBatch
-	err := row.Scan(&b.ID, &b.CompanyID, &b.BatchName, &b.BatchDate,
-		&b.TotalAmount, &b.Currency, &b.OrderCount, &b.Status, &b.CreatedBy,
-		&b.SubmittedAt, &b.BankRef, &b.CreatedAt)
-	return b, err
+	m := domainToGormPaymentBatch(b)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	b.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetPaymentOrderBatch(ctx context.Context, id string) (*domain.PaymentOrderBatch, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, batch_name, batch_date, total_amount, currency,
-			order_count, status, created_by, submitted_at, bank_ref, created_at
-		FROM payment_order_batches WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.PaymentOrderBatchGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrPaymentBatchNotFound
 	}
-	b, err := pgx.CollectOneRow(rows, scanPaymentBatch)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrPaymentBatchNotFound
-		}
-		return nil, err
-	}
-	return &b, nil
+	return gormPaymentBatchToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListPaymentOrderBatches(ctx context.Context, companyID string) ([]domain.PaymentOrderBatch, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, batch_name, batch_date, total_amount, currency,
-			order_count, status, created_by, submitted_at, bank_ref, created_at
-		FROM payment_order_batches WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil {
+	var models []domain.PaymentOrderBatchGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, scanPaymentBatch)
-	if err != nil {
-		return nil, err
+	out := make([]domain.PaymentOrderBatch, len(models))
+	for i := range models {
+		out[i] = *gormPaymentBatchToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.PaymentOrderBatch{}
+	if out == nil {
+		out = []domain.PaymentOrderBatch{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdatePaymentOrderBatch(ctx context.Context, b *domain.PaymentOrderBatch) error {
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE payment_order_batches
-		SET total_amount=$1, order_count=$2, status=$3, submitted_at=$4, bank_ref=$5
-		WHERE id=$6`,
-		b.TotalAmount, b.OrderCount, b.Status, b.SubmittedAt, b.BankRef, b.ID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrPaymentBatchNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Model(&domain.PaymentOrderBatchGORM{}).Where("id = ?", b.ID).Updates(map[string]interface{}{
+		"total_amount": b.TotalAmount,
+		"order_count":  b.OrderCount,
+		"status":       string(b.Status),
+		"submitted_at": b.SubmittedAt,
+		"bank_ref":     b.BankRef,
+		"updated_at":   time.Now(),
+	}).Error
 }
 
 func (r *PGBankRepo) AddOrdersToBatch(ctx context.Context, batchID string, orderIDs []string) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
-	rows := make([][]any, len(orderIDs))
-	for i, oid := range orderIDs {
-		rows[i] = []any{newUUID(), batchID, oid}
+	type batchItem struct {
+		ID      string `gorm:"column:id;size:36"`
+		BatchID string `gorm:"column:batch_id;size:36"`
+		OrderID string `gorm:"column:order_id;size:36"`
 	}
-	_, err := r.pool.CopyFrom(ctx,
-		pgx.Identifier{"payment_order_batch_items"},
-		[]string{"id", "batch_id", "order_id"},
-		pgx.CopyFromRows(rows))
-	return err
+	items := make([]batchItem, len(orderIDs))
+	for i, oid := range orderIDs {
+		items[i] = batchItem{ID: newUUID(), BatchID: batchID, OrderID: oid}
+	}
+	return r.db.WithContext(ctx).Table("payment_order_batch_items").Create(&items).Error
 }
 
 func (r *PGBankRepo) GetBatchOrderIDs(ctx context.Context, batchID string) ([]string, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT order_id FROM payment_order_batch_items WHERE batch_id=$1 ORDER BY created_at`, batchID)
-	if err != nil {
+	type result struct {
+		OrderID string
+	}
+	var rows []result
+	if err := r.db.WithContext(ctx).Table("payment_order_batch_items").
+		Select("order_id").Where("batch_id = ?", batchID).
+		Order("created_at").Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
+	ids := make([]string, len(rows))
+	for i, r := range rows {
+		ids[i] = r.OrderID
 	}
 	if ids == nil {
 		ids = []string{}
 	}
-	return ids, rows.Err()
+	return ids, nil
 }
 
-// ─── Loans ──────────────────────────────────────────────────────────────
+// ─── Loans ─────────────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateLoan(ctx context.Context, l *domain.LoanAgreement) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO loan_agreements (id, company_id, bank_account_id, contract_no,
-			loan_type, principal_amount, currency, interest_rate, interest_method,
-			base_rate, margin_rate, disbursed_amount, outstanding_balance,
-			start_date, maturity_date, repayment_method, repayment_freq, status,
-			notes, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
-		l.ID, l.CompanyID, l.BankAccountID, l.ContractNo,
-		l.LoanType, l.PrincipalAmount, l.Currency, l.InterestRate, l.InterestMethod,
-		l.BaseRate, l.MarginRate, l.DisbursedAmount, l.OutstandingBalance,
-		l.StartDate, l.MaturityDate, l.RepaymentMethod, l.RepaymentFreq, l.Status,
-		l.Notes, now, now,
-	).Scan(&l.ID)
-}
-
-func scanLoan(row pgx.CollectableRow) (domain.LoanAgreement, error) {
-	var l domain.LoanAgreement
-	err := row.Scan(&l.ID, &l.CompanyID, &l.BankAccountID, &l.ContractNo,
-		&l.LoanType, &l.PrincipalAmount, &l.Currency, &l.InterestRate, &l.InterestMethod,
-		&l.BaseRate, &l.MarginRate, &l.DisbursedAmount, &l.OutstandingBalance,
-		&l.StartDate, &l.MaturityDate, &l.RepaymentMethod, &l.RepaymentFreq, &l.Status,
-		&l.Notes, &l.CreatedAt, &l.UpdatedAt)
-	return l, err
+	m := domainToGormLoan(l)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	l.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetLoan(ctx context.Context, id string) (*domain.LoanAgreement, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, contract_no,
-			loan_type, principal_amount, currency, interest_rate, interest_method,
-			base_rate, margin_rate, disbursed_amount, outstanding_balance,
-			start_date, maturity_date, repayment_method, repayment_freq, status,
-			notes, created_at, updated_at
-		FROM loan_agreements WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.LoanAgreementGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrLoanAgreementNotFound
 	}
-	l, err := pgx.CollectOneRow(rows, scanLoan)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrLoanAgreementNotFound
-		}
-		return nil, err
-	}
-	return &l, nil
+	return gormLoanToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListLoans(ctx context.Context, filter domain.LoanFilter) ([]domain.LoanAgreement, error) {
-	where := []string{"company_id=$1"}
-	args := []any{filter.CompanyID}
-	argIdx := 2
-
+	q := r.db.WithContext(ctx).Model(&domain.LoanAgreementGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.Status != "" {
-		where = append(where, fmt.Sprintf("status=$%d", argIdx))
-		args = append(args, filter.Status)
-		argIdx++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.LoanType != "" {
-		where = append(where, fmt.Sprintf("loan_type=$%d", argIdx))
-		args = append(args, filter.LoanType)
-		argIdx++
+		q = q.Where("loan_type = ?", string(filter.LoanType))
 	}
-
-	wClause := strings.Join(where, " AND ")
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, contract_no,
-			loan_type, principal_amount, currency, interest_rate, interest_method,
-			base_rate, margin_rate, disbursed_amount, outstanding_balance,
-			start_date, maturity_date, repayment_method, repayment_freq, status,
-			notes, created_at, updated_at
-		FROM loan_agreements WHERE `+wClause+` ORDER BY start_date DESC`, args...)
-	if err != nil {
+	var models []domain.LoanAgreementGORM
+	if err := q.Order("start_date DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, scanLoan)
-	if err != nil {
-		return nil, err
+	out := make([]domain.LoanAgreement, len(models))
+	for i := range models {
+		out[i] = *gormLoanToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.LoanAgreement{}
+	if out == nil {
+		out = []domain.LoanAgreement{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdateLoan(ctx context.Context, l *domain.LoanAgreement) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE loan_agreements
-		SET disbursed_amount=$1, outstanding_balance=$2, status=$3, notes=$4, updated_at=$5
-		WHERE id=$6`,
-		l.DisbursedAmount, l.OutstandingBalance, l.Status, l.Notes, now, l.ID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrLoanAgreementNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Model(&domain.LoanAgreementGORM{}).Where("id = ?", l.ID).Updates(map[string]interface{}{
+		"principal":   l.PrincipalAmount,
+		"status":      string(l.Status),
+		"notes":       l.Notes,
+		"updated_at":  time.Now(),
+	}).Error
 }
 
-// ─── Disbursements ──────────────────────────────────────────────────────
+// ─── Disbursements ────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateDisbursement(ctx context.Context, d *domain.LoanDisbursement) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO loan_disbursements (id, loan_id, disbursement_date, amount,
-			to_bank_account_id, reference_no, notes, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		d.ID, d.LoanID, d.DisbursementDate, d.Amount,
-		d.ToBankAccountID, d.ReferenceNo, d.Notes, now,
-	).Scan(&d.ID)
+	m := domainToGormDisbursement(d)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	d.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetDisbursements(ctx context.Context, loanID string) ([]domain.LoanDisbursement, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, loan_id, disbursement_date, amount,
-			to_bank_account_id, reference_no, notes, created_at
-		FROM loan_disbursements WHERE loan_id=$1 ORDER BY disbursement_date`, loanID)
-	if err != nil {
+	var models []domain.LoanDisbursementGORM
+	if err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("disburse_date").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.LoanDisbursement])
-	if err != nil {
-		return nil, err
+	out := make([]domain.LoanDisbursement, len(models))
+	for i := range models {
+		out[i] = *gormDisbursementToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.LoanDisbursement{}
+	if out == nil {
+		out = []domain.LoanDisbursement{}
 	}
-	return items, nil
+	return out, nil
 }
 
-// ─── Repayments ─────────────────────────────────────────────────────────
+// ─── Repayments ───────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateRepayment(ctx context.Context, rp *domain.LoanRepayment) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO loan_repayments (id, loan_id, repayment_date, principal_amount,
-			interest_amount, fee_amount, total_amount, payment_order_id, status,
-			notes, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-		rp.ID, rp.LoanID, rp.RepaymentDate, rp.PrincipalAmount,
-		rp.InterestAmount, rp.FeeAmount, rp.TotalAmount, rp.PaymentOrderID, rp.Status,
-		rp.Notes, now,
-	).Scan(&rp.ID)
+	m := domainToGormRepayment(rp)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	rp.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetRepayments(ctx context.Context, loanID string) ([]domain.LoanRepayment, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, loan_id, repayment_date, principal_amount,
-			interest_amount, fee_amount, total_amount, payment_order_id, status,
-			notes, created_at
-		FROM loan_repayments WHERE loan_id=$1 ORDER BY repayment_date`, loanID)
-	if err != nil {
+	var models []domain.LoanRepaymentGORM
+	if err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("repay_date").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	items, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.LoanRepayment])
-	if err != nil {
-		return nil, err
+	out := make([]domain.LoanRepayment, len(models))
+	for i := range models {
+		out[i] = *gormRepaymentToDomain(&models[i])
 	}
-	if items == nil {
-		items = []domain.LoanRepayment{}
+	if out == nil {
+		out = []domain.LoanRepayment{}
 	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdateRepayment(ctx context.Context, rp *domain.LoanRepayment) error {
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE loan_repayments
-		SET status=$1, notes=$2
-		WHERE id=$3`,
-		rp.Status, rp.Notes, rp.ID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrLoanRepaymentNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Model(&domain.LoanRepaymentGORM{}).Where("id = ?", rp.ID).Updates(map[string]interface{}{
+		"status": string(rp.Status),
+		"notes":  rp.Notes,
+	}).Error
 }
 
-// ─── Term Deposits ──────────────────────────────────────────────────────
+// ─── Term Deposits ────────────────────────────────────────────────────
 
 func (r *PGBankRepo) CreateDeposit(ctx context.Context, d *domain.TermDeposit) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx,
-		`INSERT INTO term_deposits (id, company_id, bank_account_id, deposit_no,
-			amount, currency, interest_rate, term_days, start_date, maturity_date,
-			interest_at_maturity, auto_renewal, renewal_term_days, status, notes, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-		d.ID, d.CompanyID, d.BankAccountID, d.DepositNo,
-		d.Amount, d.Currency, d.InterestRate, d.TermDays, d.StartDate, d.MaturityDate,
-		d.InterestAtMaturity, d.AutoRenewal, d.RenewalTermDays, d.Status, d.Notes, now,
-	).Scan(&d.ID)
+	m := domainToGormDeposit(d)
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	d.ID = m.ID
+	return nil
 }
 
 func (r *PGBankRepo) GetDeposit(ctx context.Context, id string) (*domain.TermDeposit, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, deposit_no, amount, currency,
-			interest_rate, term_days, start_date, maturity_date, interest_at_maturity,
-			auto_renewal, renewal_term_days, status, notes, created_at, matured_at
-		FROM term_deposits WHERE id=$1`, id)
-	if err != nil {
-		return nil, err
+	var m domain.TermDepositGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, domain.ErrTermDepositNotFound
 	}
-	var d domain.TermDeposit
-	err = rows.Scan(&d.ID, &d.CompanyID, &d.BankAccountID, &d.DepositNo,
-		&d.Amount, &d.Currency, &d.InterestRate, &d.TermDays, &d.StartDate, &d.MaturityDate,
-		&d.InterestAtMaturity, &d.AutoRenewal, &d.RenewalTermDays, &d.Status, &d.Notes,
-		&d.CreatedAt, &d.MaturedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrTermDepositNotFound
-		}
-		return nil, err
-	}
-	return &d, nil
+	return gormDepositToDomain(&m), nil
 }
 
 func (r *PGBankRepo) ListDeposits(ctx context.Context, companyID string) ([]domain.TermDeposit, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, bank_account_id, deposit_no, amount, currency,
-			interest_rate, term_days, start_date, maturity_date, interest_at_maturity,
-			auto_renewal, renewal_term_days, status, notes, created_at, matured_at
-		FROM term_deposits WHERE company_id=$1 ORDER BY start_date DESC`, companyID)
-	if err != nil {
+	var models []domain.TermDepositGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("start_date DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var items []domain.TermDeposit
-	for rows.Next() {
-		var d domain.TermDeposit
-		err := rows.Scan(&d.ID, &d.CompanyID, &d.BankAccountID, &d.DepositNo,
-			&d.Amount, &d.Currency, &d.InterestRate, &d.TermDays, &d.StartDate, &d.MaturityDate,
-			&d.InterestAtMaturity, &d.AutoRenewal, &d.RenewalTermDays, &d.Status, &d.Notes,
-			&d.CreatedAt, &d.MaturedAt)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, d)
+	out := make([]domain.TermDeposit, len(models))
+	for i := range models {
+		out[i] = *gormDepositToDomain(&models[i])
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if out == nil {
+		out = []domain.TermDeposit{}
 	}
-	if items == nil {
-		items = []domain.TermDeposit{}
-	}
-	return items, nil
+	return out, nil
 }
 
 func (r *PGBankRepo) UpdateDeposit(ctx context.Context, d *domain.TermDeposit) error {
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE term_deposits
-		SET interest_at_maturity=$1, status=$2, notes=$3, matured_at=$4
-		WHERE id=$5`,
-		d.InterestAtMaturity, d.Status, d.Notes, d.MaturedAt, d.ID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrTermDepositNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Model(&domain.TermDepositGORM{}).Where("id = ?", d.ID).Updates(map[string]interface{}{
+		"status":             string(d.Status),
+		"notes":              d.Notes,
+		"matured_at":         stringToTimePtr(d.MaturedAt),
+		"interest_at_maturity": d.InterestAtMaturity,
+	}).Error
 }
 
-// ─── Reports ────────────────────────────────────────────────────────────
+// ─── Reports ──────────────────────────────────────────────────────────
 
 func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID, fromDate, toDate string) (*domain.BankLedger, error) {
 	ledger := &domain.BankLedger{
@@ -872,72 +928,72 @@ func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID
 	}
 
 	var opening float64
-	err := r.pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN txn_type='credit' THEN amount ELSE -amount END), 0)
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT COALESCE(SUM(CASE WHEN txn_type='credit' THEN amount ELSE -amount END), 0)
 		FROM (
 			SELECT 'credit' AS txn_type, amount FROM payment_orders
-			WHERE company_id=$1 AND from_bank_acc_id=$2 AND payment_date < $3 AND status IN ('CONFIRMED','SUBMITTED')
+			WHERE company_id = ? AND from_bank_acc_id = ? AND payment_date < ? AND status IN ('CONFIRMED','SUBMITTED')
 			UNION ALL
 			SELECT 'debit' AS txn_type, amount FROM cash_receipts
-			WHERE company_id=$1 AND cash_account_id=$2 AND receipt_date < $3 AND status='POSTED'
+			WHERE company_id = ? AND cash_account_id = ? AND receipt_date < ? AND status = 'POSTED'
 			UNION ALL
 			SELECT 'debit' AS txn_type, amount FROM cash_payments
-			WHERE company_id=$1 AND cash_account_id=$2 AND payment_date < $3 AND status='POSTED'
-		) t`,
-		companyID, bankAccountID, fromDate).Scan(&opening)
+			WHERE company_id = ? AND cash_account_id = ? AND payment_date < ? AND status = 'POSTED'
+		) t`, companyID, bankAccountID, fromDate, companyID, bankAccountID, fromDate, companyID, bankAccountID, fromDate).Scan(&opening).Error
 	if err != nil {
 		return nil, err
 	}
 	ledger.OpeningBalance = math.Round(opening*100) / 100
 
-	rows, err := r.pool.Query(ctx,
-		`SELECT transaction_date, reference, description, debit_amount, credit_amount, balance, ref_id
+	type entryRow struct {
+		TransactionDate string
+		RefID           string
+		Description     string
+		DebitAmount     float64
+		CreditAmount    float64
+		Reference       string
+	}
+	var rows []entryRow
+	query := `
+		SELECT transaction_date, reference, description, debit_amount, credit_amount, ref_id
 		FROM (
 			SELECT payment_date AS transaction_date, id AS ref_id,
 				beneficiary_name || ' - ' || payment_content AS description,
-				0 AS debit_amount, amount AS credit_amount, 0 AS balance,
-				'' AS reference
+				0 AS debit_amount, amount AS credit_amount, '' AS reference
 			FROM payment_orders
-			WHERE company_id=$1 AND from_bank_acc_id=$2 AND payment_date>=$3 AND payment_date<=$4 AND status IN ('CONFIRMED','SUBMITTED')
+			WHERE company_id = ? AND from_bank_acc_id = ? AND payment_date >= ? AND payment_date <= ? AND status IN ('CONFIRMED','SUBMITTED')
 			UNION ALL
 			SELECT receipt_date, id, counterparty_name || ' - ' || reason AS description,
-				amount, 0, 0, voucher_no
+				amount, 0, voucher_no
 			FROM cash_receipts
-			WHERE company_id=$1 AND cash_account_id=$2 AND receipt_date>=$3 AND receipt_date<=$4 AND status='POSTED'
+			WHERE company_id = ? AND cash_account_id = ? AND receipt_date >= ? AND receipt_date <= ? AND status = 'POSTED'
 			UNION ALL
 			SELECT payment_date, id, payee_name || ' - ' || reason AS description,
-				0, amount, 0, voucher_no
+				0, amount, voucher_no
 			FROM cash_payments
-			WHERE company_id=$1 AND cash_account_id=$2 AND payment_date>=$3 AND payment_date<=$4 AND status='POSTED'
-		) t ORDER BY transaction_date, reference`,
-		companyID, bankAccountID, fromDate, toDate)
-	if err != nil {
+			WHERE company_id = ? AND cash_account_id = ? AND payment_date >= ? AND payment_date <= ? AND status = 'POSTED'
+		) t ORDER BY transaction_date, reference`
+	if err := r.db.WithContext(ctx).Raw(query, companyID, bankAccountID, fromDate, toDate, companyID, bankAccountID, fromDate, toDate, companyID, bankAccountID, fromDate, toDate).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var entries []domain.BankLedgerEntry
+	entries := make([]domain.BankLedgerEntry, len(rows))
 	var running float64 = ledger.OpeningBalance
 	var totalDebits, totalCredits float64
-	lineNo := 1
-	for rows.Next() {
-		var e domain.BankLedgerEntry
-		var ref string
-		if err := rows.Scan(&e.TransactionDate, &e.RefID, &e.Description,
-			&e.DebitAmount, &e.CreditAmount, &e.RunningBalance, &ref); err != nil {
-			return nil, err
+	for i, row := range rows {
+		entries[i] = domain.BankLedgerEntry{
+			LineNo:          i + 1,
+			TransactionDate: row.TransactionDate,
+			VoucherNo:       row.Reference,
+			Description:     row.Description,
+			DebitAmount:     row.DebitAmount,
+			CreditAmount:    row.CreditAmount,
+			RefID:           row.RefID,
 		}
-		e.LineNo = lineNo
-		e.VoucherNo = ref
-		running += e.DebitAmount - e.CreditAmount
-		e.RunningBalance = math.Round(running*100) / 100
-		totalDebits += e.DebitAmount
-		totalCredits += e.CreditAmount
-		entries = append(entries, e)
-		lineNo++
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		running += row.DebitAmount - row.CreditAmount
+		entries[i].RunningBalance = math.Round(running*100) / 100
+		totalDebits += row.DebitAmount
+		totalCredits += row.CreditAmount
 	}
 	if entries == nil {
 		entries = []domain.BankLedgerEntry{}
@@ -952,18 +1008,17 @@ func (r *PGBankRepo) GetBankLedger(ctx context.Context, companyID, bankAccountID
 
 func (r *PGBankRepo) GetBalance(ctx context.Context, companyID, bankAccountID string) (float64, error) {
 	var total float64
-	err := r.pool.QueryRow(ctx,
-		`		SELECT COALESCE((
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT COALESCE((
 			SELECT SUM(amount) FROM cash_receipts
-			WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
+			WHERE company_id = ? AND cash_account_id = ? AND status = 'POSTED'
 		), 0) - COALESCE((
 			SELECT SUM(amount) FROM (
-				SELECT amount FROM payment_orders WHERE company_id=$1 AND from_bank_acc_id=$2 AND status IN ('CONFIRMED','SUBMITTED')
+				SELECT amount FROM payment_orders WHERE company_id = ? AND from_bank_acc_id = ? AND status IN ('CONFIRMED','SUBMITTED')
 				UNION ALL
-				SELECT amount FROM cash_payments WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
+				SELECT amount FROM cash_payments WHERE company_id = ? AND cash_account_id = ? AND status = 'POSTED'
 			) t
-		), 0)`,
-		companyID, bankAccountID).Scan(&total)
+		), 0)`, companyID, bankAccountID, companyID, bankAccountID, companyID, bankAccountID).Scan(&total).Error
 	if err != nil {
 		return 0, err
 	}

@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 
 	"gotax/internal/domain"
 )
@@ -14,186 +13,394 @@ import (
 // ─── Cash ────────────────────────────────────────────────────────────────────
 
 type PGCashRepo struct {
-	pool *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewPGCashRepo(pool *pgxpool.Pool) *PGCashRepo {
-	return &PGCashRepo{pool: pool}
+func NewPGCashRepo(db *gorm.DB) *PGCashRepo {
+	return &PGCashRepo{db: db}
+}
+
+// ─── Conversion helpers ──────────────────────────────────────────────────────
+
+func gormReceiptToDomain(m *domain.CashReceiptGORM) *domain.CashReceipt {
+	return &domain.CashReceipt{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		VoucherNo:       m.VoucherNo,
+		VoucherDate:     safeTimeStr(m.VoucherDate),
+		CashAccountID:   m.CashAccountID,
+		CounterpartID:   safeStr(m.CounterpartID),
+		CounterpartName: safeStr(m.CounterpartName),
+		CounterpartType: domain.CounterpartType(m.CounterpartType),
+		Currency:        m.Currency,
+		ExchangeRate:    m.ExchangeRate,
+		Amount:          m.Amount,
+		AmountVND:       m.AmountVND,
+		DebitAccountID:  m.DebitAccountID,
+		CreditAccountID: m.CreditAccountID,
+		Reason:          safeStr(m.Reason),
+		ReceiptType:     domain.ReceiptType(m.ReceiptType),
+		Status:          domain.CashStatus(m.Status),
+		ApprovedBy:      safeStr(m.ApprovedBy),
+		ApprovedAt:      safeTimePtrStr(m.ApprovedAt),
+		PostedBy:        safeStr(m.PostedBy),
+		PostedAt:        safeTimePtrStr(m.PostedAt),
+		GLJournalID:     safeStr(m.GLJournalID),
+		CreatedBy:       m.CreatedBy,
+		CreatedAt:       m.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       m.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormReceipt(cr *domain.CashReceipt) *domain.CashReceiptGORM {
+	return &domain.CashReceiptGORM{
+		ID:              cr.ID,
+		CompanyID:       cr.CompanyID,
+		VoucherNo:       cr.VoucherNo,
+		VoucherDate:     parseDate(cr.VoucherDate),
+		CashAccountID:   cr.CashAccountID,
+		CounterpartID:   nullStrG(cr.CounterpartID),
+		CounterpartName: nullStrG(cr.CounterpartName),
+		CounterpartType: string(cr.CounterpartType),
+		Currency:        cr.Currency,
+		ExchangeRate:    cr.ExchangeRate,
+		Amount:          cr.Amount,
+		AmountVND:       cr.AmountVND,
+		DebitAccountID:  cr.DebitAccountID,
+		CreditAccountID: cr.CreditAccountID,
+		Reason:          nullStrG(cr.Reason),
+		ReceiptType:     string(cr.ReceiptType),
+		Status:          string(cr.Status),
+		ApprovedBy:      nullStrG(cr.ApprovedBy),
+		ApprovedAt:      timePtr(parseDate(cr.ApprovedAt)),
+		PostedBy:        nullStrG(cr.PostedBy),
+		PostedAt:        timePtr(parseDate(cr.PostedAt)),
+		GLJournalID:     nullStrG(cr.GLJournalID),
+		CreatedBy:       cr.CreatedBy,
+	}
+}
+
+func gormPaymentToDomain(m *domain.CashPaymentGORM) *domain.CashPayment {
+	return &domain.CashPayment{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		VoucherNo:       m.VoucherNo,
+		VoucherDate:     safeTimeStr(m.VoucherDate),
+		CashAccountID:   m.CashAccountID,
+		PayeeID:         safeStr(m.PayeeID),
+		PayeeName:       safeStr(m.PayeeName),
+		PayeeType:       domain.CounterpartType(m.PayeeType),
+		Currency:        m.Currency,
+		ExchangeRate:    m.ExchangeRate,
+		Amount:          m.Amount,
+		AmountVND:       m.AmountVND,
+		DebitAccountID:  m.DebitAccountID,
+		CreditAccountID: m.CreditAccountID,
+		Reason:          safeStr(m.Reason),
+		PaymentType:     domain.PaymentType(m.PaymentType),
+		Status:          domain.CashStatus(m.Status),
+		ApprovedBy:      safeStr(m.ApprovedBy),
+		ApprovedAt:      safeTimePtrStr(m.ApprovedAt),
+		PostedBy:        safeStr(m.PostedBy),
+		PostedAt:        safeTimePtrStr(m.PostedAt),
+		GLJournalID:     safeStr(m.GLJournalID),
+		CreatedBy:       m.CreatedBy,
+		CreatedAt:       m.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       m.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormPayment(p *domain.CashPayment) *domain.CashPaymentGORM {
+	return &domain.CashPaymentGORM{
+		ID:              p.ID,
+		CompanyID:       p.CompanyID,
+		VoucherNo:       p.VoucherNo,
+		VoucherDate:     parseDate(p.VoucherDate),
+		CashAccountID:   p.CashAccountID,
+		PayeeID:         nullStrG(p.PayeeID),
+		PayeeName:       nullStrG(p.PayeeName),
+		PayeeType:       string(p.PayeeType),
+		Currency:        p.Currency,
+		ExchangeRate:    p.ExchangeRate,
+		Amount:          p.Amount,
+		AmountVND:       p.AmountVND,
+		DebitAccountID:  p.DebitAccountID,
+		CreditAccountID: p.CreditAccountID,
+		Reason:          nullStrG(p.Reason),
+		PaymentType:     string(p.PaymentType),
+		Status:          string(p.Status),
+		ApprovedBy:      nullStrG(p.ApprovedBy),
+		ApprovedAt:      timePtr(parseDate(p.ApprovedAt)),
+		PostedBy:        nullStrG(p.PostedBy),
+		PostedAt:        timePtr(parseDate(p.PostedAt)),
+		GLJournalID:     nullStrG(p.GLJournalID),
+		CreatedBy:       p.CreatedBy,
+	}
+}
+
+func gormTransferToDomain(m *domain.CashTransferGORM) *domain.CashTransfer {
+	return &domain.CashTransfer{
+		ID:              m.ID,
+		CompanyID:       m.CompanyID,
+		TransferDate:    safeTimeStr(m.TransferDate),
+		FromAccountID:   m.FromAccountID,
+		ToAccountID:     m.ToAccountID,
+		Amount:          m.Amount,
+		Currency:        m.Currency,
+		ExchangeRate:    m.ExchangeRate,
+		Reason:          safeStr(m.Reason),
+		TransferType:    domain.TransferType(m.TransferType),
+		Status:          domain.CashStatus(m.Status),
+		SourceVoucherID: safeStr(m.SourceVoucherID),
+		DestVoucherID:   safeStr(m.DestVoucherID),
+		CreatedAt:       m.CreatedAt.Format(time.RFC3339),
+		PostedAt:        safeTimePtrStr(m.PostedAt),
+	}
+}
+
+func domainToGormTransfer(t *domain.CashTransfer) *domain.CashTransferGORM {
+	return &domain.CashTransferGORM{
+		ID:              t.ID,
+		CompanyID:       t.CompanyID,
+		TransferDate:    parseDate(t.TransferDate),
+		FromAccountID:   t.FromAccountID,
+		ToAccountID:     t.ToAccountID,
+		Amount:          t.Amount,
+		Currency:        t.Currency,
+		ExchangeRate:    t.ExchangeRate,
+		Reason:          nullStrG(t.Reason),
+		TransferType:    string(t.TransferType),
+		Status:          string(t.Status),
+		SourceVoucherID: nullStrG(t.SourceVoucherID),
+		DestVoucherID:   nullStrG(t.DestVoucherID),
+		PostedAt:        timePtr(parseDate(t.PostedAt)),
+	}
+}
+
+func gormPettyCashToDomain(m *domain.PettyCashFundGORM) *domain.PettyCashFund {
+	return &domain.PettyCashFund{
+		ID:             m.ID,
+		CompanyID:      m.CompanyID,
+		FundCode:       m.Custodian,
+		FundName:       "",
+		CustodianID:    m.Custodian,
+		InitialAmount:  m.FundAmount,
+		CurrentBalance: m.FundAmount,
+		Currency:       m.Currency,
+		Status:         domain.PettyCashStatus(m.Status),
+		CreatedAt:      m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormPettyCash(f *domain.PettyCashFund) *domain.PettyCashFundGORM {
+	return &domain.PettyCashFundGORM{
+		ID:        f.ID,
+		CompanyID: f.CompanyID,
+		Custodian: f.CustodianID,
+		FundAmount: f.InitialAmount,
+		Currency:  f.Currency,
+		Status:    string(f.Status),
+	}
+}
+
+func gormInventoryToDomain(m *domain.CashInventoryGORM) *domain.CashInventory {
+	return &domain.CashInventory{
+		ID:            m.ID,
+		CompanyID:     m.CompanyID,
+		InventoryDate: m.InventoryDate.Format("2006-01-02"),
+		CashAccountID: m.Cashier,
+		BookBalance:   m.TotalCash,
+		ActualBalance: m.CountedAmount,
+		Difference:    m.Difference,
+		Status:        domain.CashInventoryStatus(m.Status),
+		ApprovedBy:    safeStr(m.CreatedBy),
+		CreatedAt:     m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainToGormInventory(inv *domain.CashInventory) *domain.CashInventoryGORM {
+	invDate, _ := time.Parse("2006-01-02", inv.InventoryDate)
+	return &domain.CashInventoryGORM{
+		ID:            inv.ID,
+		CompanyID:     inv.CompanyID,
+		InventoryDate: invDate,
+		Cashier:       inv.CashAccountID,
+		TotalCash:     inv.BookBalance,
+		CountedAmount: inv.ActualBalance,
+		Difference:    inv.Difference,
+		Status:        string(inv.Status),
+		CreatedBy:     nullStrG(inv.ApprovedBy),
+	}
+}
+
+func gormAdvanceToDomain(m *domain.AdvanceRequestGORM) *domain.AdvanceRequest {
+	return &domain.AdvanceRequest{
+		ID:            m.ID,
+		CompanyID:     m.CompanyID,
+		RequestorID:   m.EmployeeID,
+		RequestorName: m.Purpose,
+		Amount:        m.Amount,
+		AmountVND:     m.Amount,
+		Currency:      m.Currency,
+		Purpose:       m.Purpose,
+		Status:        domain.AdvanceStatus(m.Status),
+		ApprovedBy:    m.ApprovedBy,
+		ApprovedAt:    m.ApprovedAt,
+		GLJournalID:   m.GLJEID,
+		CreatedBy:     m.CreatedBy,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+}
+
+func domainToGormAdvance(a *domain.AdvanceRequest) *domain.AdvanceRequestGORM {
+	return &domain.AdvanceRequestGORM{
+		ID:          a.ID,
+		CompanyID:   a.CompanyID,
+		RequestNo:   a.ID,
+		EmployeeID:  a.RequestorID,
+		Amount:      a.Amount,
+		Currency:    a.Currency,
+		Purpose:     a.Purpose,
+		Status:      string(a.Status),
+		ApprovedBy:  a.ApprovedBy,
+		ApprovedAt:  a.ApprovedAt,
+		GLJEID:      a.GLJournalID,
+		CreatedBy:   a.CreatedBy,
+	}
+}
+
+func gormAdvanceSettlementToDomain(m *domain.AdvanceSettlementGORM) *domain.AdvanceSettlement {
+	return &domain.AdvanceSettlement{
+		ID:              m.ID,
+		AdvanceID:       m.AdvanceID,
+		CompanyID:       "",
+		TotalSpent:      m.ActualSpent,
+		RemainingAmount: m.RefundAmount,
+		Currency:        "",
+		Notes:           m.ReceiptRef,
+		Status:          "COMPLETED",
+		CreatedAt:       m.CreatedAt,
+	}
+}
+
+func domainToGormAdvanceSettlement(s *domain.AdvanceSettlement) *domain.AdvanceSettlementGORM {
+	return &domain.AdvanceSettlementGORM{
+		ID:            s.ID,
+		AdvanceID:     s.AdvanceID,
+		SettlementDate: time.Now(),
+		SettledAmount: s.TotalSpent,
+		ActualSpent:   s.TotalSpent,
+		RefundAmount:  s.RemainingAmount,
+		ReceiptRef:    s.Notes,
+		SettledBy:     "",
+	}
 }
 
 // ─── Cash Receipt ────────────────────────────────────────────────────────────
 
 func (r *PGCashRepo) CreateReceipt(ctx context.Context, cr *domain.CashReceipt) error {
+	m := domainToGormReceipt(cr)
 	if cr.ID == "" {
-		cr.ID = fmt.Sprintf("CR-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("CR-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO cash_receipts (id, company_id, voucher_no, voucher_date, cash_account_id,
-		 counterpart_id, counterpart_name, counterpart_type, currency, exchange_rate,
-		 amount, amount_vnd, debit_account_id, credit_account_id, reason,
-		 receipt_type, status, approved_by, approved_at, posted_by, posted_at, gl_journal_id,
-		 created_by, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW())`,
-		cr.ID, cr.CompanyID, cr.VoucherNo, cr.VoucherDate, cr.CashAccountID,
-		nullStr(cr.CounterpartID), nullStr(cr.CounterpartName), string(cr.CounterpartType),
-		cr.Currency, cr.ExchangeRate, cr.Amount, cr.AmountVND,
-		cr.DebitAccountID, cr.CreditAccountID, cr.Reason,
-		string(cr.ReceiptType), string(cr.Status),
-		nullStr(cr.ApprovedBy), nullStr(cr.ApprovedAt),
-		nullStr(cr.PostedBy), nullStr(cr.PostedAt), nullStr(cr.GLJournalID),
-		cr.CreatedBy)
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	cr.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetReceipt(ctx context.Context, id string) (*domain.CashReceipt, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, voucher_no, voucher_date, cash_account_id,
-		        COALESCE(counterpart_id,''), COALESCE(counterpart_name,''), counterpart_type,
-		        currency, exchange_rate, amount, amount_vnd,
-		        debit_account_id, credit_account_id, reason,
-		        receipt_type, status,
-		        COALESCE(approved_by,''), COALESCE(approved_at,''),
-		        COALESCE(posted_by,''), COALESCE(posted_at,''), COALESCE(gl_journal_id,''),
-		        created_by, created_at, updated_at
-		 FROM cash_receipts WHERE id=$1`, id)
-	cr := &domain.CashReceipt{}
-	err := row.Scan(&cr.ID, &cr.CompanyID, &cr.VoucherNo, &cr.VoucherDate, &cr.CashAccountID,
-		&cr.CounterpartID, &cr.CounterpartName, &cr.CounterpartType,
-		&cr.Currency, &cr.ExchangeRate, &cr.Amount, &cr.AmountVND,
-		&cr.DebitAccountID, &cr.CreditAccountID, &cr.Reason,
-		&cr.ReceiptType, &cr.Status,
-		&cr.ApprovedBy, &cr.ApprovedAt, &cr.PostedBy, &cr.PostedAt, &cr.GLJournalID,
-		&cr.CreatedBy, &cr.CreatedAt, &cr.UpdatedAt)
-	if err != nil {
+	var m domain.CashReceiptGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrCashReceiptNotFound
 	}
-	return cr, nil
-}
-
-func scanCashReceipts(rows pgx.Rows) ([]domain.CashReceipt, error) {
-	defer rows.Close()
-	var out []domain.CashReceipt
-	for rows.Next() {
-		var cr domain.CashReceipt
-		err := rows.Scan(&cr.ID, &cr.CompanyID, &cr.VoucherNo, &cr.VoucherDate, &cr.CashAccountID,
-			&cr.CounterpartID, &cr.CounterpartName, &cr.CounterpartType,
-			&cr.Currency, &cr.ExchangeRate, &cr.Amount, &cr.AmountVND,
-			&cr.DebitAccountID, &cr.CreditAccountID, &cr.Reason,
-			&cr.ReceiptType, &cr.Status,
-			&cr.ApprovedBy, &cr.ApprovedAt, &cr.PostedBy, &cr.PostedAt, &cr.GLJournalID,
-			&cr.CreatedBy, &cr.CreatedAt, &cr.UpdatedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, cr)
-	}
-	return out, nil
+	return gormReceiptToDomain(&m), nil
 }
 
 func (r *PGCashRepo) ListReceipts(ctx context.Context, filter domain.CashReceiptFilter) ([]domain.CashReceipt, int, error) {
-	where := " WHERE company_id=$1"
-	args := []interface{}{filter.CompanyID}
-	n := 2
+	q := r.db.WithContext(ctx).Model(&domain.CashReceiptGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.ReceiptType != "" {
-		where += fmt.Sprintf(" AND receipt_type=$%d", n)
-		args = append(args, string(filter.ReceiptType))
-		n++
+		q = q.Where("receipt_type = ?", string(filter.ReceiptType))
 	}
 	if filter.Currency != "" {
-		where += fmt.Sprintf(" AND currency=$%d", n)
-		args = append(args, filter.Currency)
-		n++
+		q = q.Where("currency = ?", filter.Currency)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n)
-		args = append(args, string(filter.Status))
-		n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND voucher_date>=$%d", n)
-		args = append(args, filter.FromDate)
-		n++
+		q = q.Where("voucher_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND voucher_date<=$%d", n)
-		args = append(args, filter.ToDate)
-		n++
+		q = q.Where("voucher_date <= ?", filter.ToDate)
 	}
 
-	var total int
-	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM cash_receipts"+where, args...).Scan(&total)
-	if err != nil {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-
-	query := `SELECT id, company_id, voucher_no, voucher_date, cash_account_id,
-	                 COALESCE(counterpart_id,''), COALESCE(counterpart_name,''), counterpart_type,
-	                 currency, exchange_rate, amount, amount_vnd,
-	                 debit_account_id, credit_account_id, reason,
-	                 receipt_type, status,
-	                 COALESCE(approved_by,''), COALESCE(approved_at,''),
-	                 COALESCE(posted_by,''), COALESCE(posted_at,''), COALESCE(gl_journal_id,''),
-	                 created_by, created_at, updated_at
-	          FROM cash_receipts` + where + " ORDER BY voucher_date DESC"
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	query += fmt.Sprintf(" LIMIT $%d", n)
-	args = append(args, limit)
-	n++
-	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", n)
-		args = append(args, filter.Offset)
-		n++
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
+	var models []domain.CashReceiptGORM
+	if err := q.Order("voucher_date DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, 0, err
 	}
-	out, err := scanCashReceipts(rows)
-	if err != nil {
-		return nil, 0, err
+	out := make([]domain.CashReceipt, len(models))
+	for i := range models {
+		out[i] = *gormReceiptToDomain(&models[i])
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
 func (r *PGCashRepo) UpdateReceipt(ctx context.Context, cr *domain.CashReceipt) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE cash_receipts SET voucher_no=$1, voucher_date=$2, cash_account_id=$3,
-		 counterpart_id=$4, counterpart_name=$5, counterpart_type=$6,
-		 currency=$7, exchange_rate=$8, amount=$9, amount_vnd=$10,
-		 debit_account_id=$11, credit_account_id=$12, reason=$13,
-		 receipt_type=$14, status=$15,
-		 approved_by=$16, approved_at=$17, posted_by=$18, posted_at=$19, gl_journal_id=$20,
-		 updated_at=NOW() WHERE id=$21`,
-		cr.VoucherNo, cr.VoucherDate, cr.CashAccountID,
-		nullStr(cr.CounterpartID), nullStr(cr.CounterpartName), string(cr.CounterpartType),
-		cr.Currency, cr.ExchangeRate, cr.Amount, cr.AmountVND,
-		cr.DebitAccountID, cr.CreditAccountID, cr.Reason,
-		string(cr.ReceiptType), string(cr.Status),
-		nullStr(cr.ApprovedBy), nullStr(cr.ApprovedAt),
-		nullStr(cr.PostedBy), nullStr(cr.PostedAt), nullStr(cr.GLJournalID),
-		cr.ID)
-	return err
+	m := domainToGormReceipt(cr)
+	return r.db.WithContext(ctx).Model(&domain.CashReceiptGORM{}).Where("id = ?", cr.ID).Updates(map[string]interface{}{
+		"voucher_no":       m.VoucherNo,
+		"voucher_date":     m.VoucherDate,
+		"cash_account_id":  m.CashAccountID,
+		"counterpart_id":   m.CounterpartID,
+		"counterpart_name": m.CounterpartName,
+		"counterpart_type": m.CounterpartType,
+		"currency":         m.Currency,
+		"exchange_rate":    m.ExchangeRate,
+		"amount":           m.Amount,
+		"amount_vnd":       m.AmountVND,
+		"debit_account_id": m.DebitAccountID,
+		"credit_account_id": m.CreditAccountID,
+		"reason":           m.Reason,
+		"receipt_type":     m.ReceiptType,
+		"status":           m.Status,
+		"approved_by":      m.ApprovedBy,
+		"approved_at":      m.ApprovedAt,
+		"posted_by":        m.PostedBy,
+		"posted_at":        m.PostedAt,
+		"gl_journal_id":    m.GLJournalID,
+		"updated_at":       time.Now(),
+	}).Error
 }
 
 func (r *PGCashRepo) DeleteReceipt(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM cash_receipts WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.CashReceiptGORM{}).Error
 }
 
 func (r *PGCashRepo) LastReceiptNo(ctx context.Context, companyID, year string) (string, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT voucher_no FROM cash_receipts
-		 WHERE company_id=$1 AND voucher_date LIKE $2||'%'
-		 ORDER BY voucher_no DESC LIMIT 1`, companyID, year)
 	var last string
-	err := row.Scan(&last)
+	err := r.db.WithContext(ctx).Raw(
+		`SELECT voucher_no FROM cash_receipts
+		 WHERE company_id = ? AND voucher_date LIKE ? || '%'
+		 ORDER BY voucher_no DESC LIMIT 1`, companyID, year).Scan(&last).Error
 	if err != nil {
-		return "", nil // no prior receipt is OK
+		return "", nil
 	}
 	return last, nil
 }
@@ -201,174 +408,105 @@ func (r *PGCashRepo) LastReceiptNo(ctx context.Context, companyID, year string) 
 // ─── Cash Payment ────────────────────────────────────────────────────────────
 
 func (r *PGCashRepo) CreatePayment(ctx context.Context, p *domain.CashPayment) error {
+	m := domainToGormPayment(p)
 	if p.ID == "" {
-		p.ID = fmt.Sprintf("CP-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("CP-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO cash_payments (id, company_id, voucher_no, voucher_date, cash_account_id,
-		 payee_id, payee_name, payee_type, currency, exchange_rate,
-		 amount, amount_vnd, debit_account_id, credit_account_id, reason,
-		 payment_type, status, approved_by, approved_at, posted_by, posted_at, gl_journal_id,
-		 created_by, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW())`,
-		p.ID, p.CompanyID, p.VoucherNo, p.VoucherDate, p.CashAccountID,
-		nullStr(p.PayeeID), nullStr(p.PayeeName), string(p.PayeeType),
-		p.Currency, p.ExchangeRate, p.Amount, p.AmountVND,
-		p.DebitAccountID, p.CreditAccountID, p.Reason,
-		string(p.PaymentType), string(p.Status),
-		nullStr(p.ApprovedBy), nullStr(p.ApprovedAt),
-		nullStr(p.PostedBy), nullStr(p.PostedAt), nullStr(p.GLJournalID),
-		p.CreatedBy)
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	p.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetPayment(ctx context.Context, id string) (*domain.CashPayment, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, voucher_no, voucher_date, cash_account_id,
-		        COALESCE(payee_id,''), COALESCE(payee_name,''), payee_type,
-		        currency, exchange_rate, amount, amount_vnd,
-		        debit_account_id, credit_account_id, reason,
-		        payment_type, status,
-		        COALESCE(approved_by,''), COALESCE(approved_at,''),
-		        COALESCE(posted_by,''), COALESCE(posted_at,''), COALESCE(gl_journal_id,''),
-		        created_by, created_at, updated_at
-		 FROM cash_payments WHERE id=$1`, id)
-	p := &domain.CashPayment{}
-	err := row.Scan(&p.ID, &p.CompanyID, &p.VoucherNo, &p.VoucherDate, &p.CashAccountID,
-		&p.PayeeID, &p.PayeeName, &p.PayeeType,
-		&p.Currency, &p.ExchangeRate, &p.Amount, &p.AmountVND,
-		&p.DebitAccountID, &p.CreditAccountID, &p.Reason,
-		&p.PaymentType, &p.Status,
-		&p.ApprovedBy, &p.ApprovedAt, &p.PostedBy, &p.PostedAt, &p.GLJournalID,
-		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
+	var m domain.CashPaymentGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrCashPaymentNotFound
 	}
-	return p, nil
-}
-
-func scanCashPayments(rows pgx.Rows) ([]domain.CashPayment, error) {
-	defer rows.Close()
-	var out []domain.CashPayment
-	for rows.Next() {
-		var p domain.CashPayment
-		err := rows.Scan(&p.ID, &p.CompanyID, &p.VoucherNo, &p.VoucherDate, &p.CashAccountID,
-			&p.PayeeID, &p.PayeeName, &p.PayeeType,
-			&p.Currency, &p.ExchangeRate, &p.Amount, &p.AmountVND,
-			&p.DebitAccountID, &p.CreditAccountID, &p.Reason,
-			&p.PaymentType, &p.Status,
-			&p.ApprovedBy, &p.ApprovedAt, &p.PostedBy, &p.PostedAt, &p.GLJournalID,
-			&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, nil
+	return gormPaymentToDomain(&m), nil
 }
 
 func (r *PGCashRepo) ListPayments(ctx context.Context, filter domain.CashPaymentFilter) ([]domain.CashPayment, int, error) {
-	where := " WHERE company_id=$1"
-	args := []interface{}{filter.CompanyID}
-	n := 2
+	q := r.db.WithContext(ctx).Model(&domain.CashPaymentGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.PaymentType != "" {
-		where += fmt.Sprintf(" AND payment_type=$%d", n)
-		args = append(args, string(filter.PaymentType))
-		n++
+		q = q.Where("payment_type = ?", string(filter.PaymentType))
 	}
 	if filter.Currency != "" {
-		where += fmt.Sprintf(" AND currency=$%d", n)
-		args = append(args, filter.Currency)
-		n++
+		q = q.Where("currency = ?", filter.Currency)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n)
-		args = append(args, string(filter.Status))
-		n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND voucher_date>=$%d", n)
-		args = append(args, filter.FromDate)
-		n++
+		q = q.Where("voucher_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND voucher_date<=$%d", n)
-		args = append(args, filter.ToDate)
-		n++
+		q = q.Where("voucher_date <= ?", filter.ToDate)
 	}
 
-	var total int
-	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM cash_payments"+where, args...).Scan(&total)
-	if err != nil {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-
-	query := `SELECT id, company_id, voucher_no, voucher_date, cash_account_id,
-	                 COALESCE(payee_id,''), COALESCE(payee_name,''), payee_type,
-	                 currency, exchange_rate, amount, amount_vnd,
-	                 debit_account_id, credit_account_id, reason,
-	                 payment_type, status,
-	                 COALESCE(approved_by,''), COALESCE(approved_at,''),
-	                 COALESCE(posted_by,''), COALESCE(posted_at,''), COALESCE(gl_journal_id,''),
-	                 created_by, created_at, updated_at
-	          FROM cash_payments` + where + " ORDER BY voucher_date DESC"
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	query += fmt.Sprintf(" LIMIT $%d", n)
-	args = append(args, limit)
-	n++
-	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", n)
-		args = append(args, filter.Offset)
-		n++
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
+	var models []domain.CashPaymentGORM
+	if err := q.Order("voucher_date DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, 0, err
 	}
-	out, err := scanCashPayments(rows)
-	if err != nil {
-		return nil, 0, err
+	out := make([]domain.CashPayment, len(models))
+	for i := range models {
+		out[i] = *gormPaymentToDomain(&models[i])
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
 func (r *PGCashRepo) UpdatePayment(ctx context.Context, p *domain.CashPayment) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE cash_payments SET voucher_no=$1, voucher_date=$2, cash_account_id=$3,
-		 payee_id=$4, payee_name=$5, payee_type=$6,
-		 currency=$7, exchange_rate=$8, amount=$9, amount_vnd=$10,
-		 debit_account_id=$11, credit_account_id=$12, reason=$13,
-		 payment_type=$14, status=$15,
-		 approved_by=$16, approved_at=$17, posted_by=$18, posted_at=$19, gl_journal_id=$20,
-		 updated_at=NOW() WHERE id=$21`,
-		p.VoucherNo, p.VoucherDate, p.CashAccountID,
-		nullStr(p.PayeeID), nullStr(p.PayeeName), string(p.PayeeType),
-		p.Currency, p.ExchangeRate, p.Amount, p.AmountVND,
-		p.DebitAccountID, p.CreditAccountID, p.Reason,
-		string(p.PaymentType), string(p.Status),
-		nullStr(p.ApprovedBy), nullStr(p.ApprovedAt),
-		nullStr(p.PostedBy), nullStr(p.PostedAt), nullStr(p.GLJournalID),
-		p.ID)
-	return err
+	m := domainToGormPayment(p)
+	return r.db.WithContext(ctx).Model(&domain.CashPaymentGORM{}).Where("id = ?", p.ID).Updates(map[string]interface{}{
+		"voucher_no":       m.VoucherNo,
+		"voucher_date":     m.VoucherDate,
+		"cash_account_id":  m.CashAccountID,
+		"payee_id":         m.PayeeID,
+		"payee_name":       m.PayeeName,
+		"payee_type":       m.PayeeType,
+		"currency":         m.Currency,
+		"exchange_rate":    m.ExchangeRate,
+		"amount":           m.Amount,
+		"amount_vnd":       m.AmountVND,
+		"debit_account_id": m.DebitAccountID,
+		"credit_account_id": m.CreditAccountID,
+		"reason":           m.Reason,
+		"payment_type":     m.PaymentType,
+		"status":           m.Status,
+		"approved_by":      m.ApprovedBy,
+		"approved_at":      m.ApprovedAt,
+		"posted_by":        m.PostedBy,
+		"posted_at":        m.PostedAt,
+		"gl_journal_id":    m.GLJournalID,
+		"updated_at":       time.Now(),
+	}).Error
 }
 
 func (r *PGCashRepo) DeletePayment(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM cash_payments WHERE id=$1`, id)
-	return err
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.CashPaymentGORM{}).Error
 }
 
 func (r *PGCashRepo) LastPaymentNo(ctx context.Context, companyID, year string) (string, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT voucher_no FROM cash_payments
-		 WHERE company_id=$1 AND voucher_date LIKE $2||'%'
-		 ORDER BY voucher_no DESC LIMIT 1`, companyID, year)
 	var last string
-	err := row.Scan(&last)
+	err := r.db.WithContext(ctx).Raw(
+		`SELECT voucher_no FROM cash_payments
+		 WHERE company_id = ? AND voucher_date LIKE ? || '%'
+		 ORDER BY voucher_no DESC LIMIT 1`, companyID, year).Scan(&last).Error
 	if err != nil {
 		return "", nil
 	}
@@ -378,108 +516,85 @@ func (r *PGCashRepo) LastPaymentNo(ctx context.Context, companyID, year string) 
 // ─── Cash Transfer ───────────────────────────────────────────────────────────
 
 func (r *PGCashRepo) CreateTransfer(ctx context.Context, t *domain.CashTransfer) error {
+	m := domainToGormTransfer(t)
 	if t.ID == "" {
-		t.ID = fmt.Sprintf("CTF-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("CTF-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO cash_transfers (id, company_id, transfer_date, from_account_id, to_account_id,
-		 amount, currency, exchange_rate, reason, transfer_type, status,
-		 source_voucher_id, dest_voucher_id, created_at, posted_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),$14)`,
-		t.ID, t.CompanyID, t.TransferDate, t.FromAccountID, t.ToAccountID,
-		t.Amount, t.Currency, t.ExchangeRate, t.Reason, string(t.TransferType),
-		string(t.Status), nullStr(t.SourceVoucherID), nullStr(t.DestVoucherID),
-		nullStr(t.PostedAt))
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	t.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetTransfer(ctx context.Context, id string) (*domain.CashTransfer, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, transfer_date, from_account_id, to_account_id,
-		        amount, currency, exchange_rate, reason, transfer_type, status,
-		        COALESCE(source_voucher_id,''), COALESCE(dest_voucher_id,''),
-		        created_at, COALESCE(posted_at,'')
-		 FROM cash_transfers WHERE id=$1`, id)
-	t := &domain.CashTransfer{}
-	err := row.Scan(&t.ID, &t.CompanyID, &t.TransferDate, &t.FromAccountID, &t.ToAccountID,
-		&t.Amount, &t.Currency, &t.ExchangeRate, &t.Reason, &t.TransferType, &t.Status,
-		&t.SourceVoucherID, &t.DestVoucherID, &t.CreatedAt, &t.PostedAt)
-	if err != nil {
+	var m domain.CashTransferGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrCashTransferNotFound
 	}
-	return t, nil
-}
-
-func scanCashTransfers(rows pgx.Rows) ([]domain.CashTransfer, error) {
-	defer rows.Close()
-	var out []domain.CashTransfer
-	for rows.Next() {
-		var t domain.CashTransfer
-		err := rows.Scan(&t.ID, &t.CompanyID, &t.TransferDate, &t.FromAccountID, &t.ToAccountID,
-			&t.Amount, &t.Currency, &t.ExchangeRate, &t.Reason, &t.TransferType, &t.Status,
-			&t.SourceVoucherID, &t.DestVoucherID, &t.CreatedAt, &t.PostedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	return out, nil
+	return gormTransferToDomain(&m), nil
 }
 
 func (r *PGCashRepo) ListTransfers(ctx context.Context, companyID string) ([]domain.CashTransfer, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, transfer_date, from_account_id, to_account_id,
-		        amount, currency, exchange_rate, reason, transfer_type, status,
-		        COALESCE(source_voucher_id,''), COALESCE(dest_voucher_id,''),
-		        created_at, COALESCE(posted_at,'')
-		 FROM cash_transfers WHERE company_id=$1 ORDER BY transfer_date DESC`, companyID)
-	if err != nil {
+	var models []domain.CashTransferGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("transfer_date DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	return scanCashTransfers(rows)
+	out := make([]domain.CashTransfer, len(models))
+	for i := range models {
+		out[i] = *gormTransferToDomain(&models[i])
+	}
+	return out, nil
 }
 
 // ─── Cash Book / Balance ─────────────────────────────────────────────────────
 
 func (r *PGCashRepo) GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error) {
-	// opening balance: sum of posted receipts minus payments before fromDate
 	var opening float64
-	err := r.pool.QueryRow(ctx,
-		`SELECT COALESCE((
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT COALESCE((
 			SELECT SUM(CASE WHEN rpt.type='RECEIPT' THEN rpt.amt ELSE -rpt.amt END)
 			FROM (
 				SELECT 'RECEIPT' AS type, amount_vnd AS amt, voucher_date
 				FROM cash_receipts
-				WHERE company_id=$1 AND currency=$2 AND cash_account_id=$3 AND status='POSTED' AND voucher_date<$4
+				WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED' AND voucher_date < ?
 				UNION ALL
 				SELECT 'PAYMENT', amount_vnd, voucher_date
 				FROM cash_payments
-				WHERE company_id=$1 AND currency=$2 AND cash_account_id=$3 AND status='POSTED' AND voucher_date<$4
+				WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED' AND voucher_date < ?
 			) rpt
-		),0)`, companyID, currency, accountID, fromDate).Scan(&opening)
+		),0)`, companyID, currency, accountID, fromDate, companyID, currency, accountID, fromDate).Scan(&opening).Error
 	if err != nil {
 		return nil, fmt.Errorf("opening balance: %w", err)
 	}
 
-	// entries in date range
-	rows, err := r.pool.Query(ctx,
-		`SELECT voucher_date, 'RECEIPT' AS voucher_type, voucher_no, reason,
-		        amount_vnd, 0 AS payment_amount, id
-		 FROM cash_receipts
-		 WHERE company_id=$1 AND currency=$2 AND cash_account_id=$3 AND status='POSTED'
-		   AND voucher_date>=$4 AND voucher_date<=$5
-		 UNION ALL
-		 SELECT voucher_date, 'PAYMENT', voucher_no, reason,
-		        0, amount_vnd, id
-		 FROM cash_payments
-		 WHERE company_id=$1 AND currency=$2 AND cash_account_id=$3 AND status='POSTED'
-		   AND voucher_date>=$4 AND voucher_date<=$5
-		 ORDER BY voucher_date, voucher_type`,
-		companyID, currency, accountID, fromDate, toDate)
+	type cbRow struct {
+		VoucherDate   string
+		VoucherType   string
+		VoucherNo     string
+		Reason        string
+		ReceiptAmount float64
+		PaymentAmount float64
+		ID            string
+	}
+	var rows []cbRow
+	err = r.db.WithContext(ctx).Raw(`
+		SELECT voucher_date, 'RECEIPT' AS voucher_type, voucher_no, reason,
+		       amount_vnd, 0 AS payment_amount, id
+		FROM cash_receipts
+		WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED'
+		  AND voucher_date >= ? AND voucher_date <= ?
+		UNION ALL
+		SELECT voucher_date, 'PAYMENT', voucher_no, reason,
+		       0, amount_vnd, id
+		FROM cash_payments
+		WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED'
+		  AND voucher_date >= ? AND voucher_date <= ?
+		ORDER BY voucher_date, voucher_type`,
+		companyID, currency, accountID, fromDate, toDate, companyID, currency, accountID, fromDate, toDate).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("cash book entries: %w", err)
 	}
-	defer rows.Close()
 
 	cb := &domain.CashBook{
 		CompanyID:      companyID,
@@ -490,48 +605,39 @@ func (r *PGCashRepo) GetCashBook(ctx context.Context, companyID, currency, accou
 		OpeningBalance: opening,
 	}
 	running := opening
-	var lineNo int
-	for rows.Next() {
-		lineNo++
-		var e domain.CashBookEntry
-		var vtype, vno, desc, refID string
-		var rcpAmt, payAmt float64
-		if err := rows.Scan(&e.VoucherDate, &vtype, &vno, &desc, &rcpAmt, &payAmt, &refID); err != nil {
-			return nil, err
+	for i, r := range rows {
+		e := domain.CashBookEntry{
+			LineNo:        i + 1,
+			VoucherDate:   r.VoucherDate,
+			VoucherType:   r.VoucherType,
+			VoucherNo:     r.VoucherNo,
+			Description:   r.Reason,
+			ReceiptAmount: r.ReceiptAmount,
+			PaymentAmount: r.PaymentAmount,
+			RefID:         r.ID,
 		}
-		e.LineNo = lineNo
-		e.VoucherType = vtype
-		e.VoucherNo = vno
-		e.Description = desc
-		e.ReceiptAmount = rcpAmt
-		e.PaymentAmount = payAmt
-		running += rcpAmt - payAmt
+		running += r.ReceiptAmount - r.PaymentAmount
 		e.RunningBalance = running
-		e.RefID = refID
 		cb.Entries = append(cb.Entries, e)
 	}
-
-	cb.TotalReceipts = 0
-	cb.TotalPayments = 0
 	for _, e := range cb.Entries {
 		cb.TotalReceipts += e.ReceiptAmount
 		cb.TotalPayments += e.PaymentAmount
 	}
 	cb.ClosingBalance = opening + cb.TotalReceipts - cb.TotalPayments
-
 	return cb, nil
 }
 
 func (r *PGCashRepo) GetBalance(ctx context.Context, companyID, accountID string) (float64, error) {
 	var balance float64
-	err := r.pool.QueryRow(ctx,
-		`SELECT COALESCE((
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT COALESCE((
 			SELECT SUM(amount_vnd) FROM cash_receipts
-			WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
+			WHERE company_id = ? AND cash_account_id = ? AND status = 'POSTED'
 		),0) - COALESCE((
 			SELECT SUM(amount_vnd) FROM cash_payments
-			WHERE company_id=$1 AND cash_account_id=$2 AND status='POSTED'
-		),0)`, companyID, accountID).Scan(&balance)
+			WHERE company_id = ? AND cash_account_id = ? AND status = 'POSTED'
+		),0)`, companyID, accountID, companyID, accountID).Scan(&balance).Error
 	if err != nil {
 		return 0, err
 	}
@@ -541,311 +647,214 @@ func (r *PGCashRepo) GetBalance(ctx context.Context, companyID, accountID string
 // ─── Petty Cash Fund ─────────────────────────────────────────────────────────
 
 func (r *PGCashRepo) CreatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error {
+	m := domainToGormPettyCash(f)
 	if f.ID == "" {
-		f.ID = fmt.Sprintf("PCF-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("PCF-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO petty_cash_funds (id, company_id, fund_code, fund_name, custodian_id,
-		 initial_amount, current_balance, currency, status, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
-		f.ID, f.CompanyID, f.FundCode, f.FundName, f.CustodianID,
-		f.InitialAmount, f.CurrentBalance, f.Currency, string(f.Status))
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	f.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetPettyCashFund(ctx context.Context, id string) (*domain.PettyCashFund, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, fund_code, fund_name, custodian_id,
-		        initial_amount, current_balance, currency, status, created_at
-		 FROM petty_cash_funds WHERE id=$1`, id)
-	f := &domain.PettyCashFund{}
-	err := row.Scan(&f.ID, &f.CompanyID, &f.FundCode, &f.FundName, &f.CustodianID,
-		&f.InitialAmount, &f.CurrentBalance, &f.Currency, &f.Status, &f.CreatedAt)
-	if err != nil {
+	var m domain.PettyCashFundGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrPettyCashFundNotFound
 	}
-	return f, nil
+	return gormPettyCashToDomain(&m), nil
 }
 
-func scanPettyCashFunds(rows pgx.Rows) ([]domain.PettyCashFund, error) {
-	defer rows.Close()
-	var out []domain.PettyCashFund
-	for rows.Next() {
-		var f domain.PettyCashFund
-		err := rows.Scan(&f.ID, &f.CompanyID, &f.FundCode, &f.FundName, &f.CustodianID,
-			&f.InitialAmount, &f.CurrentBalance, &f.Currency, &f.Status, &f.CreatedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
+func (r *PGCashRepo) ListPettyCashFunds(ctx context.Context, companyID string) ([]domain.PettyCashFund, error) {
+	var models []domain.PettyCashFundGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.PettyCashFund, len(models))
+	for i := range models {
+		out[i] = *gormPettyCashToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGCashRepo) ListPettyCashFunds(ctx context.Context, companyID string) ([]domain.PettyCashFund, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, fund_code, fund_name, custodian_id,
-		        initial_amount, current_balance, currency, status, created_at
-		 FROM petty_cash_funds WHERE company_id=$1 ORDER BY fund_code`, companyID)
-	if err != nil {
-		return nil, err
-	}
-	return scanPettyCashFunds(rows)
-}
-
 func (r *PGCashRepo) UpdatePettyCashFund(ctx context.Context, f *domain.PettyCashFund) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE petty_cash_funds SET fund_code=$1, fund_name=$2, custodian_id=$3,
-		 initial_amount=$4, current_balance=$5, currency=$6, status=$7
-		 WHERE id=$8`,
-		f.FundCode, f.FundName, f.CustodianID,
-		f.InitialAmount, f.CurrentBalance, f.Currency, string(f.Status), f.ID)
-	return err
+	return r.db.WithContext(ctx).Model(&domain.PettyCashFundGORM{}).Where("id = ?", f.ID).Updates(map[string]interface{}{
+		"custodian":   f.CustodianID,
+		"fund_amount": f.InitialAmount,
+		"currency":    f.Currency,
+		"status":      string(f.Status),
+	}).Error
 }
 
 // ─── Cash Inventory ──────────────────────────────────────────────────────────
 
 func (r *PGCashRepo) CreateInventory(ctx context.Context, inv *domain.CashInventory) error {
+	m := domainToGormInventory(inv)
 	if inv.ID == "" {
-		inv.ID = fmt.Sprintf("CI-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("CI-%d", time.Now().UnixNano())
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	_, err = tx.Exec(ctx,
-		`INSERT INTO cash_inventories (id, company_id, inventory_date, cash_account_id,
-		 currency, book_balance, actual_balance, difference, difference_type,
-		 reason, status, approved_by, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())`,
-		inv.ID, inv.CompanyID, inv.InventoryDate, inv.CashAccountID,
-		inv.Currency, inv.BookBalance, inv.ActualBalance, inv.Difference, inv.DifferenceType,
-		nullStr(inv.Reason), string(inv.Status), nullStr(inv.ApprovedBy))
-	if err != nil {
-		return err
-	}
-
-	for i, d := range inv.Denominations {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO cash_inventory_details (id, inventory_id, denomination, count, subtotal, sort_order)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
-			fmt.Sprintf("%s-D%d", inv.ID, i), inv.ID, d.Denomination, d.Count, d.Subtotal, i)
-		if err != nil {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(m).Error; err != nil {
 			return err
 		}
+		for i, d := range inv.Denominations {
+			if err := tx.Exec(
+				`INSERT INTO cash_inventory_details (id, inventory_id, denomination, count, subtotal, sort_order)
+				 VALUES (?,?,?,?,?,?)`,
+				fmt.Sprintf("%s-D%d", m.ID, i), m.ID, d.Denomination, d.Count, d.Subtotal, i,
+			).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-
-	return tx.Commit(ctx)
+	inv.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetInventory(ctx context.Context, id string) (*domain.CashInventory, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, inventory_date, cash_account_id,
-		        currency, book_balance, actual_balance, difference, difference_type,
-		        COALESCE(reason,''), status, COALESCE(approved_by,''), created_at
-		 FROM cash_inventories WHERE id=$1`, id)
-	inv := &domain.CashInventory{}
-	err := row.Scan(&inv.ID, &inv.CompanyID, &inv.InventoryDate, &inv.CashAccountID,
-		&inv.Currency, &inv.BookBalance, &inv.ActualBalance, &inv.Difference, &inv.DifferenceType,
-		&inv.Reason, &inv.Status, &inv.ApprovedBy, &inv.CreatedAt)
-	if err != nil {
+	var m domain.CashInventoryGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrCashInventoryNotFound
 	}
+	inv := gormInventoryToDomain(&m)
 
-	// load denominations
-	drows, err := r.pool.Query(ctx,
+	type denomRow struct {
+		Denomination float64
+		Count        int
+		Subtotal     float64
+	}
+	var dens []denomRow
+	if err := r.db.WithContext(ctx).Raw(
 		`SELECT denomination, count, subtotal FROM cash_inventory_details
-		 WHERE inventory_id=$1 ORDER BY sort_order`, id)
-	if err != nil {
+		 WHERE inventory_id = ? ORDER BY sort_order`, id).Scan(&dens).Error; err != nil {
 		return nil, err
 	}
-	defer drows.Close()
-	for drows.Next() {
-		var d domain.DenominationDetail
-		if err := drows.Scan(&d.Denomination, &d.Count, &d.Subtotal); err != nil {
-			return nil, err
-		}
-		inv.Denominations = append(inv.Denominations, d)
+	for _, d := range dens {
+		inv.Denominations = append(inv.Denominations, domain.DenominationDetail{
+			Denomination: d.Denomination,
+			Count:        d.Count,
+			Subtotal:     d.Subtotal,
+		})
 	}
-
 	return inv, nil
 }
 
-func scanCashInventories(rows pgx.Rows) ([]domain.CashInventory, error) {
-	defer rows.Close()
-	var out []domain.CashInventory
-	for rows.Next() {
-		var inv domain.CashInventory
-		err := rows.Scan(&inv.ID, &inv.CompanyID, &inv.InventoryDate, &inv.CashAccountID,
-			&inv.Currency, &inv.BookBalance, &inv.ActualBalance, &inv.Difference, &inv.DifferenceType,
-			&inv.Reason, &inv.Status, &inv.ApprovedBy, &inv.CreatedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, inv)
+func (r *PGCashRepo) ListInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error) {
+	var models []domain.CashInventoryGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("inventory_date DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.CashInventory, len(models))
+	for i := range models {
+		out[i] = *gormInventoryToDomain(&models[i])
 	}
 	return out, nil
 }
 
-func (r *PGCashRepo) ListInventories(ctx context.Context, companyID string) ([]domain.CashInventory, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, inventory_date, cash_account_id,
-		        currency, book_balance, actual_balance, difference, difference_type,
-		        COALESCE(reason,''), status, COALESCE(approved_by,''), created_at
-		 FROM cash_inventories WHERE company_id=$1 ORDER BY inventory_date DESC`, companyID)
-	if err != nil {
-		return nil, err
-	}
-	return scanCashInventories(rows)
-}
-
 func (r *PGCashRepo) UpdateInventory(ctx context.Context, inv *domain.CashInventory) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	_, err = tx.Exec(ctx,
-		`UPDATE cash_inventories SET inventory_date=$1, cash_account_id=$2,
-		 currency=$3, book_balance=$4, actual_balance=$5, difference=$6,
-		 difference_type=$7, reason=$8, status=$9, approved_by=$10
-		 WHERE id=$11`,
-		inv.InventoryDate, inv.CashAccountID,
-		inv.Currency, inv.BookBalance, inv.ActualBalance, inv.Difference, inv.DifferenceType,
-		nullStr(inv.Reason), string(inv.Status), nullStr(inv.ApprovedBy), inv.ID)
-	if err != nil {
-		return err
-	}
-
-	// replace denominations: delete old, insert new
-	_, err = tx.Exec(ctx, `DELETE FROM cash_inventory_details WHERE inventory_id=$1`, inv.ID)
-	if err != nil {
-		return err
-	}
-	for i, d := range inv.Denominations {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO cash_inventory_details (id, inventory_id, denomination, count, subtotal, sort_order)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
-			fmt.Sprintf("%s-D%d", inv.ID, i), inv.ID, d.Denomination, d.Count, d.Subtotal, i)
-		if err != nil {
+	m := domainToGormInventory(inv)
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.CashInventoryGORM{}).Where("id = ?", inv.ID).Updates(map[string]interface{}{
+			"inventory_date": m.InventoryDate,
+			"cash_account_id": m.Cashier,
+			"currency":       "",
+			"book_balance":   m.TotalCash,
+			"actual_balance": m.CountedAmount,
+			"difference":     m.Difference,
+			"status":         m.Status,
+		}).Error; err != nil {
 			return err
 		}
-	}
-
-	return tx.Commit(ctx)
+		if err := tx.Exec(`DELETE FROM cash_inventory_details WHERE inventory_id = ?`, inv.ID).Error; err != nil {
+			return err
+		}
+		for i, d := range inv.Denominations {
+			if err := tx.Exec(
+				`INSERT INTO cash_inventory_details (id, inventory_id, denomination, count, subtotal, sort_order)
+				 VALUES (?,?,?,?,?,?)`,
+				fmt.Sprintf("%s-D%d", inv.ID, i), inv.ID, d.Denomination, d.Count, d.Subtotal, i,
+			).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
-// ─── Advance Request / Settlement (PG) ────────────────────────────────
+// ─── Advance Request / Settlement ────────────────────────────────────────
 
 func (r *PGCashRepo) CreateAdvance(ctx context.Context, a *domain.AdvanceRequest) error {
+	m := domainToGormAdvance(a)
 	if a.ID == "" {
-		a.ID = fmt.Sprintf("ADV-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("ADV-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO advance_requests (id, company_id, requestor_id, requestor_name,
-		 amount, amount_vnd, currency, exchange_rate, purpose, status,
-		 created_by, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		a.ID, a.CompanyID, a.RequestorID, nullStr(a.RequestorName),
-		a.Amount, a.AmountVND, a.Currency, a.ExchangeRate, a.Purpose, string(a.Status),
-		a.CreatedBy, a.CreatedAt, a.UpdatedAt)
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	a.ID = m.ID
+	return nil
 }
 
 func (r *PGCashRepo) GetAdvance(ctx context.Context, id string) (*domain.AdvanceRequest, error) {
-	row := r.pool.QueryRow(ctx,
-		`SELECT id, company_id, requestor_id, COALESCE(requestor_name,''),
-		 amount, amount_vnd, currency, exchange_rate, purpose, status,
-		 COALESCE(approved_by,''), COALESCE(approved_at,''),
-		 COALESCE(paid_by,''), COALESCE(paid_at,''),
-		 COALESCE(gl_journal_id,''),
-		 created_by, created_at, updated_at
-		 FROM advance_requests WHERE id=$1`, id)
-	a := &domain.AdvanceRequest{}
-	err := row.Scan(&a.ID, &a.CompanyID, &a.RequestorID, &a.RequestorName,
-		&a.Amount, &a.AmountVND, &a.Currency, &a.ExchangeRate, &a.Purpose, &a.Status,
-		&a.ApprovedBy, &a.ApprovedAt, &a.PaidBy, &a.PaidAt, &a.GLJournalID,
-		&a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
-	if err != nil {
+	var m domain.AdvanceRequestGORM
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		return nil, domain.ErrAdvanceNotFound
 	}
-	return a, nil
+	return gormAdvanceToDomain(&m), nil
 }
 
 func (r *PGCashRepo) ListAdvances(ctx context.Context, companyID string) ([]domain.AdvanceRequest, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, requestor_id, COALESCE(requestor_name,''),
-		 amount, amount_vnd, currency, exchange_rate, purpose, status,
-		 COALESCE(approved_by,''), COALESCE(approved_at,''),
-		 COALESCE(paid_by,''), COALESCE(paid_at,''),
-		 COALESCE(gl_journal_id,''),
-		 created_by, created_at, updated_at
-		 FROM advance_requests WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil {
+	var models []domain.AdvanceRequestGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	return scanAdvances(rows)
-}
-
-func scanAdvances(rows pgx.Rows) ([]domain.AdvanceRequest, error) {
-	defer rows.Close()
-	var out []domain.AdvanceRequest
-	for rows.Next() {
-		var a domain.AdvanceRequest
-		err := rows.Scan(&a.ID, &a.CompanyID, &a.RequestorID, &a.RequestorName,
-			&a.Amount, &a.AmountVND, &a.Currency, &a.ExchangeRate, &a.Purpose, &a.Status,
-			&a.ApprovedBy, &a.ApprovedAt, &a.PaidBy, &a.PaidAt, &a.GLJournalID,
-			&a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
+	out := make([]domain.AdvanceRequest, len(models))
+	for i := range models {
+		out[i] = *gormAdvanceToDomain(&models[i])
 	}
 	return out, nil
 }
 
 func (r *PGCashRepo) UpdateAdvance(ctx context.Context, a *domain.AdvanceRequest) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE advance_requests SET requestor_id=$1, requestor_name=$2,
-		 amount=$3, amount_vnd=$4, currency=$5, exchange_rate=$6,
-		 purpose=$7, status=$8, approved_by=$9, approved_at=$10,
-		 paid_by=$11, paid_at=$12, gl_journal_id=$13, updated_at=$14
-		 WHERE id=$15`,
-		a.RequestorID, nullStr(a.RequestorName),
-		a.Amount, a.AmountVND, a.Currency, a.ExchangeRate,
-		a.Purpose, string(a.Status), nullStr(a.ApprovedBy), nullStr(a.ApprovedAt),
-		nullStr(a.PaidBy), nullStr(a.PaidAt), nullStr(a.GLJournalID), a.UpdatedAt,
-		a.ID)
-	return err
+	m := domainToGormAdvance(a)
+	return r.db.WithContext(ctx).Model(&domain.AdvanceRequestGORM{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+		"employee_id": m.EmployeeID,
+		"amount":      m.Amount,
+		"currency":    m.Currency,
+		"purpose":     m.Purpose,
+		"status":      m.Status,
+		"approved_by": m.ApprovedBy,
+		"approved_at": m.ApprovedAt,
+		"gl_je_id":    m.GLJEID,
+		"updated_at":  time.Now(),
+	}).Error
 }
 
 func (r *PGCashRepo) ListAdvancesByStatus(ctx context.Context, companyID string, status domain.AdvanceStatus) ([]domain.AdvanceRequest, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, company_id, requestor_id, COALESCE(requestor_name,''),
-		 amount, amount_vnd, currency, exchange_rate, purpose, status,
-		 COALESCE(approved_by,''), COALESCE(approved_at,''),
-		 COALESCE(paid_by,''), COALESCE(paid_at,''),
-		 COALESCE(gl_journal_id,''),
-		 created_by, created_at, updated_at
-		 FROM advance_requests WHERE company_id=$1 AND status=$2 ORDER BY created_at DESC`, companyID, string(status))
-	if err != nil {
+	var models []domain.AdvanceRequestGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND status = ?", companyID, string(status)).Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	return scanAdvances(rows)
+	out := make([]domain.AdvanceRequest, len(models))
+	for i := range models {
+		out[i] = *gormAdvanceToDomain(&models[i])
+	}
+	return out, nil
 }
 
 func (r *PGCashRepo) CreateAdvanceSettlement(ctx context.Context, s *domain.AdvanceSettlement) error {
+	m := domainToGormAdvanceSettlement(s)
 	if s.ID == "" {
-		s.ID = fmt.Sprintf("ADVS-%d", time.Now().UnixNano())
+		m.ID = fmt.Sprintf("ADVS-%d", time.Now().UnixNano())
 	}
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO advance_settlements (id, advance_id, company_id,
-		 total_spent, remaining_amount, currency, notes, status, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		s.ID, s.AdvanceID, s.CompanyID,
-		s.TotalSpent, s.RemainingAmount, s.Currency, nullStr(s.Notes), s.Status, s.CreatedAt)
-	return err
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		return err
+	}
+	s.ID = m.ID
+	return nil
 }

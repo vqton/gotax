@@ -4,1190 +4,1634 @@ import (
 	"context"
 	"fmt"
 	"gotax/internal/domain"
+	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 )
 
-type PGSaleRepo struct {
-	pool *pgxpool.Pool
+// ─── Customer ──────────────────────────────────────────────────────────
+
+type PGCustomerRepo struct {
+	db *gorm.DB
 }
 
-func NewPGSaleRepo(pool *pgxpool.Pool) *PGSaleRepo {
-	return &PGSaleRepo{pool: pool}
+func NewPGCustomerRepo(db *gorm.DB) *PGCustomerRepo {
+	return &PGCustomerRepo{db: db}
 }
 
-// ─── Customer ────────────────────────────────────────────────────────────
-
-func (r *PGSaleRepo) CreateCustomer(ctx context.Context, c *domain.Customer) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if c.Status == "" {
-		c.Status = domain.CustomerActive
+func customerToGORM(c *domain.Customer) *domain.CustomerGORM {
+	tc := c.TaxCode
+	if tc == "" {
+		tc = " "
 	}
-	return r.pool.QueryRow(ctx, `INSERT INTO customers (id,company_id,code,name,tax_code,address,phone,email,bank_account_name,bank_account_number,bank_name,payment_terms,credit_limit,currency,customer_type,status,notes,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-		c.ID, c.CompanyID, c.Code, c.Name, c.TaxCode, c.Address, c.Phone, c.Email, c.BankAccountName, c.BankAccountNumber, c.BankName, c.PaymentTerms, c.CreditLimit, c.Currency, c.CustomerType, c.Status, c.Notes, now, now,
-	).Scan(&c.ID)
+	addr := c.Address
+	ph := c.Phone
+	em := c.Email
+	return &domain.CustomerGORM{
+		ID:         c.ID,
+		CompanyID:  c.CompanyID,
+		Code:       c.Code,
+		Name:       c.Name,
+		TaxCode:    &tc,
+		Address:    &addr,
+		Phone:      &ph,
+		Email:      &em,
+		IsActive:   c.Status == domain.CustomerActive,
+		CreatedAt:  c.CreatedAt,
+		UpdatedAt:  c.UpdatedAt,
+	}
 }
 
-func scanCustomer(row pgx.Row) (domain.Customer, error) {
-	var c domain.Customer
-	err := row.Scan(&c.ID, &c.CompanyID, &c.Code, &c.Name, &c.TaxCode, &c.Address, &c.Phone, &c.Email, &c.BankAccountName, &c.BankAccountNumber, &c.BankName, &c.PaymentTerms, &c.CreditLimit, &c.Currency, &c.CustomerType, &c.Status, &c.Notes, &c.CreatedAt, &c.UpdatedAt)
-	return c, err
+func customerFromGORM(g *domain.CustomerGORM) *domain.Customer {
+	c := &domain.Customer{
+		ID:        g.ID,
+		CompanyID: g.CompanyID,
+		Code:      g.Code,
+		Name:      g.Name,
+		Status:    domain.CustomerActive,
+		Currency:  "VND",
+		CreatedBy: "",
+		CreatedAt: g.CreatedAt,
+		UpdatedAt: g.UpdatedAt,
+	}
+	if g.TaxCode != nil && *g.TaxCode != " " {
+		c.TaxCode = *g.TaxCode
+	}
+	if g.Address != nil {
+		c.Address = *g.Address
+	}
+	if g.Phone != nil {
+		c.Phone = *g.Phone
+	}
+	if g.Email != nil {
+		c.Email = *g.Email
+	}
+	if !g.IsActive {
+		c.Status = domain.CustomerSuspended
+	}
+	return c
 }
 
-func (r *PGSaleRepo) GetCustomer(ctx context.Context, id string) (*domain.Customer, error) {
-	c, err := scanCustomer(r.pool.QueryRow(ctx, `SELECT id,company_id,code,name,tax_code,address,phone,email,bank_account_name,bank_account_number,bank_name,payment_terms,credit_limit,currency,customer_type,status,notes,created_at,updated_at FROM customers WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCustomerRepo) CreateCustomer(ctx context.Context, c *domain.Customer) error {
+	g := customerToGORM(c)
+	if err := r.db.WithContext(ctx).Create(g).Error; err != nil {
+		return err
+	}
+	c.ID = g.ID
+	c.CreatedAt = g.CreatedAt
+	c.UpdatedAt = g.UpdatedAt
+	return nil
+}
+
+func (r *PGCustomerRepo) GetCustomer(ctx context.Context, id string) (*domain.Customer, error) {
+	var g domain.CustomerGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrCustomerNotFound
 		}
 		return nil, err
 	}
-	return &c, nil
+	return customerFromGORM(&g), nil
 }
 
-func (r *PGSaleRepo) GetCustomerByCode(ctx context.Context, companyID, code string) (*domain.Customer, error) {
-	c, err := scanCustomer(r.pool.QueryRow(ctx, `SELECT id,company_id,code,name,tax_code,address,phone,email,bank_account_name,bank_account_number,bank_name,payment_terms,credit_limit,currency,customer_type,status,notes,created_at,updated_at FROM customers WHERE company_id=$1 AND code=$2`, companyID, code))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCustomerRepo) GetCustomerByCode(ctx context.Context, companyID, code string) (*domain.Customer, error) {
+	var g domain.CustomerGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ? AND code = ?", companyID, code).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrCustomerNotFound
 		}
 		return nil, err
 	}
-	return &c, nil
+	return customerFromGORM(&g), nil
 }
 
-func (r *PGSaleRepo) ListCustomers(ctx context.Context, companyID string) ([]domain.Customer, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,company_id,code,name,tax_code,address,phone,email,bank_account_name,bank_account_number,bank_name,payment_terms,credit_limit,currency,customer_type,status,notes,created_at,updated_at FROM customers WHERE company_id=$1 ORDER BY code`, companyID)
-	if err != nil {
+func (r *PGCustomerRepo) ListCustomers(ctx context.Context, companyID string) ([]domain.Customer, error) {
+	var gs []domain.CustomerGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("code").Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.Customer
-	for rows.Next() {
-		c, err := scanCustomer(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, c)
+	out := make([]domain.Customer, len(gs))
+	for i := range gs {
+		out[i] = *customerFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) UpdateCustomer(ctx context.Context, c *domain.Customer) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE customers SET code=$1,name=$2,tax_code=$3,address=$4,phone=$5,email=$6,bank_account_name=$7,bank_account_number=$8,bank_name=$9,payment_terms=$10,credit_limit=$11,currency=$12,customer_type=$13,status=$14,notes=$15,updated_at=$16 WHERE id=$17`,
-		c.Code, c.Name, c.TaxCode, c.Address, c.Phone, c.Email, c.BankAccountName, c.BankAccountNumber, c.BankName, c.PaymentTerms, c.CreditLimit, c.Currency, c.CustomerType, c.Status, c.Notes, now, c.ID)
-	return err
+func (r *PGCustomerRepo) UpdateCustomer(ctx context.Context, c *domain.Customer) error {
+	g := customerToGORM(c)
+	return r.db.WithContext(ctx).Model(&domain.CustomerGORM{}).Where("id = ?", c.ID).Updates(map[string]interface{}{
+		"code":      g.Code,
+		"name":      g.Name,
+		"tax_code":  g.TaxCode,
+		"address":   g.Address,
+		"phone":     g.Phone,
+		"email":     g.Email,
+		"is_active": g.IsActive,
+	}).Error
 }
 
-func (r *PGSaleRepo) DeleteCustomer(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customers SET status=$1 WHERE id=$2`, domain.CustomerSuspended, id)
-	return err
+func (r *PGCustomerRepo) DeleteCustomer(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerGORM{}).Where("id = ?", id).Update("is_active", false).Error
 }
 
-// ─── Sales Order ─────────────────────────────────────────────────────────
+// ─── Sales Order ────────────────────────────────────────────────────────
 
-func (r *PGSaleRepo) CreateSO(ctx context.Context, so *domain.SalesOrder) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if so.Status == "" {
-		so.Status = domain.SODraft
+type PGSaleOrderRepo struct {
+	db *gorm.DB
+}
+
+func NewPGSaleOrderRepo(db *gorm.DB) *PGSaleOrderRepo {
+	return &PGSaleOrderRepo{db: db}
+}
+
+func soToGORM(so *domain.SalesOrder) *domain.SalesOrderGORM {
+	g := &domain.SalesOrderGORM{
+		ID:          so.ID,
+		CompanyID:   so.CompanyID,
+		SONumber:    so.SONumber,
+		OrderDate:   so.OrderDate,
+		CustomerID:  so.CustomerID,
+		Subtotal:    so.Subtotal,
+		TaxAmount:   so.TaxAmount,
+		TotalAmount: so.TotalAmount,
+		Currency:    so.Currency,
+		Status:      string(so.Status),
+		ApprovedBy:  &so.ApprovedBy,
+		CreatedBy:   so.CreatedBy,
+		CreatedAt:   so.CreatedAt,
+		UpdatedAt:   so.UpdatedAt,
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
+	if so.ExpectedDate != nil {
+		g.DeliveryDate = so.ExpectedDate
 	}
-	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO sales_orders (id,company_id,so_number,quotation_id,customer_id,order_date,expected_date,currency,exchange_rate,payment_terms,delivery_terms,shipping_address,subtotal,discount_amount,tax_amount,total_amount,status,approved_by,approved_at,cancelled_reason,notes,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
-		so.ID, so.CompanyID, so.SONumber, so.QuotationID, so.CustomerID, so.OrderDate.Format(time.RFC3339), pt(so.ExpectedDate), so.Currency, so.ExchangeRate, so.PaymentTerms, so.DeliveryTerms, so.ShippingAddress, so.Subtotal, so.DiscountAmount, so.TaxAmount, so.TotalAmount, so.Status, so.ApprovedBy, pt(so.ApprovedAt), so.CancelledReason, so.Notes, so.CreatedBy, now, now,
-	).Scan(&so.ID); err != nil {
-		return err
+	if so.ApprovedAt != nil {
+		g.ApprovedAt = so.ApprovedAt
 	}
-	for _, l := range so.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO so_lines (id,so_id,line_number,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,revenue_account_id,vat_account_id,line_total,line_vat_amount,delivered_qty,invoiced_qty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-			l.ID, so.ID, l.LineNumber, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.RevenueAccount, l.VATAccountID, l.LineTotal, l.LineVATAmount, l.DeliveredQty, l.InvoicedQty)
-		if err != nil {
+	if so.ShippingAddress != "" {
+		g.DeliveryAddress = &so.ShippingAddress
+	}
+	if so.PaymentTerms != "" {
+		g.PaymentTerms = &so.PaymentTerms
+	}
+	return g
+}
+
+func soFromGORM(g *domain.SalesOrderGORM) *domain.SalesOrder {
+	so := &domain.SalesOrder{
+		ID:          g.ID,
+		CompanyID:   g.CompanyID,
+		SONumber:    g.SONumber,
+		OrderDate:   g.OrderDate,
+		CustomerID:  g.CustomerID,
+		Subtotal:    g.Subtotal,
+		TaxAmount:   g.TaxAmount,
+		TotalAmount: g.TotalAmount,
+		Currency:    g.Currency,
+		Status:      domain.SOStatus(g.Status),
+		CreatedBy:   g.CreatedBy,
+		CreatedAt:   g.CreatedAt,
+		UpdatedAt:   g.UpdatedAt,
+	}
+	if g.DeliveryDate != nil {
+		so.ExpectedDate = g.DeliveryDate
+	}
+	if g.ApprovedAt != nil {
+		so.ApprovedAt = g.ApprovedAt
+	}
+	if g.ApprovedBy != nil {
+		so.ApprovedBy = *g.ApprovedBy
+	}
+	if g.DeliveryAddress != nil {
+		so.ShippingAddress = *g.DeliveryAddress
+	}
+	if g.PaymentTerms != nil {
+		so.PaymentTerms = *g.PaymentTerms
+	}
+	return so
+}
+
+func (r *PGSaleOrderRepo) CreateSO(ctx context.Context, so *domain.SalesOrder) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		g := soToGORM(so)
+		if err := tx.Create(g).Error; err != nil {
 			return err
 		}
-	}
-	return tx.Commit(ctx)
+		so.ID = g.ID
+		so.CreatedAt = g.CreatedAt
+		so.UpdatedAt = g.UpdatedAt
+		for _, l := range so.Lines {
+			lg := soLineToGORM(&l)
+			lg.SOID = so.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
-func scanSO(row pgx.Row) (domain.SalesOrder, error) {
-	var so domain.SalesOrder
-	var orderDate, expDate, appAt, crAt, upAt string
-	err := row.Scan(&so.ID, &so.CompanyID, &so.SONumber, &so.QuotationID, &so.CustomerID, &orderDate, &expDate, &so.Currency, &so.ExchangeRate, &so.PaymentTerms, &so.DeliveryTerms, &so.ShippingAddress, &so.Subtotal, &so.DiscountAmount, &so.TaxAmount, &so.TotalAmount, &so.Status, &so.ApprovedBy, &appAt, &so.CancelledReason, &so.Notes, &so.CreatedBy, &crAt, &upAt)
-	if err != nil {
-		return so, err
+func (r *PGSaleOrderRepo) GetSO(ctx context.Context, id string) (*domain.SalesOrder, error) {
+	var g domain.SalesOrderGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrSONotFound
+		}
+		return nil, err
 	}
-	so.OrderDate, _ = time.Parse(time.RFC3339, orderDate)
-	if expDate != "" {
-		t, _ := time.Parse(time.RFC3339, expDate)
-		so.ExpectedDate = &t
+	so := soFromGORM(&g)
+	so.Lines = make([]domain.SOLine, len(g.Lines))
+	for i, l := range g.Lines {
+		so.Lines[i] = *soLineFromGORM(&l)
 	}
-	if appAt != "" {
-		t, _ := time.Parse(time.RFC3339, appAt)
-		so.ApprovedAt = &t
-	}
-	so.CreatedAt, _ = time.Parse(time.RFC3339, crAt)
-	so.UpdatedAt, _ = time.Parse(time.RFC3339, upAt)
 	return so, nil
 }
 
-func (r *PGSaleRepo) GetSO(ctx context.Context, id string) (*domain.SalesOrder, error) {
-	so, err := scanSO(r.pool.QueryRow(ctx, `SELECT id,company_id,so_number,quotation_id,customer_id,order_date,expected_date,currency,exchange_rate,payment_terms,delivery_terms,shipping_address,subtotal,discount_amount,tax_amount,total_amount,status,approved_by,approved_at,cancelled_reason,notes,created_by,created_at,updated_at FROM sales_orders WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGSaleOrderRepo) GetSOByNumber(ctx context.Context, companyID, soNumber string) (*domain.SalesOrder, error) {
+	var g domain.SalesOrderGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").Where("company_id = ? AND so_number = ?", companyID, soNumber).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrSONotFound
 		}
 		return nil, err
 	}
-	so.Lines, _ = r.GetSOLines(ctx, id)
-	return &so, nil
+	so := soFromGORM(&g)
+	so.Lines = make([]domain.SOLine, len(g.Lines))
+	for i, l := range g.Lines {
+		so.Lines[i] = *soLineFromGORM(&l)
+	}
+	return so, nil
 }
 
-func (r *PGSaleRepo) GetSOByNumber(ctx context.Context, companyID, soNumber string) (*domain.SalesOrder, error) {
-	so, err := scanSO(r.pool.QueryRow(ctx, `SELECT id,company_id,so_number,quotation_id,customer_id,order_date,expected_date,currency,exchange_rate,payment_terms,delivery_terms,shipping_address,subtotal,discount_amount,tax_amount,total_amount,status,approved_by,approved_at,cancelled_reason,notes,created_by,created_at,updated_at FROM sales_orders WHERE company_id=$1 AND so_number=$2`, companyID, soNumber))
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrSONotFound
-		}
-		return nil, err
+func (r *PGSaleOrderRepo) ListSOs(ctx context.Context, filter domain.SalesOrderFilter) ([]domain.SalesOrder, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.SalesOrderGORM{}).Where("company_id = ?", filter.CompanyID)
+	if filter.CustomerID != "" {
+		q = q.Where("customer_id = ?", filter.CustomerID)
 	}
-	so.Lines, _ = r.GetSOLines(ctx, so.ID)
-	return &so, nil
-}
-
-type soCountArgs struct {
-	companyID  string
-	customerID string
-	status     string
-	fromDate   string
-	toDate     string
-}
-
-func soCountClauses(f domain.SalesOrderFilter) (string, []interface{}) {
-	args := []interface{}{f.CompanyID}
-	n := 2
-	q := ""
-	if f.CustomerID != "" {
-		q += fmt.Sprintf(" AND customer_id=$%d", n); args = append(args, f.CustomerID); n++
+	if filter.Status != "" {
+		q = q.Where("status = ?", string(filter.Status))
 	}
-	if f.Status != "" {
-		q += fmt.Sprintf(" AND status=$%d", n); args = append(args, string(f.Status)); n++
+	if filter.FromDate != "" {
+		q = q.Where("order_date >= ?", filter.FromDate)
 	}
-	if f.FromDate != "" {
-		q += fmt.Sprintf(" AND order_date>=$%d", n); args = append(args, f.FromDate); n++
+	if filter.ToDate != "" {
+		q = q.Where("order_date <= ?", filter.ToDate)
 	}
-	if f.ToDate != "" {
-		q += fmt.Sprintf(" AND order_date<=$%d", n); args = append(args, f.ToDate); n++
-	}
-	return q, args
-}
-
-func (r *PGSaleRepo) ListSOs(ctx context.Context, filter domain.SalesOrderFilter) ([]domain.SalesOrder, int, error) {
-	where, args := soCountClauses(filter)
-	var total int
-	cq := `SELECT COUNT(*) FROM sales_orders WHERE company_id=$1` + where
-	if err := r.pool.QueryRow(ctx, cq, args...).Scan(&total); err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,company_id,so_number,quotation_id,customer_id,order_date,expected_date,currency,exchange_rate,payment_terms,delivery_terms,shipping_address,subtotal,discount_amount,tax_amount,total_amount,status,approved_by,approved_at,cancelled_reason,notes,created_by,created_at,updated_at FROM sales_orders WHERE company_id=$1` + where
-	dArgs := make([]interface{}, len(args))
-	copy(dArgs, args)
-	n := len(args) + 1
-	q += " ORDER BY order_date DESC"
+	var gs []domain.SalesOrderGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
+	if filter.CustomerID != "" {
+		dq = dq.Where("customer_id = ?", filter.CustomerID)
+	}
+	if filter.Status != "" {
+		dq = dq.Where("status = ?", string(filter.Status))
+	}
+	if filter.FromDate != "" {
+		dq = dq.Where("order_date >= ?", filter.FromDate)
+	}
+	if filter.ToDate != "" {
+		dq = dq.Where("order_date <= ?", filter.ToDate)
+	}
+	dq = dq.Order("order_date DESC")
 	if filter.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n); dArgs = append(dArgs, filter.Limit); n++
+		dq = dq.Limit(filter.Limit)
 	}
 	if filter.Offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n); dArgs = append(dArgs, filter.Offset)
+		dq = dq.Offset(filter.Offset)
 	}
-	rows, err := r.pool.Query(ctx, q, dArgs...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.SalesOrder
-	for rows.Next() {
-		so, err := scanSO(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, so)
+	out := make([]domain.SalesOrder, len(gs))
+	for i := range gs {
+		so := soFromGORM(&gs[i])
+		r.db.WithContext(ctx).Model(&domain.SOLineGORM{}).Where("so_id = ?", gs[i].ID).Find(&so.Lines)
+		out[i] = *so
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-func (r *PGSaleRepo) UpdateSO(ctx context.Context, so *domain.SalesOrder) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `UPDATE sales_orders SET so_number=$1,customer_id=$2,order_date=$3,expected_date=$4,currency=$5,exchange_rate=$6,payment_terms=$7,delivery_terms=$8,shipping_address=$9,subtotal=$10,discount_amount=$11,tax_amount=$12,total_amount=$13,status=$14,notes=$15,updated_at=$16 WHERE id=$17`,
-		so.SONumber, so.CustomerID, so.OrderDate.Format(time.RFC3339), so.ExpectedDate.Format(time.RFC3339), so.Currency, so.ExchangeRate, so.PaymentTerms, so.DeliveryTerms, so.ShippingAddress, so.Subtotal, so.DiscountAmount, so.TaxAmount, so.TotalAmount, so.Status, so.Notes, now, so.ID)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM so_lines WHERE so_id=$1`, so.ID); err != nil {
-		return err
-	}
-	for _, l := range so.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO so_lines (id,so_id,line_number,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,revenue_account_id,vat_account_id,line_total,line_vat_amount,delivered_qty,invoiced_qty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-			l.ID, so.ID, l.LineNumber, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.RevenueAccount, l.VATAccountID, l.LineTotal, l.LineVATAmount, l.DeliveredQty, l.InvoicedQty)
-		if err != nil {
+func (r *PGSaleOrderRepo) UpdateSO(ctx context.Context, so *domain.SalesOrder) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.SalesOrderGORM{}).Where("id = ?", so.ID).Updates(map[string]interface{}{
+			"customer_id":     so.CustomerID,
+			"order_date":      so.OrderDate,
+			"currency":        so.Currency,
+			"payment_terms":   so.PaymentTerms,
+			"delivery_address": so.ShippingAddress,
+			"status":          string(so.Status),
+			"notes":           so.Notes,
+		}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("so_id = ?", so.ID).Delete(&domain.SOLineGORM{}).Error; err != nil {
+			return err
+		}
+		for _, l := range so.Lines {
+			lg := soLineToGORM(&l)
+			lg.SOID = so.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *PGSaleOrderRepo) UpdateSOStatus(ctx context.Context, id string, status domain.SOStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.SalesOrderGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func (r *PGSaleOrderRepo) ApproveSO(ctx context.Context, id, approvedBy string, approvedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.SalesOrderGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":      string(domain.SOApproved),
+		"approved_by": approvedBy,
+		"approved_at": approvedAt,
+	}).Error
+}
+
+func (r *PGSaleOrderRepo) CancelSO(ctx context.Context, id, cancelReason string) error {
+	return r.db.WithContext(ctx).Model(&domain.SalesOrderGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":   string(domain.SOCancelled),
+		"cancelled_reason": cancelReason,
+	}).Error
+}
+
+func soLineToGORM(l *domain.SOLine) *domain.SOLineGORM {
+	disc := l.DiscountPct
+	tax := l.VATRate
+	return &domain.SOLineGORM{
+		LineNumber: l.LineNumber,
+		ItemCode:   l.ItemCode,
+		ItemName:   l.ItemName,
+		Quantity:   l.Quantity,
+		UnitPrice:  l.UnitPrice,
+		LineTotal:  l.LineTotal,
+		Discount:   &disc,
+		TaxRate:    &tax,
 	}
-	return tx.Commit(ctx)
 }
 
-func (r *PGSaleRepo) UpdateSOStatus(ctx context.Context, id string, status domain.SOStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE sales_orders SET status=$1,updated_at=$2 WHERE id=$3`, string(status), now, id)
-	return err
+func soLineFromGORM(g *domain.SOLineGORM) *domain.SOLine {
+	l := &domain.SOLine{
+		ID:        strconv.Itoa(int(g.ID)),
+		SOID:      g.SOID,
+		LineNumber: g.LineNumber,
+		ItemCode:  g.ItemCode,
+		ItemName:  g.ItemName,
+		Unit:      "",
+		Quantity:  g.Quantity,
+		UnitPrice: g.UnitPrice,
+		LineTotal: g.LineTotal,
+		VATRate:   10,
+	}
+	if g.Discount != nil {
+		l.DiscountPct = *g.Discount
+	}
+	if g.TaxRate != nil {
+		l.VATRate = *g.TaxRate
+	}
+	return l
 }
 
-func (r *PGSaleRepo) ApproveSO(ctx context.Context, id, approvedBy string, approvedAt time.Time) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE sales_orders SET status=$1,approved_by=$2,approved_at=$3,updated_at=$4 WHERE id=$5`,
-		string(domain.SOApproved), approvedBy, approvedAt.Format(time.RFC3339), now, id)
-	return err
-}
-
-func (r *PGSaleRepo) CancelSO(ctx context.Context, id, cancelReason string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.pool.Exec(ctx, `UPDATE sales_orders SET status=$1,cancelled_reason=$2,updated_at=$3 WHERE id=$4`,
-		string(domain.SOCancelled), cancelReason, now, id)
-	return err
-}
-
-func (r *PGSaleRepo) GetSOLines(ctx context.Context, soID string) ([]domain.SOLine, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,so_id,line_number,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,revenue_account_id,vat_account_id,line_total,line_vat_amount,delivered_qty,invoiced_qty FROM so_lines WHERE so_id=$1 ORDER BY line_number`, soID)
-	if err != nil {
+func (r *PGSaleOrderRepo) GetSOLines(ctx context.Context, soID string) ([]domain.SOLine, error) {
+	var gs []domain.SOLineGORM
+	if err := r.db.WithContext(ctx).Where("so_id = ?", soID).Order("line_number").Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.SOLine
-	for rows.Next() {
-		var l domain.SOLine
-		if err := rows.Scan(&l.ID, &l.SOID, &l.LineNumber, &l.ItemCode, &l.ItemName, &l.Unit, &l.Quantity, &l.UnitPrice, &l.DiscountPct, &l.VATRate, &l.VATType, &l.RevenueAccount, &l.VATAccountID, &l.LineTotal, &l.LineVATAmount, &l.DeliveredQty, &l.InvoicedQty); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
+	out := make([]domain.SOLine, len(gs))
+	for i := range gs {
+		out[i] = *soLineFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) CreateSOLines(ctx context.Context, items []domain.SOLine) error {
+func (r *PGSaleOrderRepo) CreateSOLines(ctx context.Context, items []domain.SOLine) error {
+	if len(items) == 0 {
+		return nil
+	}
+	gs := make([]domain.SOLineGORM, len(items))
+	for i := range items {
+		gs[i] = *soLineToGORM(&items[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGSaleOrderRepo) UpdateSOLines(ctx context.Context, items []domain.SOLine) error {
 	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `INSERT INTO so_lines (id,so_id,line_number,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,revenue_account_id,vat_account_id,line_total,line_vat_amount,delivered_qty,invoiced_qty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-			l.ID, l.SOID, l.LineNumber, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.RevenueAccount, l.VATAccountID, l.LineTotal, l.LineVATAmount, l.DeliveredQty, l.InvoicedQty)
-		if err != nil {
+		g := soLineToGORM(&l)
+		if err := r.db.WithContext(ctx).Model(&domain.SOLineGORM{}).Where("id = ?", l.ID).Updates(map[string]interface{}{
+			"item_code":  g.ItemCode,
+			"item_name":  g.ItemName,
+			"quantity":   g.Quantity,
+			"unit_price": g.UnitPrice,
+			"line_total": g.LineTotal,
+			"discount":   g.Discount,
+			"tax_rate":   g.TaxRate,
+		}).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *PGSaleRepo) UpdateSOLines(ctx context.Context, items []domain.SOLine) error {
-	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `UPDATE so_lines SET item_code=$1,item_name=$2,unit=$3,quantity=$4,unit_price=$5,discount_pct=$6,vat_rate=$7,vat_type=$8,revenue_account_id=$9,vat_account_id=$10,line_total=$11,line_vat_amount=$12,delivered_qty=$13,invoiced_qty=$14 WHERE id=$15`,
-			l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.RevenueAccount, l.VATAccountID, l.LineTotal, l.LineVATAmount, l.DeliveredQty, l.InvoicedQty, l.ID)
-		if err != nil {
+func (r *PGSaleOrderRepo) NextSONumber(ctx context.Context, companyID, yyyymm string) (string, error) {
+	prefix := fmt.Sprintf("SO-%s-", yyyymm)
+	var maxNum int
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(MAX(CAST(SUBSTRING(so_number FROM '([0-9]+)$') AS INTEGER)), 0) FROM sales_orders WHERE company_id = ? AND so_number LIKE ?`, companyID, prefix+"%").Scan(&maxNum).Error; err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%05d", prefix, maxNum+1), nil
+}
+
+// ─── Delivery Note ──────────────────────────────────────────────────────
+
+type PGDeliveryNoteRepo struct {
+	db *gorm.DB
+}
+
+func NewPGDeliveryNoteRepo(db *gorm.DB) *PGDeliveryNoteRepo {
+	return &PGDeliveryNoteRepo{db: db}
+}
+
+func dnToGORM(dn *domain.DeliveryNote) *domain.DeliveryNoteGORM {
+	g := &domain.DeliveryNoteGORM{
+		ID:        dn.ID,
+		CompanyID: dn.CompanyID,
+		DNNumber:  dn.DNNumber,
+		DNDate:    dn.DeliveryDate,
+		SOID:      &dn.SOID,
+		Status:    string(dn.Status),
+		CreatedBy: dn.CreatedBy,
+		CreatedAt: dn.CreatedAt,
+		UpdatedAt: dn.UpdatedAt,
+	}
+	return g
+}
+
+func dnFromGORM(g *domain.DeliveryNoteGORM) *domain.DeliveryNote {
+	dn := &domain.DeliveryNote{
+		ID:           g.ID,
+		CompanyID:    g.CompanyID,
+		DNNumber:     g.DNNumber,
+		DeliveryDate: g.DNDate,
+		Status:       domain.DNStatus(g.Status),
+		CreatedBy:    g.CreatedBy,
+		CreatedAt:    g.CreatedAt,
+	}
+	if g.SOID != nil {
+		dn.SOID = *g.SOID
+	}
+	return dn
+}
+
+func (r *PGDeliveryNoteRepo) CreateDN(ctx context.Context, dn *domain.DeliveryNote) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		g := dnToGORM(dn)
+		if err := tx.Create(g).Error; err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (r *PGSaleRepo) NextSONumber(ctx context.Context, companyID, yyyymm string) (string, error) {
-	var n int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*)+1 FROM sales_orders WHERE company_id=$1 AND so_number LIKE $2`, companyID, "SO-"+yyyymm+"-%").Scan(&n)
-	if err != nil {
-		return fmt.Sprintf("SO-%s-00001", yyyymm), nil
-	}
-	return fmt.Sprintf("SO-%s-%05d", yyyymm, n), nil
-}
-
-// ─── Delivery Note ────────────────────────────────────────────────────────
-
-func (r *PGSaleRepo) CreateDN(ctx context.Context, dn *domain.DeliveryNote) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if dn.Status == "" {
-		dn.Status = domain.DNDraft
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO delivery_notes (id,company_id,dn_number,so_id,delivery_date,warehouse,shipping_method,carrier_name,tracking_number,delivery_address,status,notes,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
-		dn.ID, dn.CompanyID, dn.DNNumber, dn.SOID, dn.DeliveryDate.Format(time.RFC3339), dn.Warehouse, dn.ShippingMethod, dn.CarrierName, dn.TrackingNumber, dn.DeliveryAddress, dn.Status, dn.Notes, dn.CreatedBy, now,
-	).Scan(&dn.ID); err != nil {
-		return err
-	}
-	for _, l := range dn.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO dn_lines (id,dn_id,so_line_id,item_code,item_name,unit,qty_delivered,qty_returned,unit_price,line_total,cost_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-			l.ID, dn.ID, l.SOLineID, l.ItemCode, l.ItemName, l.Unit, l.QtyDelivered, l.QtyReturned, l.UnitPrice, l.LineTotal, l.CostPrice)
-		if err != nil {
-			return err
+		dn.ID = g.ID
+		dn.CreatedAt = g.CreatedAt
+		for _, l := range dn.Lines {
+			lg := dnLineToGORM(&l)
+			lg.DNID = dn.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
 		}
-	}
-	return tx.Commit(ctx)
+		return nil
+	})
 }
 
-func scanDN(row pgx.Row) (domain.DeliveryNote, error) {
-	var dn domain.DeliveryNote
-	var delDate, crAt string
-	err := row.Scan(&dn.ID, &dn.CompanyID, &dn.DNNumber, &dn.SOID, &delDate, &dn.Warehouse, &dn.ShippingMethod, &dn.CarrierName, &dn.TrackingNumber, &dn.DeliveryAddress, &dn.Status, &dn.Notes, &dn.CreatedBy, &crAt)
-	if err != nil {
-		return dn, err
+func (r *PGDeliveryNoteRepo) GetDN(ctx context.Context, id string) (*domain.DeliveryNote, error) {
+	var g domain.DeliveryNoteGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrDNNotFound
+		}
+		return nil, err
 	}
-	dn.DeliveryDate, _ = time.Parse(time.RFC3339, delDate)
-	dn.CreatedAt, _ = time.Parse(time.RFC3339, crAt)
+	dn := dnFromGORM(&g)
+	dn.Lines = make([]domain.DNLine, len(g.Lines))
+	for i, l := range g.Lines {
+		dn.Lines[i] = *dnLineFromGORM(&l)
+	}
 	return dn, nil
 }
 
-func (r *PGSaleRepo) GetDN(ctx context.Context, id string) (*domain.DeliveryNote, error) {
-	dn, err := scanDN(r.pool.QueryRow(ctx, `SELECT id,company_id,dn_number,so_id,delivery_date,warehouse,shipping_method,carrier_name,tracking_number,delivery_address,status,notes,created_by,created_at FROM delivery_notes WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGDeliveryNoteRepo) GetDNByNumber(ctx context.Context, companyID, dnNumber string) (*domain.DeliveryNote, error) {
+	var g domain.DeliveryNoteGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").Where("company_id = ? AND dn_number = ?", companyID, dnNumber).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrDNNotFound
 		}
 		return nil, err
 	}
-	dn.Lines, _ = r.GetDNLines(ctx, id)
-	return &dn, nil
-}
-
-func (r *PGSaleRepo) GetDNByNumber(ctx context.Context, companyID, dnNumber string) (*domain.DeliveryNote, error) {
-	dn, err := scanDN(r.pool.QueryRow(ctx, `SELECT id,company_id,dn_number,so_id,delivery_date,warehouse,shipping_method,carrier_name,tracking_number,delivery_address,status,notes,created_by,created_at FROM delivery_notes WHERE company_id=$1 AND dn_number=$2`, companyID, dnNumber))
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrDNNotFound
-		}
-		return nil, err
+	dn := dnFromGORM(&g)
+	dn.Lines = make([]domain.DNLine, len(g.Lines))
+	for i, l := range g.Lines {
+		dn.Lines[i] = *dnLineFromGORM(&l)
 	}
-	dn.Lines, _ = r.GetDNLines(ctx, dn.ID)
-	return &dn, nil
+	return dn, nil
 }
 
-func (r *PGSaleRepo) ListDNs(ctx context.Context, filter domain.DeliveryNoteFilter) ([]domain.DeliveryNote, int, error) {
-	where := ""
-	args := []interface{}{filter.CompanyID}
-	n := 2
+func (r *PGDeliveryNoteRepo) ListDNs(ctx context.Context, filter domain.DeliveryNoteFilter) ([]domain.DeliveryNote, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.DeliveryNoteGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.SOID != "" {
-		where += fmt.Sprintf(" AND so_id=$%d", n); args = append(args, filter.SOID); n++
+		q = q.Where("so_id = ?", filter.SOID)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n); args = append(args, string(filter.Status)); n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND delivery_date>=$%d", n); args = append(args, filter.FromDate); n++
+		q = q.Where("dn_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND delivery_date<=$%d", n); args = append(args, filter.ToDate); n++
+		q = q.Where("dn_date <= ?", filter.ToDate)
 	}
-	var total int
-	cq := `SELECT COUNT(*) FROM delivery_notes WHERE company_id=$1` + where
-	if err := r.pool.QueryRow(ctx, cq, args...).Scan(&total); err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,company_id,dn_number,so_id,delivery_date,warehouse,shipping_method,carrier_name,tracking_number,delivery_address,status,notes,created_by,created_at FROM delivery_notes WHERE company_id=$1` + where
-	dArgs := make([]interface{}, len(args))
-	copy(dArgs, args)
-	q += " ORDER BY delivery_date DESC"
+	var gs []domain.DeliveryNoteGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
+	if filter.SOID != "" {
+		dq = dq.Where("so_id = ?", filter.SOID)
+	}
+	if filter.Status != "" {
+		dq = dq.Where("status = ?", string(filter.Status))
+	}
+	if filter.FromDate != "" {
+		dq = dq.Where("dn_date >= ?", filter.FromDate)
+	}
+	if filter.ToDate != "" {
+		dq = dq.Where("dn_date <= ?", filter.ToDate)
+	}
+	dq = dq.Order("dn_date DESC")
 	if filter.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n); dArgs = append(dArgs, filter.Limit); n++
+		dq = dq.Limit(filter.Limit)
 	}
 	if filter.Offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n); dArgs = append(dArgs, filter.Offset)
+		dq = dq.Offset(filter.Offset)
 	}
-	rows, err := r.pool.Query(ctx, q, dArgs...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.DeliveryNote
-	for rows.Next() {
-		dn, err := scanDN(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, dn)
+	out := make([]domain.DeliveryNote, len(gs))
+	for i := range gs {
+		dn := dnFromGORM(&gs[i])
+		r.db.WithContext(ctx).Model(&domain.DNLineGORM{}).Where("dn_id = ?", gs[i].ID).Find(&dn.Lines)
+		out[i] = *dn
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-func (r *PGSaleRepo) UpdateDN(ctx context.Context, dn *domain.DeliveryNote) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `UPDATE delivery_notes SET dn_number=$1,so_id=$2,delivery_date=$3,warehouse=$4,shipping_method=$5,carrier_name=$6,tracking_number=$7,delivery_address=$8,status=$9,notes=$10 WHERE id=$11`,
-		dn.DNNumber, dn.SOID, dn.DeliveryDate.Format(time.RFC3339), dn.Warehouse, dn.ShippingMethod, dn.CarrierName, dn.TrackingNumber, dn.DeliveryAddress, dn.Status, dn.Notes, dn.ID)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM dn_lines WHERE dn_id=$1`, dn.ID); err != nil {
-		return err
-	}
-	for _, l := range dn.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO dn_lines (id,dn_id,so_line_id,item_code,item_name,unit,qty_delivered,qty_returned,unit_price,line_total,cost_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-			l.ID, dn.ID, l.SOLineID, l.ItemCode, l.ItemName, l.Unit, l.QtyDelivered, l.QtyReturned, l.UnitPrice, l.LineTotal, l.CostPrice)
-		if err != nil {
+func (r *PGDeliveryNoteRepo) UpdateDN(ctx context.Context, dn *domain.DeliveryNote) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.DeliveryNoteGORM{}).Where("id = ?", dn.ID).Updates(map[string]interface{}{
+			"dn_number": dn.DNNumber,
+			"dn_date":   dn.DeliveryDate,
+			"so_id":     dn.SOID,
+			"status":    string(dn.Status),
+		}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("dn_id = ?", dn.ID).Delete(&domain.DNLineGORM{}).Error; err != nil {
+			return err
+		}
+		for _, l := range dn.Lines {
+			lg := dnLineToGORM(&l)
+			lg.DNID = dn.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *PGDeliveryNoteRepo) UpdateDNStatus(ctx context.Context, id string, status domain.DNStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.DeliveryNoteGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func dnLineToGORM(l *domain.DNLine) *domain.DNLineGORM {
+	solID := l.SOLineID
+	return &domain.DNLineGORM{
+		LineNumber: 0,
+		SOLineID:   &solID,
+		ItemCode:   l.ItemCode,
+		QtyShipped: l.QtyDelivered,
+		Unit:       &l.Unit,
 	}
-	return tx.Commit(ctx)
 }
 
-func (r *PGSaleRepo) UpdateDNStatus(ctx context.Context, id string, status domain.DNStatus) error {
-	_, err := r.pool.Exec(ctx, `UPDATE delivery_notes SET status=$1 WHERE id=$2`, string(status), id)
-	return err
+func dnLineFromGORM(g *domain.DNLineGORM) *domain.DNLine {
+	l := &domain.DNLine{
+		ID:          strconv.Itoa(int(g.ID)),
+		DNID:        g.DNID,
+		ItemCode:    g.ItemCode,
+		QtyDelivered: g.QtyShipped,
+		UnitPrice:   0,
+		LineTotal:   0,
+	}
+	if g.SOLineID != nil {
+		l.SOLineID = *g.SOLineID
+	}
+	if g.Unit != nil {
+		l.Unit = *g.Unit
+	}
+	return l
 }
 
-func (r *PGSaleRepo) GetDNLines(ctx context.Context, dnID string) ([]domain.DNLine, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,dn_id,so_line_id,item_code,item_name,unit,qty_delivered,qty_returned,unit_price,line_total,cost_price FROM dn_lines WHERE dn_id=$1`, dnID)
-	if err != nil {
+func (r *PGDeliveryNoteRepo) GetDNLines(ctx context.Context, dnID string) ([]domain.DNLine, error) {
+	var gs []domain.DNLineGORM
+	if err := r.db.WithContext(ctx).Where("dn_id = ?", dnID).Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.DNLine
-	for rows.Next() {
-		var l domain.DNLine
-		if err := rows.Scan(&l.ID, &l.DNID, &l.SOLineID, &l.ItemCode, &l.ItemName, &l.Unit, &l.QtyDelivered, &l.QtyReturned, &l.UnitPrice, &l.LineTotal, &l.CostPrice); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
+	out := make([]domain.DNLine, len(gs))
+	for i := range gs {
+		out[i] = *dnLineFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) CreateDNLines(ctx context.Context, items []domain.DNLine) error {
+func (r *PGDeliveryNoteRepo) CreateDNLines(ctx context.Context, items []domain.DNLine) error {
+	if len(items) == 0 {
+		return nil
+	}
+	gs := make([]domain.DNLineGORM, len(items))
+	for i := range items {
+		gs[i] = *dnLineToGORM(&items[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGDeliveryNoteRepo) UpdateDNLines(ctx context.Context, items []domain.DNLine) error {
 	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `INSERT INTO dn_lines (id,dn_id,so_line_id,item_code,item_name,unit,qty_delivered,qty_returned,unit_price,line_total,cost_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-			l.ID, l.DNID, l.SOLineID, l.ItemCode, l.ItemName, l.Unit, l.QtyDelivered, l.QtyReturned, l.UnitPrice, l.LineTotal, l.CostPrice)
-		if err != nil {
+		g := dnLineToGORM(&l)
+		if err := r.db.WithContext(ctx).Model(&domain.DNLineGORM{}).Where("id = ?", l.ID).Updates(map[string]interface{}{
+			"item_code":  g.ItemCode,
+			"qty_shipped": g.QtyShipped,
+			"unit":       g.Unit,
+		}).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *PGSaleRepo) UpdateDNLines(ctx context.Context, items []domain.DNLine) error {
-	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `UPDATE dn_lines SET item_code=$1,item_name=$2,unit=$3,qty_delivered=$4,qty_returned=$5,unit_price=$6,line_total=$7,cost_price=$8 WHERE id=$9`,
-			l.ItemCode, l.ItemName, l.Unit, l.QtyDelivered, l.QtyReturned, l.UnitPrice, l.LineTotal, l.CostPrice, l.ID)
-		if err != nil {
+func (r *PGDeliveryNoteRepo) NextDNNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
+	prefix := fmt.Sprintf("DN-%s-", yyyymm)
+	var maxNum int
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(MAX(CAST(SUBSTRING(dn_number FROM '([0-9]+)$') AS INTEGER)), 0) FROM delivery_notes WHERE company_id = ? AND dn_number LIKE ?`, companyID, prefix+"%").Scan(&maxNum).Error; err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%05d", prefix, maxNum+1), nil
+}
+
+// ─── Customer Invoice ───────────────────────────────────────────────────
+
+type PGCustomerInvoiceRepo struct {
+	db *gorm.DB
+}
+
+func NewPGCustomerInvoiceRepo(db *gorm.DB) *PGCustomerInvoiceRepo {
+	return &PGCustomerInvoiceRepo{db: db}
+}
+
+func cinvToGORM(inv *domain.CustomerInvoice) *domain.CustomerInvoiceGORM {
+	g := &domain.CustomerInvoiceGORM{
+		ID:            inv.ID,
+		CompanyID:     inv.CompanyID,
+		InvoiceNumber: inv.InvoiceNumber,
+		InvoiceDate:   inv.InvoiceDate,
+		CustomerID:    inv.CustomerID,
+		Subtotal:      inv.Subtotal,
+		TaxAmount:     inv.TaxAmount,
+		GrandTotal:    inv.TotalAmount,
+		Currency:      inv.Currency,
+		Status:        string(inv.Status),
+		GLPosted:      inv.GLPosted,
+		CreatedBy:     inv.CreatedBy,
+		CreatedAt:     inv.CreatedAt,
+		UpdatedAt:     inv.UpdatedAt,
+	}
+	if inv.DueDate != nil {
+		g.DueDate = inv.DueDate
+	}
+	if inv.GLPostedAt != nil {
+		g.PostedAt = inv.GLPostedAt
+	}
+	return g
+}
+
+func cinvFromGORM(g *domain.CustomerInvoiceGORM) *domain.CustomerInvoice {
+	inv := &domain.CustomerInvoice{
+		ID:            g.ID,
+		CompanyID:     g.CompanyID,
+		InvoiceNumber: g.InvoiceNumber,
+		InvoiceDate:   g.InvoiceDate,
+		CustomerID:    g.CustomerID,
+		Subtotal:      g.Subtotal,
+		TaxAmount:     g.TaxAmount,
+		TotalAmount:   g.GrandTotal,
+		Currency:      g.Currency,
+		Status:        domain.SaleInvoiceStatus(g.Status),
+		GLPosted:      g.GLPosted,
+		CreatedBy:     g.CreatedBy,
+		CreatedAt:     g.CreatedAt,
+		AmountReceived: 0,
+		BalanceDue:     g.GrandTotal,
+		CustomerName:   "",
+		CustomerTaxCode: "",
+		InvoiceType:    "",
+		ExchangeRate:   1,
+	}
+	if g.DueDate != nil {
+		inv.DueDate = g.DueDate
+	}
+	if g.PostedAt != nil {
+		inv.GLPostedAt = g.PostedAt
+	}
+	return inv
+}
+
+func (r *PGCustomerInvoiceRepo) CreateInvoice(ctx context.Context, inv *domain.CustomerInvoice) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		g := cinvToGORM(inv)
+		if err := tx.Create(g).Error; err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (r *PGSaleRepo) NextDNNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
-	var n int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*)+1 FROM delivery_notes WHERE company_id=$1 AND dn_number LIKE $2`, companyID, "DN-"+yyyymm+"-%").Scan(&n)
-	if err != nil {
-		return fmt.Sprintf("DN-%s-00001", yyyymm), nil
-	}
-	return fmt.Sprintf("DN-%s-%05d", yyyymm, n), nil
-}
-
-func (r *PGSaleRepo) NextInvNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
-	var n int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*)+1 FROM customer_invoices WHERE company_id=$1 AND invoice_number LIKE $2`, companyID, "INV-"+yyyymm+"-%").Scan(&n)
-	if err != nil {
-		return fmt.Sprintf("INV-%s-00001", yyyymm), nil
-	}
-	return fmt.Sprintf("INV-%s-%05d", yyyymm, n), nil
-}
-
-// ─── Customer Invoice ─────────────────────────────────────────────────────
-
-func (r *PGSaleRepo) CreateInvoice(ctx context.Context, inv *domain.CustomerInvoice) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if inv.Status == "" {
-		inv.Status = domain.SInvDraft
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO customer_invoices (id,company_id,invoice_number,invoice_date,so_id,dn_id,customer_id,customer_name,customer_tax_code,customer_address,invoice_type,currency,exchange_rate,subtotal,discount_amount,tax_amount,total_amount,amount_received,balance_due,due_date,invoice_note,e_invoice_data,e_invoice_code,e_invoice_status,digital_signature_id,signed_data,gdt_response,original_invoice_id,adjustment_type,status,gl_posted,gl_posted_at,notes,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35) RETURNING id`,
-		inv.ID, inv.CompanyID, inv.InvoiceNumber, inv.InvoiceDate.Format(time.RFC3339), inv.SOID, inv.DNID, inv.CustomerID, inv.CustomerName, inv.CustomerTaxCode, inv.CustomerAddress, inv.InvoiceType, inv.Currency, inv.ExchangeRate, inv.Subtotal, inv.DiscountAmount, inv.TaxAmount, inv.TotalAmount, inv.AmountReceived, inv.BalanceDue, pt(inv.DueDate), inv.InvoiceNote, inv.EInvoiceData, inv.EInvoiceCode, inv.EInvStatus, inv.DigitalSignatureID, inv.SignedData, inv.GDTResponse, inv.OriginalInvoiceID, inv.AdjustmentType, inv.Status, boolToInt(inv.GLPosted), pt(inv.GLPostedAt), inv.Notes, inv.CreatedBy, now,
-	).Scan(&inv.ID); err != nil {
-		return err
-	}
-	for _, l := range inv.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO inv_lines (id,invoice_id,so_line_id,dn_line_id,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,line_total,line_vat_amount,revenue_account_id,vat_account_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-			l.ID, inv.ID, l.SOLineID, l.DNLineID, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.LineTotal, l.LineVATAmount, l.RevenueAccount, l.VATAccountID)
-		if err != nil {
-			return err
+		inv.ID = g.ID
+		inv.CreatedAt = g.CreatedAt
+		inv.UpdatedAt = g.UpdatedAt
+		for _, l := range inv.Lines {
+			lg := invLineToGORM(&l)
+			lg.InvoiceID = inv.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
 		}
-	}
-	return tx.Commit(ctx)
+		return nil
+	})
 }
 
-func pt(t *time.Time) string {
-	if t == nil {
-		return ""
+func (r *PGCustomerInvoiceRepo) GetInvoice(ctx context.Context, id string) (*domain.CustomerInvoice, error) {
+	var g domain.CustomerInvoiceGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrInvNotFound
+		}
+		return nil, err
 	}
-	return t.Format(time.RFC3339)
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func scanInv(row pgx.Row) (domain.CustomerInvoice, error) {
-	var inv domain.CustomerInvoice
-	var glPosted int
-	var dueDate, glPostedAt, invDate, soDate, dnDate string
-	err := row.Scan(&inv.ID, &inv.CompanyID, &inv.InvoiceNumber, &invDate, &soDate, &dnDate, &inv.CustomerID, &inv.CustomerName, &inv.CustomerTaxCode, &inv.CustomerAddress, &inv.InvoiceType, &inv.Currency, &inv.ExchangeRate, &inv.Subtotal, &inv.DiscountAmount, &inv.TaxAmount, &inv.TotalAmount, &inv.AmountReceived, &inv.BalanceDue, &dueDate, &inv.InvoiceNote, &inv.EInvoiceData, &inv.EInvoiceCode, &inv.EInvStatus, &inv.DigitalSignatureID, &inv.SignedData, &inv.GDTResponse, &inv.OriginalInvoiceID, &inv.AdjustmentType, &inv.Status, &glPosted, &glPostedAt, &inv.Notes, &inv.CreatedBy, &inv.CreatedAt)
-	if err != nil {
-		return inv, err
-	}
-	inv.GLPosted = glPosted != 0
-	inv.InvoiceDate, _ = time.Parse(time.RFC3339, invDate)
-	if dueDate != "" {
-		d, _ := time.Parse(time.RFC3339, dueDate)
-		inv.DueDate = &d
-	}
-	if glPostedAt != "" {
-		t, _ := time.Parse(time.RFC3339, glPostedAt)
-		inv.GLPostedAt = &t
+	inv := cinvFromGORM(&g)
+	inv.Lines = make([]domain.InvLine, len(g.Lines))
+	for i, l := range g.Lines {
+		inv.Lines[i] = *invLineFromGORM(&l)
 	}
 	return inv, nil
 }
 
-func (r *PGSaleRepo) GetInvoice(ctx context.Context, id string) (*domain.CustomerInvoice, error) {
-	inv, err := scanInv(r.pool.QueryRow(ctx, `SELECT id,company_id,invoice_number,invoice_date,so_id,dn_id,customer_id,customer_name,customer_tax_code,customer_address,invoice_type,currency,exchange_rate,subtotal,discount_amount,tax_amount,total_amount,amount_received,balance_due,due_date,invoice_note,e_invoice_data,e_invoice_code,e_invoice_status,digital_signature_id,signed_data,gdt_response,original_invoice_id,adjustment_type,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM customer_invoices WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCustomerInvoiceRepo) GetInvoiceByNumber(ctx context.Context, companyID, invoiceNumber string) (*domain.CustomerInvoice, error) {
+	var g domain.CustomerInvoiceGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").Where("company_id = ? AND invoice_number = ?", companyID, invoiceNumber).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrInvNotFound
 		}
 		return nil, err
 	}
-	inv.Lines, _ = r.GetInvoiceLines(ctx, id)
-	return &inv, nil
-}
-
-func (r *PGSaleRepo) GetInvoiceByNumber(ctx context.Context, companyID, invoiceNumber string) (*domain.CustomerInvoice, error) {
-	inv, err := scanInv(r.pool.QueryRow(ctx, `SELECT id,company_id,invoice_number,invoice_date,so_id,dn_id,customer_id,customer_name,customer_tax_code,customer_address,invoice_type,currency,exchange_rate,subtotal,discount_amount,tax_amount,total_amount,amount_received,balance_due,due_date,invoice_note,e_invoice_data,e_invoice_code,e_invoice_status,digital_signature_id,signed_data,gdt_response,original_invoice_id,adjustment_type,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM customer_invoices WHERE company_id=$1 AND invoice_number=$2`, companyID, invoiceNumber))
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrInvNotFound
-		}
-		return nil, err
+	inv := cinvFromGORM(&g)
+	inv.Lines = make([]domain.InvLine, len(g.Lines))
+	for i, l := range g.Lines {
+		inv.Lines[i] = *invLineFromGORM(&l)
 	}
-	inv.Lines, _ = r.GetInvoiceLines(ctx, inv.ID)
-	return &inv, nil
+	return inv, nil
 }
 
-func (r *PGSaleRepo) ListInvoices(ctx context.Context, filter domain.CustomerInvoiceFilter) ([]domain.CustomerInvoice, int, error) {
-	where := ""
-	args := []interface{}{filter.CompanyID}
-	n := 2
+func (r *PGCustomerInvoiceRepo) ListInvoices(ctx context.Context, filter domain.CustomerInvoiceFilter) ([]domain.CustomerInvoice, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.CustomerID != "" {
-		where += fmt.Sprintf(" AND customer_id=$%d", n); args = append(args, filter.CustomerID); n++
+		q = q.Where("customer_id = ?", filter.CustomerID)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n); args = append(args, string(filter.Status)); n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND invoice_date>=$%d", n); args = append(args, filter.FromDate); n++
+		q = q.Where("invoice_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND invoice_date<=$%d", n); args = append(args, filter.ToDate); n++
+		q = q.Where("invoice_date <= ?", filter.ToDate)
 	}
-	var total int
-	cq := `SELECT COUNT(*) FROM customer_invoices WHERE company_id=$1` + where
-	if err := r.pool.QueryRow(ctx, cq, args...).Scan(&total); err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,company_id,invoice_number,invoice_date,so_id,dn_id,customer_id,customer_name,customer_tax_code,customer_address,invoice_type,currency,exchange_rate,subtotal,discount_amount,tax_amount,total_amount,amount_received,balance_due,due_date,invoice_note,e_invoice_data,e_invoice_code,e_invoice_status,digital_signature_id,signed_data,gdt_response,original_invoice_id,adjustment_type,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM customer_invoices WHERE company_id=$1` + where
-	dArgs := make([]interface{}, len(args))
-	copy(dArgs, args)
-	q += " ORDER BY invoice_date DESC"
+	var gs []domain.CustomerInvoiceGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
+	if filter.CustomerID != "" {
+		dq = dq.Where("customer_id = ?", filter.CustomerID)
+	}
+	if filter.Status != "" {
+		dq = dq.Where("status = ?", string(filter.Status))
+	}
+	if filter.FromDate != "" {
+		dq = dq.Where("invoice_date >= ?", filter.FromDate)
+	}
+	if filter.ToDate != "" {
+		dq = dq.Where("invoice_date <= ?", filter.ToDate)
+	}
+	dq = dq.Order("invoice_date DESC")
 	if filter.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n); dArgs = append(dArgs, filter.Limit); n++
+		dq = dq.Limit(filter.Limit)
 	}
 	if filter.Offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n); dArgs = append(dArgs, filter.Offset)
+		dq = dq.Offset(filter.Offset)
 	}
-	rows, err := r.pool.Query(ctx, q, dArgs...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.CustomerInvoice
-	for rows.Next() {
-		inv, err := scanInv(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, inv)
+	out := make([]domain.CustomerInvoice, len(gs))
+	for i := range gs {
+		inv := cinvFromGORM(&gs[i])
+		r.db.WithContext(ctx).Model(&domain.InvLineGORM{}).Where("invoice_id = ?", gs[i].ID).Find(&inv.Lines)
+		out[i] = *inv
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-func (r *PGSaleRepo) UpdateInvoice(ctx context.Context, inv *domain.CustomerInvoice) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `UPDATE customer_invoices SET invoice_number=$1,invoice_date=$2,so_id=$3,dn_id=$4,customer_id=$5,customer_name=$6,customer_tax_code=$7,customer_address=$8,invoice_type=$9,currency=$10,exchange_rate=$11,subtotal=$12,discount_amount=$13,tax_amount=$14,total_amount=$15,amount_received=$16,balance_due=$17,due_date=$18,invoice_note=$19,status=$20,notes=$21 WHERE id=$22`,
-		inv.InvoiceNumber, inv.InvoiceDate.Format(time.RFC3339), inv.SOID, inv.DNID, inv.CustomerID, inv.CustomerName, inv.CustomerTaxCode, inv.CustomerAddress, inv.InvoiceType, inv.Currency, inv.ExchangeRate, inv.Subtotal, inv.DiscountAmount, inv.TaxAmount, inv.TotalAmount, inv.AmountReceived, inv.BalanceDue, inv.DueDate.Format(time.RFC3339), inv.InvoiceNote, inv.Status, inv.Notes, inv.ID)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM inv_lines WHERE invoice_id=$1`, inv.ID); err != nil {
-		return err
-	}
-	for _, l := range inv.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO inv_lines (id,invoice_id,so_line_id,dn_line_id,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,line_total,line_vat_amount,revenue_account_id,vat_account_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-			l.ID, inv.ID, l.SOLineID, l.DNLineID, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.LineTotal, l.LineVATAmount, l.RevenueAccount, l.VATAccountID)
-		if err != nil {
+func (r *PGCustomerInvoiceRepo) UpdateInvoice(ctx context.Context, inv *domain.CustomerInvoice) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", inv.ID).Updates(map[string]interface{}{
+			"invoice_date": inv.InvoiceDate,
+			"customer_id":  inv.CustomerID,
+			"subtotal":     inv.Subtotal,
+			"tax_amount":   inv.TaxAmount,
+			"grand_total":  inv.TotalAmount,
+			"due_date":     inv.DueDate,
+			"status":       string(inv.Status),
+			"notes":        inv.Notes,
+		}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("invoice_id = ?", inv.ID).Delete(&domain.InvLineGORM{}).Error; err != nil {
+			return err
+		}
+		for _, l := range inv.Lines {
+			lg := invLineToGORM(&l)
+			lg.InvoiceID = inv.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *PGCustomerInvoiceRepo) UpdateInvoiceStatus(ctx context.Context, id string, status domain.SaleInvoiceStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func (r *PGCustomerInvoiceRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status": string(domain.SInvPosted),
+	}).Error
+}
+
+func (r *PGCustomerInvoiceRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"gl_posted": true,
+		"posted_at": postedAt,
+	}).Error
+}
+
+func (r *PGCustomerInvoiceRepo) AllocateToInvoice(ctx context.Context, invoiceID string, amount float64) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", invoiceID).Update("grand_total", gorm.Expr("grand_total - ?", amount)).Error
+}
+
+func invLineToGORM(l *domain.InvLine) *domain.InvLineGORM {
+	disc := l.DiscountPct
+	tax := l.VATRate
+	taxAmt := l.LineVATAmount
+	return &domain.InvLineGORM{
+		LineNumber: 0,
+		ItemCode:   l.ItemCode,
+		ItemName:   l.ItemName,
+		Quantity:   l.Quantity,
+		UnitPrice:  l.UnitPrice,
+		Discount:   &disc,
+		LineTotal:  l.LineTotal,
+		TaxRate:    &tax,
+		TaxAmount:  &taxAmt,
 	}
-	return tx.Commit(ctx)
 }
 
-func (r *PGSaleRepo) UpdateInvoiceStatus(ctx context.Context, id string, status domain.SaleInvoiceStatus) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET status=$1 WHERE id=$2`, string(status), id)
-	return err
+func invLineFromGORM(g *domain.InvLineGORM) *domain.InvLine {
+	l := &domain.InvLine{
+		ID:        strconv.Itoa(int(g.ID)),
+		InvoiceID: g.InvoiceID,
+		ItemCode:  g.ItemCode,
+		ItemName:  g.ItemName,
+		Unit:      "",
+		Quantity:  g.Quantity,
+		UnitPrice: g.UnitPrice,
+		LineTotal: g.LineTotal,
+		VATRate:   10,
+		RevenueAccount: "",
+		VATAccountID:  "",
+	}
+	if g.Discount != nil {
+		l.DiscountPct = *g.Discount
+	}
+	if g.TaxRate != nil {
+		l.VATRate = *g.TaxRate
+	}
+	if g.TaxAmount != nil {
+		l.LineVATAmount = *g.TaxAmount
+	}
+	return l
 }
 
-func (r *PGSaleRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET status=$1 WHERE id=$2`,
-		string(domain.SInvPosted), id)
-	return err
-}
-
-func (r *PGSaleRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
-		postedAt.Format(time.RFC3339), id)
-	return err
-}
-
-func (r *PGSaleRepo) AllocateToInvoice(ctx context.Context, invoiceID string, amount float64) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_invoices SET amount_received=amount_received+$1,balance_due=balance_due-$1 WHERE id=$2`, amount, invoiceID)
-	return err
-}
-
-func (r *PGSaleRepo) GetInvoiceLines(ctx context.Context, invoiceID string) ([]domain.InvLine, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,invoice_id,so_line_id,dn_line_id,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,line_total,line_vat_amount,revenue_account_id,vat_account_id FROM inv_lines WHERE invoice_id=$1`, invoiceID)
-	if err != nil {
+func (r *PGCustomerInvoiceRepo) GetInvoiceLines(ctx context.Context, invoiceID string) ([]domain.InvLine, error) {
+	var gs []domain.InvLineGORM
+	if err := r.db.WithContext(ctx).Where("invoice_id = ?", invoiceID).Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.InvLine
-	for rows.Next() {
-		var l domain.InvLine
-		if err := rows.Scan(&l.ID, &l.InvoiceID, &l.SOLineID, &l.DNLineID, &l.ItemCode, &l.ItemName, &l.Unit, &l.Quantity, &l.UnitPrice, &l.DiscountPct, &l.VATRate, &l.VATType, &l.LineTotal, &l.LineVATAmount, &l.RevenueAccount, &l.VATAccountID); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
+	out := make([]domain.InvLine, len(gs))
+	for i := range gs {
+		out[i] = *invLineFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) CreateInvoiceLines(ctx context.Context, items []domain.InvLine) error {
+func (r *PGCustomerInvoiceRepo) CreateInvoiceLines(ctx context.Context, items []domain.InvLine) error {
+	if len(items) == 0 {
+		return nil
+	}
+	gs := make([]domain.InvLineGORM, len(items))
+	for i := range items {
+		gs[i] = *invLineToGORM(&items[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGCustomerInvoiceRepo) UpdateInvoiceLines(ctx context.Context, items []domain.InvLine) error {
 	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `INSERT INTO inv_lines (id,invoice_id,so_line_id,dn_line_id,item_code,item_name,unit,quantity,unit_price,discount_pct,vat_rate,vat_type,line_total,line_vat_amount,revenue_account_id,vat_account_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-			l.ID, l.InvoiceID, l.SOLineID, l.DNLineID, l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.LineTotal, l.LineVATAmount, l.RevenueAccount, l.VATAccountID)
-		if err != nil {
+		g := invLineToGORM(&l)
+		if err := r.db.WithContext(ctx).Model(&domain.InvLineGORM{}).Where("id = ?", l.ID).Updates(map[string]interface{}{
+			"item_code":  g.ItemCode,
+			"item_name":  g.ItemName,
+			"quantity":   g.Quantity,
+			"unit_price": g.UnitPrice,
+			"line_total": g.LineTotal,
+			"discount":   g.Discount,
+			"tax_rate":   g.TaxRate,
+			"tax_amount": g.TaxAmount,
+		}).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *PGSaleRepo) UpdateInvoiceLines(ctx context.Context, items []domain.InvLine) error {
-	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `UPDATE inv_lines SET item_code=$1,item_name=$2,unit=$3,quantity=$4,unit_price=$5,discount_pct=$6,vat_rate=$7,vat_type=$8,line_total=$9,line_vat_amount=$10,revenue_account_id=$11,vat_account_id=$12 WHERE id=$13`,
-			l.ItemCode, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.DiscountPct, l.VATRate, l.VATType, l.LineTotal, l.LineVATAmount, l.RevenueAccount, l.VATAccountID, l.ID)
-		if err != nil {
+func (r *PGCustomerInvoiceRepo) NextInvNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
+	prefix := fmt.Sprintf("INV-%s-", yyyymm)
+	var maxNum int
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '([0-9]+)$') AS INTEGER)), 0) FROM customer_invoices WHERE company_id = ? AND invoice_number LIKE ?`, companyID, prefix+"%").Scan(&maxNum).Error; err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%05d", prefix, maxNum+1), nil
+}
+
+// ─── Customer Receipt ──────────────────────────────────────────────────
+
+type PGCustomerReceiptRepo struct {
+	db *gorm.DB
+}
+
+func NewPGCustomerReceiptRepo(db *gorm.DB) *PGCustomerReceiptRepo {
+	return &PGCustomerReceiptRepo{db: db}
+}
+
+func rcptToGORM(r *domain.CustomerReceipt) *domain.CustomerReceiptGORM {
+	return &domain.CustomerReceiptGORM{
+		ID:            r.ID,
+		CompanyID:     r.CompanyID,
+		ReceiptNumber: r.ReceiptNumber,
+		ReceiptDate:   r.ReceiptDate,
+		CustomerID:    r.CustomerID,
+		PaymentMethod: r.PaymentMethod,
+		TotalReceived: r.Amount,
+		Status:        string(r.Status),
+		GLPosted:      r.GLPosted,
+		CreatedBy:     r.CreatedBy,
+		CreatedAt:     r.CreatedAt,
+		UpdatedAt:     r.UpdatedAt,
+	}
+}
+
+func rcptFromGORM(g *domain.CustomerReceiptGORM) *domain.CustomerReceipt {
+	r := &domain.CustomerReceipt{
+		ID:            g.ID,
+		CompanyID:     g.CompanyID,
+		ReceiptNumber: g.ReceiptNumber,
+		ReceiptDate:   g.ReceiptDate,
+		CustomerID:    g.CustomerID,
+		PaymentMethod: g.PaymentMethod,
+		Amount:        g.TotalReceived,
+		UnallocatedAmount: g.TotalReceived,
+		Status:        domain.ReceiptStatus(g.Status),
+		GLPosted:      g.GLPosted,
+		CreatedBy:     g.CreatedBy,
+		CreatedAt:     g.CreatedAt,
+		Currency:      "VND",
+		ExchangeRate:  1,
+	}
+	return r
+}
+
+func (r *PGCustomerReceiptRepo) CreateReceipt(ctx context.Context, rcpt *domain.CustomerReceipt) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		g := rcptToGORM(rcpt)
+		if err := tx.Create(g).Error; err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// ─── Receipt ──────────────────────────────────────────────────────────────
-
-func (r *PGSaleRepo) CreateReceipt(ctx context.Context, rcpt *domain.CustomerReceipt) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if rcpt.Status == "" {
-		rcpt.Status = domain.RcpDraft
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO customer_receipts (id,company_id,receipt_number,customer_id,receipt_date,payment_method,bank_account_id,currency,exchange_rate,amount,unallocated_amount,reference,notes,status,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-		rcpt.ID, rcpt.CompanyID, rcpt.ReceiptNumber, rcpt.CustomerID, rcpt.ReceiptDate.Format(time.RFC3339), rcpt.PaymentMethod, rcpt.BankAccountID, rcpt.Currency, rcpt.ExchangeRate, rcpt.Amount, rcpt.UnallocatedAmount, rcpt.Reference, rcpt.Notes, rcpt.Status, rcpt.CreatedBy, now,
-	).Scan(&rcpt.ID); err != nil {
-		return err
-	}
-	for _, a := range rcpt.Allocations {
-		_, err = tx.Exec(ctx, `INSERT INTO receipt_allocations (id,receipt_id,invoice_id,allocated_amount,discount_amount) VALUES ($1,$2,$3,$4,$5)`,
-			a.ID, rcpt.ID, a.InvoiceID, a.AllocatedAmount, a.DiscountAmount)
-		if err != nil {
-			return err
+		rcpt.ID = g.ID
+		rcpt.CreatedAt = g.CreatedAt
+		for _, a := range rcpt.Allocations {
+			ag := rcpAllocToGORM(&a)
+			ag.ReceiptID = rcpt.ID
+			if err := tx.Create(ag).Error; err != nil {
+				return err
+			}
 		}
-	}
-	return tx.Commit(ctx)
+		return nil
+	})
 }
 
-func scanReceipt(row pgx.Row) (domain.CustomerReceipt, error) {
-	var r domain.CustomerReceipt
-	var rcptDate, createdAt string
-	err := row.Scan(&r.ID, &r.CompanyID, &r.ReceiptNumber, &r.CustomerID, &rcptDate, &r.PaymentMethod, &r.BankAccountID, &r.Currency, &r.ExchangeRate, &r.Amount, &r.UnallocatedAmount, &r.Reference, &r.Notes, &r.Status, &r.CreatedBy, &createdAt)
-	if err != nil {
-		return r, err
-	}
-	r.ReceiptDate, _ = time.Parse(time.RFC3339, rcptDate)
-	r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	return r, nil
-}
-
-func (r *PGSaleRepo) GetReceipt(ctx context.Context, id string) (*domain.CustomerReceipt, error) {
-	rcpt, err := scanReceipt(r.pool.QueryRow(ctx, `SELECT id,company_id,receipt_number,customer_id,receipt_date,payment_method,bank_account_id,currency,exchange_rate,amount,unallocated_amount,reference,notes,status,created_by,created_at FROM customer_receipts WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCustomerReceiptRepo) GetReceipt(ctx context.Context, id string) (*domain.CustomerReceipt, error) {
+	var g domain.CustomerReceiptGORM
+	if err := r.db.WithContext(ctx).Preload("Allocations").First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrRcpNotFound
 		}
 		return nil, err
 	}
-	rcpt.Allocations, _ = r.GetReceiptAllocations(ctx, id)
-	return &rcpt, nil
+	rcpt := rcptFromGORM(&g)
+	rcpt.Allocations = make([]domain.RcpAllocation, len(g.Allocations))
+	for i, a := range g.Allocations {
+		rcpt.Allocations[i] = *rcpAllocFromGORM(&a)
+	}
+	return rcpt, nil
 }
 
-func (r *PGSaleRepo) GetReceiptByNumber(ctx context.Context, companyID, receiptNumber string) (*domain.CustomerReceipt, error) {
-	rcpt, err := scanReceipt(r.pool.QueryRow(ctx, `SELECT id,company_id,receipt_number,customer_id,receipt_date,payment_method,bank_account_id,currency,exchange_rate,amount,unallocated_amount,reference,notes,status,created_by,created_at FROM customer_receipts WHERE company_id=$1 AND receipt_number=$2`, companyID, receiptNumber))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCustomerReceiptRepo) GetReceiptByNumber(ctx context.Context, companyID, receiptNumber string) (*domain.CustomerReceipt, error) {
+	var g domain.CustomerReceiptGORM
+	if err := r.db.WithContext(ctx).Preload("Allocations").Where("company_id = ? AND receipt_number = ?", companyID, receiptNumber).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrRcpNotFound
 		}
 		return nil, err
 	}
-	rcpt.Allocations, _ = r.GetReceiptAllocations(ctx, rcpt.ID)
-	return &rcpt, nil
+	rcpt := rcptFromGORM(&g)
+	rcpt.Allocations = make([]domain.RcpAllocation, len(g.Allocations))
+	for i, a := range g.Allocations {
+		rcpt.Allocations[i] = *rcpAllocFromGORM(&a)
+	}
+	return rcpt, nil
 }
 
-func (r *PGSaleRepo) ListReceipts(ctx context.Context, filter domain.ReceiptFilter) ([]domain.CustomerReceipt, int, error) {
-	where := ""
-	args := []interface{}{filter.CompanyID}
-	n := 2
+func (r *PGCustomerReceiptRepo) ListReceipts(ctx context.Context, filter domain.ReceiptFilter) ([]domain.CustomerReceipt, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.CustomerReceiptGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.CustomerID != "" {
-		where += fmt.Sprintf(" AND customer_id=$%d", n); args = append(args, filter.CustomerID); n++
+		q = q.Where("customer_id = ?", filter.CustomerID)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n); args = append(args, string(filter.Status)); n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND receipt_date>=$%d", n); args = append(args, filter.FromDate); n++
+		q = q.Where("receipt_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND receipt_date<=$%d", n); args = append(args, filter.ToDate); n++
+		q = q.Where("receipt_date <= ?", filter.ToDate)
 	}
-	var total int
-	cq := `SELECT COUNT(*) FROM customer_receipts WHERE company_id=$1` + where
-	if err := r.pool.QueryRow(ctx, cq, args...).Scan(&total); err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,company_id,receipt_number,customer_id,receipt_date,payment_method,bank_account_id,currency,exchange_rate,amount,unallocated_amount,reference,notes,status,created_by,created_at FROM customer_receipts WHERE company_id=$1` + where
-	dArgs := make([]interface{}, len(args))
-	copy(dArgs, args)
-	q += " ORDER BY receipt_date DESC"
+	var gs []domain.CustomerReceiptGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
+	if filter.CustomerID != "" {
+		dq = dq.Where("customer_id = ?", filter.CustomerID)
+	}
+	if filter.Status != "" {
+		dq = dq.Where("status = ?", string(filter.Status))
+	}
+	if filter.FromDate != "" {
+		dq = dq.Where("receipt_date >= ?", filter.FromDate)
+	}
+	if filter.ToDate != "" {
+		dq = dq.Where("receipt_date <= ?", filter.ToDate)
+	}
+	dq = dq.Order("receipt_date DESC")
 	if filter.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n); dArgs = append(dArgs, filter.Limit); n++
+		dq = dq.Limit(filter.Limit)
 	}
 	if filter.Offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n); dArgs = append(dArgs, filter.Offset)
+		dq = dq.Offset(filter.Offset)
 	}
-	rows, err := r.pool.Query(ctx, q, dArgs...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.CustomerReceipt
-	for rows.Next() {
-		rcpt, err := scanReceipt(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, rcpt)
+	out := make([]domain.CustomerReceipt, len(gs))
+	for i := range gs {
+		rcpt := rcptFromGORM(&gs[i])
+		r.db.WithContext(ctx).Model(&domain.RcpAllocationGORM{}).Where("receipt_id = ?", gs[i].ID).Find(&rcpt.Allocations)
+		out[i] = *rcpt
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-func (r *PGSaleRepo) UpdateReceipt(ctx context.Context, rcpt *domain.CustomerReceipt) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_receipts SET receipt_number=$1,customer_id=$2,receipt_date=$3,payment_method=$4,bank_account_id=$5,currency=$6,exchange_rate=$7,amount=$8,unallocated_amount=$9,reference=$10,notes=$11,status=$12 WHERE id=$13`,
-		rcpt.ReceiptNumber, rcpt.CustomerID, rcpt.ReceiptDate.Format(time.RFC3339), rcpt.PaymentMethod, rcpt.BankAccountID, rcpt.Currency, rcpt.ExchangeRate, rcpt.Amount, rcpt.UnallocatedAmount, rcpt.Reference, rcpt.Notes, rcpt.Status, rcpt.ID)
-	return err
+func (r *PGCustomerReceiptRepo) UpdateReceipt(ctx context.Context, rcpt *domain.CustomerReceipt) error {
+	g := rcptToGORM(rcpt)
+	return r.db.WithContext(ctx).Model(&domain.CustomerReceiptGORM{}).Where("id = ?", rcpt.ID).Updates(map[string]interface{}{
+		"receipt_number": g.ReceiptNumber,
+		"receipt_date":   g.ReceiptDate,
+		"customer_id":    g.CustomerID,
+		"payment_method": g.PaymentMethod,
+		"total_received": g.TotalReceived,
+		"status":         g.Status,
+	}).Error
 }
 
-func (r *PGSaleRepo) UpdateReceiptStatus(ctx context.Context, id string, status domain.ReceiptStatus) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_receipts SET status=$1 WHERE id=$2`, string(status), id)
-	return err
+func (r *PGCustomerReceiptRepo) UpdateReceiptStatus(ctx context.Context, id string, status domain.ReceiptStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerReceiptGORM{}).Where("id = ?", id).Update("status", string(status)).Error
 }
 
-func (r *PGSaleRepo) SetReceiptGLPosted(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE customer_receipts SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
-		postedAt.Format(time.RFC3339), id)
-	return err
+func (r *PGCustomerReceiptRepo) SetReceiptGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerReceiptGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"gl_posted": true,
+	}).Error
 }
 
-func (r *PGSaleRepo) CreateReceiptAllocations(ctx context.Context, allocs []domain.RcpAllocation) error {
-	for _, a := range allocs {
-		_, err := r.pool.Exec(ctx, `INSERT INTO receipt_allocations (id,receipt_id,invoice_id,allocated_amount,discount_amount) VALUES ($1,$2,$3,$4,$5)`,
-			a.ID, a.ReceiptID, a.InvoiceID, a.AllocatedAmount, a.DiscountAmount)
-		if err != nil {
-			return err
-		}
+func rcpAllocToGORM(a *domain.RcpAllocation) *domain.RcpAllocationGORM {
+	return &domain.RcpAllocationGORM{
+		InvoiceID: a.InvoiceID,
+		Allocated: a.AllocatedAmount,
 	}
-	return nil
 }
 
-func (r *PGSaleRepo) GetReceiptAllocations(ctx context.Context, receiptID string) ([]domain.RcpAllocation, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,receipt_id,invoice_id,allocated_amount,discount_amount FROM receipt_allocations WHERE receipt_id=$1`, receiptID)
-	if err != nil {
+func rcpAllocFromGORM(g *domain.RcpAllocationGORM) *domain.RcpAllocation {
+	return &domain.RcpAllocation{
+		ID:              strconv.Itoa(int(g.ID)),
+		ReceiptID:       g.ReceiptID,
+		InvoiceID:       g.InvoiceID,
+		AllocatedAmount: g.Allocated,
+	}
+}
+
+func (r *PGCustomerReceiptRepo) CreateReceiptAllocations(ctx context.Context, allocs []domain.RcpAllocation) error {
+	if len(allocs) == 0 {
+		return nil
+	}
+	gs := make([]domain.RcpAllocationGORM, len(allocs))
+	for i := range allocs {
+		gs[i] = *rcpAllocToGORM(&allocs[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGCustomerReceiptRepo) GetReceiptAllocations(ctx context.Context, receiptID string) ([]domain.RcpAllocation, error) {
+	var gs []domain.RcpAllocationGORM
+	if err := r.db.WithContext(ctx).Where("receipt_id = ?", receiptID).Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.RcpAllocation
-	for rows.Next() {
-		var a domain.RcpAllocation
-		if err := rows.Scan(&a.ID, &a.ReceiptID, &a.InvoiceID, &a.AllocatedAmount, &a.DiscountAmount); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
+	out := make([]domain.RcpAllocation, len(gs))
+	for i := range gs {
+		out[i] = *rcpAllocFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-// ─── Credit Note ──────────────────────────────────────────────────────────
+// ─── Credit Note ────────────────────────────────────────────────────────
 
-func (r *PGSaleRepo) CreateCN(ctx context.Context, cn *domain.CreditNote) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if cn.Status == "" {
-		cn.Status = domain.CNDraft
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `INSERT INTO credit_notes (id,company_id,cn_number,original_invoice_id,customer_id,return_date,return_reason,return_type,dn_id,subtotal,tax_amount,total_amount,e_invoice_data,e_invoice_code,status,gl_posted,gl_posted_at,notes,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
-		cn.ID, cn.CompanyID, cn.CNNumber, cn.OriginalInvoiceID, cn.CustomerID, cn.ReturnDate.Format(time.RFC3339), cn.ReturnReason, cn.ReturnType, cn.DNID, cn.Subtotal, cn.TaxAmount, cn.TotalAmount, cn.EInvoiceData, cn.EInvoiceCode, cn.Status, boolToInt(cn.GLPosted), pt(cn.GLPostedAt), cn.Notes, cn.CreatedBy, now,
-	).Scan(&cn.ID); err != nil {
-		return err
-	}
-	for _, l := range cn.Lines {
-		_, err = tx.Exec(ctx, `INSERT INTO cn_lines (id,cn_id,invoice_line_id,item_name,unit,quantity,unit_price,vat_rate,line_total,line_vat_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			l.ID, cn.ID, l.InvLineID, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.VATRate, l.LineTotal, l.LineVATAmount)
-		if err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
+type PGCreditNoteRepo struct {
+	db *gorm.DB
 }
 
-func scanCN(row pgx.Row) (domain.CreditNote, error) {
-	var cn domain.CreditNote
-	var glPosted int
-	var glPostedAt, retDate string
-	err := row.Scan(&cn.ID, &cn.CompanyID, &cn.CNNumber, &cn.OriginalInvoiceID, &cn.CustomerID, &retDate, &cn.ReturnReason, &cn.ReturnType, &cn.DNID, &cn.Subtotal, &cn.TaxAmount, &cn.TotalAmount, &cn.EInvoiceData, &cn.EInvoiceCode, &cn.Status, &glPosted, &glPostedAt, &cn.Notes, &cn.CreatedBy, &cn.CreatedAt)
-	if err != nil {
-		return cn, err
+func NewPGCreditNoteRepo(db *gorm.DB) *PGCreditNoteRepo {
+	return &PGCreditNoteRepo{db: db}
+}
+
+func cnToGORM(cn *domain.CreditNote) *domain.CreditNoteGORM {
+	g := &domain.CreditNoteGORM{
+		ID:         cn.ID,
+		CompanyID:  cn.CompanyID,
+		CNNumber:   cn.CNNumber,
+		CNDate:     cn.ReturnDate,
+		InvoiceID:  &cn.OriginalInvoiceID,
+		CustomerID: cn.CustomerID,
+		Reason:     &cn.ReturnReason,
+		Subtotal:   cn.Subtotal,
+		TaxAmount:  cn.TaxAmount,
+		GrandTotal: cn.TotalAmount,
+		Status:     string(cn.Status),
+		GLPosted:   cn.GLPosted,
+		CreatedBy:  cn.CreatedBy,
+		CreatedAt:  cn.CreatedAt,
+		UpdatedAt:  cn.UpdatedAt,
 	}
-	cn.GLPosted = glPosted != 0
-	cn.ReturnDate, _ = time.Parse(time.RFC3339, retDate)
-	if glPostedAt != "" {
-		t, _ := time.Parse(time.RFC3339, glPostedAt)
-		cn.GLPostedAt = &t
+	if cn.GLPostedAt != nil {
+		g.PostedAt = cn.GLPostedAt
+	}
+	return g
+}
+
+func cnFromGORM(g *domain.CreditNoteGORM) *domain.CreditNote {
+	cn := &domain.CreditNote{
+		ID:         g.ID,
+		CompanyID:  g.CompanyID,
+		CNNumber:   g.CNNumber,
+		ReturnDate: g.CNDate,
+		CustomerID: g.CustomerID,
+		Subtotal:   g.Subtotal,
+		TaxAmount:  g.TaxAmount,
+		TotalAmount: g.GrandTotal,
+		Status:     domain.CNStatus(g.Status),
+		GLPosted:   g.GLPosted,
+		CreatedBy:  g.CreatedBy,
+		CreatedAt:  g.CreatedAt,
+	}
+	if g.InvoiceID != nil {
+		cn.OriginalInvoiceID = *g.InvoiceID
+	}
+	if g.Reason != nil {
+		cn.ReturnReason = *g.Reason
+	}
+	if g.PostedAt != nil {
+		cn.GLPostedAt = g.PostedAt
+	}
+	return cn
+}
+
+func (r *PGCreditNoteRepo) CreateCN(ctx context.Context, cn *domain.CreditNote) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		g := cnToGORM(cn)
+		if err := tx.Create(g).Error; err != nil {
+			return err
+		}
+		cn.ID = g.ID
+		cn.CreatedAt = g.CreatedAt
+		for _, l := range cn.Lines {
+			lg := cnLineToGORM(&l)
+			lg.CNID = cn.ID
+			if err := tx.Create(lg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *PGCreditNoteRepo) GetCN(ctx context.Context, id string) (*domain.CreditNote, error) {
+	var g domain.CreditNoteGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrCNNotFound
+		}
+		return nil, err
+	}
+	cn := cnFromGORM(&g)
+	cn.Lines = make([]domain.CNLine, len(g.Lines))
+	for i, l := range g.Lines {
+		cn.Lines[i] = *cnLineFromGORM(&l)
 	}
 	return cn, nil
 }
 
-func (r *PGSaleRepo) GetCN(ctx context.Context, id string) (*domain.CreditNote, error) {
-	cn, err := scanCN(r.pool.QueryRow(ctx, `SELECT id,company_id,cn_number,original_invoice_id,customer_id,return_date,return_reason,return_type,dn_id,subtotal,tax_amount,total_amount,e_invoice_data,e_invoice_code,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM credit_notes WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGCreditNoteRepo) GetCNByNumber(ctx context.Context, companyID, cnNumber string) (*domain.CreditNote, error) {
+	var g domain.CreditNoteGORM
+	if err := r.db.WithContext(ctx).Preload("Lines").Where("company_id = ? AND cn_number = ?", companyID, cnNumber).First(&g).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrCNNotFound
 		}
 		return nil, err
 	}
-	cn.Lines, _ = r.GetCNLines(ctx, id)
-	return &cn, nil
-}
-
-func (r *PGSaleRepo) GetCNByNumber(ctx context.Context, companyID, cnNumber string) (*domain.CreditNote, error) {
-	cn, err := scanCN(r.pool.QueryRow(ctx, `SELECT id,company_id,cn_number,original_invoice_id,customer_id,return_date,return_reason,return_type,dn_id,subtotal,tax_amount,total_amount,e_invoice_data,e_invoice_code,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM credit_notes WHERE company_id=$1 AND cn_number=$2`, companyID, cnNumber))
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, domain.ErrCNNotFound
-		}
-		return nil, err
+	cn := cnFromGORM(&g)
+	cn.Lines = make([]domain.CNLine, len(g.Lines))
+	for i, l := range g.Lines {
+		cn.Lines[i] = *cnLineFromGORM(&l)
 	}
-	cn.Lines, _ = r.GetCNLines(ctx, cn.ID)
-	return &cn, nil
+	return cn, nil
 }
 
-func (r *PGSaleRepo) ListCNs(ctx context.Context, filter domain.CreditNoteFilter) ([]domain.CreditNote, int, error) {
-	where := ""
-	args := []interface{}{filter.CompanyID}
-	n := 2
+func (r *PGCreditNoteRepo) ListCNs(ctx context.Context, filter domain.CreditNoteFilter) ([]domain.CreditNote, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.CreditNoteGORM{}).Where("company_id = ?", filter.CompanyID)
 	if filter.CustomerID != "" {
-		where += fmt.Sprintf(" AND customer_id=$%d", n); args = append(args, filter.CustomerID); n++
+		q = q.Where("customer_id = ?", filter.CustomerID)
 	}
 	if filter.Status != "" {
-		where += fmt.Sprintf(" AND status=$%d", n); args = append(args, string(filter.Status)); n++
+		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		where += fmt.Sprintf(" AND return_date>=$%d", n); args = append(args, filter.FromDate); n++
+		q = q.Where("cn_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		where += fmt.Sprintf(" AND return_date<=$%d", n); args = append(args, filter.ToDate); n++
+		q = q.Where("cn_date <= ?", filter.ToDate)
 	}
-	var total int
-	cq := `SELECT COUNT(*) FROM credit_notes WHERE company_id=$1` + where
-	if err := r.pool.QueryRow(ctx, cq, args...).Scan(&total); err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,company_id,cn_number,original_invoice_id,customer_id,return_date,return_reason,return_type,dn_id,subtotal,tax_amount,total_amount,e_invoice_data,e_invoice_code,status,gl_posted,gl_posted_at,notes,created_by,created_at FROM credit_notes WHERE company_id=$1` + where
-	dArgs := make([]interface{}, len(args))
-	copy(dArgs, args)
-	q += " ORDER BY return_date DESC"
+	var gs []domain.CreditNoteGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
+	if filter.CustomerID != "" {
+		dq = dq.Where("customer_id = ?", filter.CustomerID)
+	}
+	if filter.Status != "" {
+		dq = dq.Where("status = ?", string(filter.Status))
+	}
+	if filter.FromDate != "" {
+		dq = dq.Where("cn_date >= ?", filter.FromDate)
+	}
+	if filter.ToDate != "" {
+		dq = dq.Where("cn_date <= ?", filter.ToDate)
+	}
+	dq = dq.Order("cn_date DESC")
 	if filter.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n); dArgs = append(dArgs, filter.Limit); n++
+		dq = dq.Limit(filter.Limit)
 	}
 	if filter.Offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n); dArgs = append(dArgs, filter.Offset)
+		dq = dq.Offset(filter.Offset)
 	}
-	rows, err := r.pool.Query(ctx, q, dArgs...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.CreditNote
-	for rows.Next() {
-		cn, err := scanCN(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, cn)
+	out := make([]domain.CreditNote, len(gs))
+	for i := range gs {
+		cn := cnFromGORM(&gs[i])
+		r.db.WithContext(ctx).Model(&domain.CNLineGORM{}).Where("cn_id = ?", gs[i].ID).Find(&cn.Lines)
+		out[i] = *cn
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-func (r *PGSaleRepo) UpdateCN(ctx context.Context, cn *domain.CreditNote) error {
-	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET cn_number=$1,original_invoice_id=$2,customer_id=$3,return_date=$4,return_reason=$5,return_type=$6,dn_id=$7,subtotal=$8,tax_amount=$9,total_amount=$10,status=$11,notes=$12 WHERE id=$13`,
-		cn.CNNumber, cn.OriginalInvoiceID, cn.CustomerID, cn.ReturnDate.Format(time.RFC3339), cn.ReturnReason, cn.ReturnType, cn.DNID, cn.Subtotal, cn.TaxAmount, cn.TotalAmount, cn.Status, cn.Notes, cn.ID)
-	return err
+func (r *PGCreditNoteRepo) UpdateCN(ctx context.Context, cn *domain.CreditNote) error {
+	return r.db.WithContext(ctx).Model(&domain.CreditNoteGORM{}).Where("id = ?", cn.ID).Updates(map[string]interface{}{
+		"cn_number": cn.CNNumber,
+		"cn_date":   cn.ReturnDate,
+		"customer_id": cn.CustomerID,
+		"reason":    cn.ReturnReason,
+		"subtotal":  cn.Subtotal,
+		"tax_amount": cn.TaxAmount,
+		"grand_total": cn.TotalAmount,
+		"status":    string(cn.Status),
+	}).Error
 }
 
-func (r *PGSaleRepo) UpdateCNStatus(ctx context.Context, id string, status domain.CNStatus) error {
-	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET status=$1 WHERE id=$2`, string(status), id)
-	return err
+func (r *PGCreditNoteRepo) UpdateCNStatus(ctx context.Context, id string, status domain.CNStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.CreditNoteGORM{}).Where("id = ?", id).Update("status", string(status)).Error
 }
 
-func (r *PGSaleRepo) PostCN(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET status=$1 WHERE id=$2`,
-		string(domain.CNPosted), id)
-	return err
+func (r *PGCreditNoteRepo) PostCN(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.CreditNoteGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status": string(domain.CNPosted),
+	}).Error
 }
 
-func (r *PGSaleRepo) SetCNGLPosted(ctx context.Context, id string, postedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE credit_notes SET gl_posted=1,gl_posted_at=$1 WHERE id=$2`,
-		postedAt.Format(time.RFC3339), id)
-	return err
+func (r *PGCreditNoteRepo) SetCNGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.CreditNoteGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"gl_posted": true,
+		"posted_at": postedAt,
+	}).Error
 }
 
-func (r *PGSaleRepo) GetCNLines(ctx context.Context, cnID string) ([]domain.CNLine, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,cn_id,invoice_line_id,item_name,unit,quantity,unit_price,vat_rate,line_total,line_vat_amount FROM cn_lines WHERE cn_id=$1`, cnID)
-	if err != nil {
+func cnLineToGORM(l *domain.CNLine) *domain.CNLineGORM {
+	return &domain.CNLineGORM{
+		LineNumber: 0,
+		ItemCode:   l.ItemName,
+		ItemName:   l.ItemName,
+		Qty:        l.Quantity,
+		UnitPrice:  l.UnitPrice,
+		LineTotal:  l.LineTotal,
+	}
+}
+
+func cnLineFromGORM(g *domain.CNLineGORM) *domain.CNLine {
+	return &domain.CNLine{
+		ID:       strconv.Itoa(int(g.ID)),
+		CNID:     g.CNID,
+		ItemName: g.ItemName,
+		Unit:     "",
+		Quantity: g.Qty,
+		UnitPrice: g.UnitPrice,
+		LineTotal: g.LineTotal,
+		VATRate:  10,
+	}
+}
+
+func (r *PGCreditNoteRepo) GetCNLines(ctx context.Context, cnID string) ([]domain.CNLine, error) {
+	var gs []domain.CNLineGORM
+	if err := r.db.WithContext(ctx).Where("cn_id = ?", cnID).Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.CNLine
-	for rows.Next() {
-		var l domain.CNLine
-		if err := rows.Scan(&l.ID, &l.CNID, &l.InvLineID, &l.ItemName, &l.Unit, &l.Quantity, &l.UnitPrice, &l.VATRate, &l.LineTotal, &l.LineVATAmount); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
+	out := make([]domain.CNLine, len(gs))
+	for i := range gs {
+		out[i] = *cnLineFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) CreateCNLines(ctx context.Context, items []domain.CNLine) error {
-	for _, l := range items {
-		_, err := r.pool.Exec(ctx, `INSERT INTO cn_lines (id,cn_id,invoice_line_id,item_name,unit,quantity,unit_price,vat_rate,line_total,line_vat_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			l.ID, l.CNID, l.InvLineID, l.ItemName, l.Unit, l.Quantity, l.UnitPrice, l.VATRate, l.LineTotal, l.LineVATAmount)
-		if err != nil {
-			return err
-		}
+func (r *PGCreditNoteRepo) CreateCNLines(ctx context.Context, items []domain.CNLine) error {
+	if len(items) == 0 {
+		return nil
 	}
+	gs := make([]domain.CNLineGORM, len(items))
+	for i := range items {
+		gs[i] = *cnLineToGORM(&items[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+// ─── AR Transaction ─────────────────────────────────────────────────────
+
+type PGARTransactionRepo struct {
+	db *gorm.DB
+}
+
+func NewPGARTransactionRepo(db *gorm.DB) *PGARTransactionRepo {
+	return &PGARTransactionRepo{db: db}
+}
+
+func artToGORM(t *domain.ARTransaction) *domain.ARTransactionGORM {
+	return &domain.ARTransactionGORM{
+		ID:         t.ID,
+		CompanyID:  t.CompanyID,
+		CustomerID: t.CustomerID,
+		Amount:     t.Amount,
+		Currency:   t.Currency,
+		Status:     "OPEN",
+		CreatedBy:  "",
+		CreatedAt:  t.CreatedAt,
+		UpdatedAt:  t.CreatedAt,
+	}
+}
+
+func artFromGORM(g *domain.ARTransactionGORM) *domain.ARTransaction {
+	return &domain.ARTransaction{
+		ID:              g.ID,
+		CompanyID:       g.CompanyID,
+		CustomerID:      g.CustomerID,
+		TransactionType: domain.ARTransInvoice,
+		Amount:          g.Amount,
+		Currency:        g.Currency,
+		CreatedAt:       g.CreatedAt,
+		TransactionDate: g.CreatedAt,
+	}
+}
+
+func (r *PGARTransactionRepo) CreateARTransaction(ctx context.Context, t *domain.ARTransaction) error {
+	g := artToGORM(t)
+	if err := r.db.WithContext(ctx).Create(g).Error; err != nil {
+		return err
+	}
+	t.ID = g.ID
+	t.CreatedAt = g.CreatedAt
 	return nil
 }
 
-// ─── AR Transaction ───────────────────────────────────────────────────────
-
-func (r *PGSaleRepo) CreateARTransaction(ctx context.Context, t *domain.ARTransaction) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	if t.Currency == "" {
-		t.Currency = "VND"
-	}
-	return r.pool.QueryRow(ctx, `INSERT INTO ar_transactions (id,company_id,customer_id,invoice_id,transaction_type,transaction_date,amount,currency,reference_type,reference_id,notes,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-		t.ID, t.CompanyID, t.CustomerID, t.InvoiceID, t.TransactionType, t.TransactionDate.Format(time.RFC3339), t.Amount, t.Currency, t.ReferenceType, t.ReferenceID, t.Notes, now,
-	).Scan(&t.ID)
-}
-
-func scanARTransaction(row pgx.Row) (domain.ARTransaction, error) {
-	var t domain.ARTransaction
-	err := row.Scan(&t.ID, &t.CompanyID, &t.CustomerID, &t.InvoiceID, &t.TransactionType, &t.TransactionDate, &t.Amount, &t.Currency, &t.ReferenceType, &t.ReferenceID, &t.Notes, &t.CreatedAt)
-	return t, err
-}
-
-func (r *PGSaleRepo) GetARTransaction(ctx context.Context, id string) (*domain.ARTransaction, error) {
-	t, err := scanARTransaction(r.pool.QueryRow(ctx, `SELECT id,company_id,customer_id,invoice_id,transaction_type,transaction_date,amount,currency,reference_type,reference_id,notes,created_at FROM ar_transactions WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func (r *PGARTransactionRepo) GetARTransaction(ctx context.Context, id string) (*domain.ARTransaction, error) {
+	var g domain.ARTransactionGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrARTransNotFound
 		}
 		return nil, err
 	}
-	return &t, nil
+	return artFromGORM(&g), nil
 }
 
-func (r *PGSaleRepo) ListARTransactions(ctx context.Context, companyID, customerID string) ([]domain.ARTransaction, error) {
-	q := `SELECT id,company_id,customer_id,invoice_id,transaction_type,transaction_date,amount,currency,reference_type,reference_id,notes,created_at FROM ar_transactions WHERE customer_id=$1`
-	args := []interface{}{customerID}
-	if companyID != "" {
-		q = `SELECT art.id,art.company_id,art.customer_id,art.invoice_id,art.transaction_type,art.transaction_date,art.amount,art.currency,art.reference_type,art.reference_id,art.notes,art.created_at FROM ar_transactions art JOIN customers c ON c.id=art.customer_id WHERE c.company_id=$1 AND art.customer_id=$2`
-		args = []interface{}{companyID, customerID}
-	}
-	rows, err := r.pool.Query(ctx, q, args...)
-	if err != nil {
+func (r *PGARTransactionRepo) ListARTransactions(ctx context.Context, companyID, customerID string) ([]domain.ARTransaction, error) {
+	var gs []domain.ARTransactionGORM
+	q := r.db.WithContext(ctx).Joins("JOIN customers ON customers.id = ar_transactions.customer_id").Where("ar_transactions.customer_id = ? AND customers.company_id = ?", customerID, companyID)
+	if err := q.Order("ar_transactions.created_at DESC").Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.ARTransaction
-	for rows.Next() {
-		t, err := scanARTransaction(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
+	out := make([]domain.ARTransaction, len(gs))
+	for i := range gs {
+		out[i] = *artFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) ListARTransactionsAll(ctx context.Context, companyID string, offset, limit int) ([]domain.ARTransaction, int, error) {
-	var total int
-	q := `SELECT COUNT(*) FROM ar_transactions art JOIN customers c ON c.id=art.customer_id WHERE c.company_id=$1`
-	if err := r.pool.QueryRow(ctx, q, companyID).Scan(&total); err != nil {
+func (r *PGARTransactionRepo) ListARTransactionsAll(ctx context.Context, companyID string, offset, limit int) ([]domain.ARTransaction, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.ARTransactionGORM{}).Joins("JOIN customers ON customers.id = ar_transactions.customer_id").Where("customers.company_id = ?", companyID)
+	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	q = `SELECT art.id,art.company_id,art.customer_id,art.invoice_id,art.transaction_type,art.transaction_date,art.amount,art.currency,art.reference_type,art.reference_id,art.notes,art.created_at FROM ar_transactions art JOIN customers c ON c.id=art.customer_id WHERE c.company_id=$1 ORDER BY art.transaction_date DESC`
-	args := []interface{}{companyID}
-	n := 2
+	var gs []domain.ARTransactionGORM
+	dq := r.db.WithContext(ctx).Joins("JOIN customers ON customers.id = ar_transactions.customer_id").Where("customers.company_id = ?", companyID).Order("ar_transactions.created_at DESC")
 	if limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", n)
-		args = append(args, limit)
-		n++
+		dq = dq.Limit(limit)
 	}
 	if offset > 0 {
-		q += fmt.Sprintf(" OFFSET $%d", n)
-		args = append(args, offset)
+		dq = dq.Offset(offset)
 	}
-	rows, err := r.pool.Query(ctx, q, args...)
-	if err != nil {
+	if err := dq.Find(&gs).Error; err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []domain.ARTransaction
-	for rows.Next() {
-		t, err := scanARTransaction(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, t)
+	out := make([]domain.ARTransaction, len(gs))
+	for i := range gs {
+		out[i] = *artFromGORM(&gs[i])
 	}
-	return out, total, nil
+	return out, int(total), nil
 }
 
-// ─── Sales Quotation ──────────────────────────────────────────────────────
+// ─── Sales Quotation ────────────────────────────────────────────────────
 
-func (r *PGSaleRepo) CreateSQ(ctx context.Context, sq *domain.SalesQuotation) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	return r.pool.QueryRow(ctx, `INSERT INTO sales_quotations (id,company_id,qn_number,customer_id,valid_until,status,total_amount,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		sq.ID, sq.CompanyID, sq.QNNumber, sq.CustomerID, sq.ValidUntil.Format(time.RFC3339), sq.Status, sq.TotalAmount, sq.CreatedBy, now,
-	).Scan(&sq.ID)
+type PGSalesQuotationRepo struct {
+	db *gorm.DB
 }
 
-func scanSQ(row pgx.Row) (domain.SalesQuotation, error) {
-	var sq domain.SalesQuotation
-	var validUntil, createdAt string
-	err := row.Scan(&sq.ID, &sq.CompanyID, &sq.QNNumber, &sq.CustomerID, &validUntil, &sq.Status, &sq.TotalAmount, &sq.CreatedBy, &createdAt)
-	if err != nil {
-		return sq, err
-	}
-	if validUntil != "" {
-		t, _ := time.Parse(time.RFC3339, validUntil)
-		sq.ValidUntil = &t
-	}
-	sq.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	return sq, nil
+func NewPGSalesQuotationRepo(db *gorm.DB) *PGSalesQuotationRepo {
+	return &PGSalesQuotationRepo{db: db}
 }
 
-func (r *PGSaleRepo) GetSQ(ctx context.Context, id string) (*domain.SalesQuotation, error) {
-	sq, err := scanSQ(r.pool.QueryRow(ctx, `SELECT id,company_id,qn_number,customer_id,valid_until,status,total_amount,created_by,created_at FROM sales_quotations WHERE id=$1`, id))
-	if err != nil {
-		if err == pgx.ErrNoRows {
+func sqToGORM(sq *domain.SalesQuotation) *domain.SalesQuotationGORM {
+	return &domain.SalesQuotationGORM{
+		ID:          sq.ID,
+		CompanyID:   sq.CompanyID,
+		QuoteNumber: sq.QNNumber,
+		QuoteDate:   time.Now(),
+		CustomerID:  sq.CustomerID,
+		ValidUntil:  *sq.ValidUntil,
+		Subtotal:    sq.TotalAmount,
+		TotalAmount: sq.TotalAmount,
+		Status:      sq.Status,
+		CreatedBy:   sq.CreatedBy,
+		CreatedAt:   sq.CreatedAt,
+		UpdatedAt:   sq.CreatedAt,
+	}
+}
+
+func sqFromGORM(g *domain.SalesQuotationGORM) *domain.SalesQuotation {
+	return &domain.SalesQuotation{
+		ID:          g.ID,
+		CompanyID:   g.CompanyID,
+		QNNumber:    g.QuoteNumber,
+		CustomerID:  g.CustomerID,
+		ValidUntil:  &g.ValidUntil,
+		Status:      g.Status,
+		TotalAmount: g.TotalAmount,
+		CreatedBy:   g.CreatedBy,
+		CreatedAt:   g.CreatedAt,
+	}
+}
+
+func (r *PGSalesQuotationRepo) CreateSQ(ctx context.Context, sq *domain.SalesQuotation) error {
+	g := sqToGORM(sq)
+	if err := r.db.WithContext(ctx).Create(g).Error; err != nil {
+		return err
+	}
+	sq.ID = g.ID
+	sq.CreatedAt = g.CreatedAt
+	return nil
+}
+
+func (r *PGSalesQuotationRepo) GetSQ(ctx context.Context, id string) (*domain.SalesQuotation, error) {
+	var g domain.SalesQuotationGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &sq, nil
+	return sqFromGORM(&g), nil
 }
 
-func (r *PGSaleRepo) ListSQs(ctx context.Context, companyID string) ([]domain.SalesQuotation, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,company_id,qn_number,customer_id,valid_until,status,total_amount,created_by,created_at FROM sales_quotations WHERE company_id=$1 ORDER BY created_at DESC`, companyID)
-	if err != nil {
+func (r *PGSalesQuotationRepo) ListSQs(ctx context.Context, companyID string) ([]domain.SalesQuotation, error) {
+	var gs []domain.SalesQuotationGORM
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&gs).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.SalesQuotation
-	for rows.Next() {
-		sq, err := scanSQ(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sq)
+	out := make([]domain.SalesQuotation, len(gs))
+	for i := range gs {
+		out[i] = *sqFromGORM(&gs[i])
 	}
 	return out, nil
 }
 
-func (r *PGSaleRepo) UpdateSQ(ctx context.Context, sq *domain.SalesQuotation) error {
-	_, err := r.pool.Exec(ctx, `UPDATE sales_quotations SET qn_number=$1,customer_id=$2,valid_until=$3,status=$4,total_amount=$5 WHERE id=$6`,
-		sq.QNNumber, sq.CustomerID, sq.ValidUntil.Format(time.RFC3339), sq.Status, sq.TotalAmount, sq.ID)
-	return err
+func (r *PGSalesQuotationRepo) UpdateSQ(ctx context.Context, sq *domain.SalesQuotation) error {
+	g := sqToGORM(sq)
+	return r.db.WithContext(ctx).Model(&domain.SalesQuotationGORM{}).Where("id = ?", sq.ID).Updates(map[string]interface{}{
+		"quote_number": g.QuoteNumber,
+		"customer_id":  g.CustomerID,
+		"valid_until":  g.ValidUntil,
+		"status":       g.Status,
+		"total_amount": g.TotalAmount,
+	}).Error
 }

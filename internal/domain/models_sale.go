@@ -192,6 +192,7 @@ type DeliveryNote struct {
 	Notes           string       `json:"notes,omitempty"`
 	CreatedBy       string       `json:"created_by"`
 	CreatedAt       time.Time    `json:"created_at,omitempty"`
+	UpdatedAt       time.Time    `json:"updated_at,omitempty"`
 	Lines           []DNLine     `json:"lines"`
 }
 
@@ -267,6 +268,7 @@ type CustomerInvoice struct {
 	Notes               string         `json:"notes,omitempty"`
 	CreatedBy           string         `json:"created_by"`
 	CreatedAt           time.Time      `json:"created_at,omitempty"`
+	UpdatedAt           time.Time      `json:"updated_at,omitempty"`
 	Lines               []InvLine      `json:"lines"`
 }
 
@@ -346,6 +348,7 @@ type CustomerReceipt struct {
 	GLPostedAt        *time.Time     `json:"gl_posted_at,omitempty"`
 	CreatedBy         string         `json:"created_by"`
 	CreatedAt         time.Time      `json:"created_at,omitempty"`
+	UpdatedAt         time.Time      `json:"updated_at,omitempty"`
 	Allocations       []RcpAllocation `json:"allocations"`
 }
 
@@ -394,6 +397,7 @@ type CreditNote struct {
 	Notes             string         `json:"notes,omitempty"`
 	CreatedBy         string         `json:"created_by"`
 	CreatedAt         time.Time      `json:"created_at,omitempty"`
+	UpdatedAt         time.Time      `json:"updated_at,omitempty"`
 	Lines             []CNLine       `json:"lines"`
 }
 

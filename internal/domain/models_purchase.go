@@ -253,6 +253,7 @@ type SupplierInvoice struct {
 	Notes                string              `json:"notes,omitempty"`
 	CreatedBy            string              `json:"created_by"`
 	CreatedAt            time.Time           `json:"created_at,omitempty"`
+	UpdatedAt            time.Time           `json:"updated_at,omitempty"`
 	Lines                []SupplierInvoiceLine `json:"lines"`
 }
 
