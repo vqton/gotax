@@ -37,3 +37,5 @@ Thumbs.db
 /tmp/fix_admin.go
 /tmp/gen_hash.go
 /tmp/setup_pg.go
+/gotax
+/gotax-server

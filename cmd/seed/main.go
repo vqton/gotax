@@ -49,7 +49,7 @@ func main() {
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
-	if err := svc.CreateUser(ctx, u, "Admin@123456"); err != nil {
+	if err := svc.CreateUser(ctx, u, "Admin@123456!"); err != nil {
 		log.Fatalf("seed failed: %v", err)
 	}
 	log.Println("seeded admin — username: admin | password: Admin@123456")

@@ -21,6 +21,25 @@ func NewHandler(svc service.Service) *Handler {
 }
 
 func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
+	const (
+		resAccounts  = "accounts"
+		resEntries   = "journal-entries"
+		resReports   = "reports"
+		resOB        = "opening-balances"
+		resCF        = "carry-forward"
+		resC99       = "circular99-mappings"
+		resMig       = "balance-migrations"
+		resPeriods   = "periods"
+		resRates     = "exchange-rates"
+		resAudit     = "audit"
+		resUsers     = "users"
+		resCOA       = "coa"
+		resCOAAcc    = resCOA + "/accounts"
+		resApprovals = resCOA + "/approvals"
+		resVersions  = resCOA + "/versions"
+		resMappings  = resCOA + "/mappings"
+		resIFRS      = resCOA + "/ifrs"
+	)
 	auth := r.Group("/api/v1/auth")
 	{
 		auth.POST("/login", h.Login)
@@ -32,7 +51,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 
 	v1 := r.Group("/api/v1", authMW)
 	{
-		accounts := v1.Group("/accounts")
+		accounts := v1.Group("/" + resAccounts)
 		{
 			accounts.POST("", h.CreateAccount)
 			accounts.GET("", h.ListAccounts)
@@ -41,7 +60,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			accounts.DELETE("/:code", adminMW, h.DeleteAccount)
 		}
 
-		entries := v1.Group("/journal-entries")
+		entries := v1.Group("/" + resEntries)
 		{
 			entries.POST("", h.CreateEntry)
 			entries.GET("", h.GetJournalEntries)
@@ -53,14 +72,14 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			entries.POST("/:id/cancel", h.CancelJournalEntry)
 		}
 
-		reports := v1.Group("/reports")
+		reports := v1.Group("/" + resReports)
 		{
 			reports.GET("/trial-balance", h.TrialBalance)
 			reports.GET("/balance-sheet", h.BalanceSheet)
 			reports.GET("/income-statement", h.IncomeStatement)
 		}
 
-		ob := v1.Group("/opening-balances")
+		ob := v1.Group("/" + resOB)
 		{
 			ob.POST("", h.CreateOpeningBalance)
 			ob.GET("", h.ListOpeningBalances)
@@ -78,28 +97,28 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			ob.GET("/report", h.DownloadOpeningBalancePDF)
 		}
 
-		cf := v1.Group("/carry-forward")
+		cf := v1.Group("/" + resCF)
 		{
 			cf.POST("", adminMW, h.CarryForward)
 			cf.GET("", h.GetCarryForwardLogs)
 			cf.GET("/:id", h.GetCarryForwardLogByID)
 		}
 
-		c99 := v1.Group("/circular99-mappings")
+		c99 := v1.Group("/" + resC99)
 		{
 			c99.POST("", h.CreateCircular99Mapping)
 			c99.GET("", h.ListCircular99Mappings)
 			c99.GET("/:oldCode", h.GetCircular99MappingByOldCode)
 		}
 
-		mig := v1.Group("/balance-migrations")
+		mig := v1.Group("/" + resMig)
 		{
 			mig.POST("", h.CreateBalanceMigration)
 			mig.GET("", h.ListBalanceMigrations)
 			mig.GET("/:id", h.GetBalanceMigrationByID)
 		}
 
-		periods := v1.Group("/periods")
+		periods := v1.Group("/" + resPeriods)
 		{
 			periods.POST("", adminMW, h.CreatePeriod)
 			periods.GET("", h.ListPeriods)
@@ -108,26 +127,26 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			periods.POST("/:id/reopen", adminMW, h.ReopenPeriod)
 		}
 
-		rates := v1.Group("/exchange-rates")
+		rates := v1.Group("/" + resRates)
 		{
 			rates.POST("", h.CreateExchangeRate)
 			rates.GET("", h.ListExchangeRates)
 		}
 
-		audit := v1.Group("/audit")
+		audit := v1.Group("/" + resAudit, adminMW)
 		{
-			audit.GET("", adminMW, h.GetAuditLog)
-			audit.GET("/entity", adminMW, h.GetAuditLogByEntity)
+			audit.GET("", h.GetAuditLog)
+			audit.GET("/entity", h.GetAuditLogByEntity)
 		}
 
-		users := v1.Group("/users")
+		users := v1.Group("/" + resUsers, adminMW)
 		{
-			users.POST("", adminMW, h.CreateUser)
-			users.GET("", adminMW, h.ListUsers)
+			users.POST("", h.CreateUser)
+			users.GET("", h.ListUsers)
 			users.GET("/:id", h.GetUser)
 		}
 
-		coa := v1.Group("/coa")
+		coa := v1.Group("/" + resCOA)
 		{
 			acc := coa.Group("/accounts")
 			{
@@ -140,7 +159,6 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 				acc.GET("/:code/analysis", h.GetAccountAnalysis)
 				acc.PUT("/:code/analysis", h.UpdateAccountAnalysis)
 			}
-
 			approvals := coa.Group("/approvals")
 			{
 				approvals.POST("", h.CreateApprovalRequest)
@@ -148,7 +166,6 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 				approvals.POST("/:id/approve", h.ApproveRequest)
 				approvals.POST("/:id/reject", h.RejectRequest)
 			}
-
 			versions := coa.Group("/versions")
 			{
 				versions.POST("", h.CreateAccountVersion)
@@ -156,14 +173,12 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 				versions.GET("/compare", h.CompareVersions)
 				versions.GET("/:versionNumber", h.GetVersion)
 			}
-
 			mappings := coa.Group("/mappings")
 			{
 				mappings.POST("", h.CreateAccountMapping)
 				mappings.GET("", h.ListMappings)
 				mappings.GET("/:oldCode", h.GetMappingByOldCode)
 			}
-
 			ifrs := coa.Group("/ifrs")
 			{
 				ifrs.POST("", h.CreateIFRSMapping)

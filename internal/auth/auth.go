@@ -46,10 +46,11 @@ func SetJWTSecret(secret string) {
 }
 
 type Claims struct {
-	UserID   string         `json:"user_id"`
-	Username string         `json:"username"`
+	UserID   string        `json:"user_id"`
+	Username string        `json:"username"`
 	Role     domain.UserRole `json:"role"`
-	TokenID  string         `json:"jti,omitempty"`
+	TenantID string        `json:"tenant_id,omitempty"` // set by company resolver if provided
+	TokenID  string        `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
 

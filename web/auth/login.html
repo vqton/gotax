@@ -53,12 +53,11 @@
           :class="{ 'is-invalid': loginError }"
           placeholder="••••••••"
           required
-          minlength="8"
+          minlength="12"
           x-model="password"
           autocomplete="current-password"
           aria-required="true"
           aria-invalid="loginError ? 'true' : 'false'"
-          @input="loginError = ''"
         >
         <button
           type="button"
@@ -127,8 +126,6 @@
 
 <script>
 function loginStore() {
-  const alertStore = window.__alpine_store || null;
-
   return {
     username: "",
     password: "",
@@ -170,12 +167,13 @@ function loginStore() {
           setTimeout(() => window.location.href = "/2fa", 50);
           return;
         }
-        this.loginError = d.error || "Đăng nhập thất bại.";
-        Alpine.store("alert").error(this.loginError);
+        const msg = d.error || `Server trả lỗi ${r.status}`;
+        this.loginError = msg;
+        Alpine.store("alert").error(msg);
       })
       .catch(() => {
         this.isSubmitting = false;
-        this.loginError = "Lỗi kết nối. Thử lại sau.";
+        this.loginError = "Không kết nối được server. Kiểm tra server đang chạy.";
         Alpine.store("alert").error(this.loginError);
       });
     },

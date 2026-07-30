@@ -13,7 +13,7 @@ func I18nMiddleware(l *gotaxi18n.Localizer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lang := c.GetHeader("Accept-Language")
 		if lang == "" {
-			lang = "en"
+			lang = "vi"
 		}
 		c.Set(localizerKey, l.ForLocale(lang))
 		c.Next()
