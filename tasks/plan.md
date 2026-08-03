@@ -41,6 +41,23 @@ Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features
 - After P2-5: same + commit
 - Final: docs bumped (readiness 85% → P2 closed), AGENTS.md updated
 
+## P2-5 Slice Plan — GDT E-Invoice XML (M-1)
+
+Format authority: `docs/purchase/PURCHASE_TEMPLATES.md` §8 (Decree 254/2026 schema). Pure-Go `encoding/xml`, no new deps. New package `internal/einvoice` (adapter layer, per risk mitigation). No migration (EInvoiceData/EInvoiceCode columns exist). No constructor change (reuses invRepo + supRepo).
+
+| Slice | Scope | Deliverable |
+|-------|-------|-------------|
+| 5.1 | `internal/einvoice/gdt.go` + `gdt_test.go` | Parse([]byte)→SupplierInvoice, Generate(inv)→[]byte. GL account defaults 152/1331 on lines. VAT rate→VATType map. |
+| 5.2 | `purchase_service.go` + `purchase_service_test.go` | `ReceiveEInvoiceXML(ctx, companyID, raw)` (parse→ReceiveEInvoice→store raw in EInvoiceData), `GenerateEInvoiceXML(ctx, id)`. |
+| 5.3 | `purchase_handler.go` + `purchase_handler_test.go` | `POST /invoices/e-invoice` (raw XML body), `GET /invoices/:id/e-invoice` (XML response). |
+| 5.4 | docs + AGENTS.md + plan.md | Readiness rows 0%→100%, AGENTS.md module table, checkpoint. |
+
+Decisions:
+- XML→domain line mapping sets AccountID=152, VATAccountID=1331 (GL mapping is app concern, not GDT payload).
+- VAT rate to VATType: 0→VAT_0, 5→VAT_5, 8→VAT_8, 10→VAT_10, -1/KCT→NT.
+- Generate omits empty Seller/Buyer optional fields; Buyer carries no company data today (only name/tax code available from invoice).
+- XML namespace kept as `http://gdt.gov.vn/schemas/einvoice/2026` per template.
+
 ## Risks
 
 | Risk | Impact | Mitigation |
