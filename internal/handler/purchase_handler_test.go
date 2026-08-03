@@ -949,7 +949,7 @@ func seedFXInvoice(t *testing.T, svc *service.PurchaseService, gl service.Servic
 	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
 	asOf := time.Now().Truncate(24 * time.Hour)
 	require.NoError(t, gl.CreateExchangeRate(ctx, &domain.ExchangeRate{
-		CurrencyCode: "USD", RateDate: asOf, AverageRate: 26000, BuyRate: 26000, SellRate: 26000,
+		CurrencyCode: "USD", RateDate: asOf, AverageRate: 24000, BuyRate: 24000, SellRate: 24000,
 	}))
 	return inv
 }

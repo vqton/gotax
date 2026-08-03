@@ -1330,11 +1330,11 @@ func (s *PurchaseService) RevalueAP(ctx context.Context, companyID string, asOfD
 			RevaluationRate: rate.AverageRate,
 		}
 		if diff > 0 {
-			line.FxGain = diff
-			reval.TotalGain += diff
+			line.FxLoss = diff
+			reval.TotalLoss += diff
 		} else if diff < 0 {
-			line.FxLoss = -diff
-			reval.TotalLoss += -diff
+			line.FxGain = -diff
+			reval.TotalGain += -diff
 		} else {
 			continue
 		}
@@ -1418,6 +1418,9 @@ func (s *PurchaseService) ReceiveEInvoiceXML(ctx context.Context, companyID stri
 	inv, err := einvoice.Parse(raw)
 	if err != nil {
 		return nil, err
+	}
+	if inv.InvoiceType == domain.InvoiceTypeCreditNote {
+		return nil, domain.ErrEinvoiceCreditNoteUnsupported
 	}
 	inv.CompanyID = companyID
 	inv.EInvoiceData = string(raw)

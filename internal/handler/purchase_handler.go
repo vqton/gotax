@@ -844,6 +844,7 @@ func (h *PurchaseHandler) ReceiveEInvoice(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
 		return
 	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
 	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

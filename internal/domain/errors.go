@@ -371,6 +371,7 @@ var (
 	ErrFXRevaluationRateMissing   = errors.New("exchange rate not found for currency on revaluation date")
 	ErrFXRevaluationEmpty         = errors.New("no open foreign-currency invoices to revalue")
 	ErrFXRevaluationAlreadyPosted = errors.New("FX revaluation already posted")
+	ErrEinvoiceCreditNoteUnsupported = errors.New("credit-note e-invoice XML unsupported: no original invoice reference")
 
 	ErrProvisionDateRequired   = errors.New("provision as-of date is required")
 	ErrProvisionNoLines        = errors.New("provision has no lines")

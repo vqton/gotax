@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -1087,7 +1088,7 @@ func TestRevalueAP_Gain(t *testing.T) {
 	svc, gl, ctx := setupPurchaseGL(t)
 	asOf := time.Now().Truncate(24 * time.Hour)
 	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
-	seedRate(t, gl, ctx, "USD", asOf, 26000)
+	seedRate(t, gl, ctx, "USD", asOf, 24000)
 
 	r, err := svc.RevalueAP(ctx, "c1", asOf)
 	require.NoError(t, err)
@@ -1102,7 +1103,7 @@ func TestRevalueAP_Loss(t *testing.T) {
 	svc, gl, ctx := setupPurchaseGL(t)
 	asOf := time.Now().Truncate(24 * time.Hour)
 	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
-	seedRate(t, gl, ctx, "USD", asOf, 24000)
+	seedRate(t, gl, ctx, "USD", asOf, 26000)
 
 	r, err := svc.RevalueAP(ctx, "c1", asOf)
 	require.NoError(t, err)
@@ -1144,17 +1145,17 @@ func TestPostFXRevaluation(t *testing.T) {
 	require.NoError(t, err)
 	entry := findEntry(entries, "FXR-"+r.ID)
 	require.NotNil(t, entry)
-	var gainCredit, gainDebit float64
+	var lossDebit, lossCredit float64
 	for _, l := range entry.Lines {
-		if l.AccountCode == "515" {
-			gainCredit += l.CreditAmount
+		if l.AccountCode == "635" {
+			lossDebit += l.DebitAmount
 		}
 		if l.AccountCode == "331" {
-			gainDebit += l.DebitAmount
+			lossCredit += l.CreditAmount
 		}
 	}
-	assert.InDelta(t, 1000000, gainCredit, 0.001)
-	assert.InDelta(t, 1000000, gainDebit, 0.001)
+	assert.InDelta(t, 1000000, lossDebit, 0.001)
+	assert.InDelta(t, 1000000, lossCredit, 0.001)
 
 	assert.ErrorIs(t, svc.PostFXRevaluation(ctx, r.ID), domain.ErrFXRevaluationAlreadyPosted)
 }
@@ -1241,6 +1242,13 @@ func TestReceiveEInvoiceXML_Malformed(t *testing.T) {
 	svc, _, ctx := setupPurchaseGL(t)
 	_, err := svc.ReceiveEInvoiceXML(ctx, "c1", []byte("<Invoice><InvoiceHeader>"))
 	assert.Error(t, err)
+}
+
+func TestReceiveEInvoiceXML_RejectsCreditNote(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	cn := strings.Replace(testGDTXML, "<InvoiceType>01GTKT</InvoiceType>", "<InvoiceType>credit_note</InvoiceType>", 1)
+	_, err := svc.ReceiveEInvoiceXML(ctx, "c1", []byte(cn))
+	assert.ErrorIs(t, err, domain.ErrEinvoiceCreditNoteUnsupported)
 }
 
 func TestGenerateEInvoiceXML(t *testing.T) {
