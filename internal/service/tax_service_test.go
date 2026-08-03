@@ -184,3 +184,88 @@ func TestCalculateVAT_Refundable(t *testing.T) {
 	assert.Equal(t, 0.0, res.VATPayable)
 	assert.Equal(t, 100000.0, res.VATRefundable)
 }
+
+// ─── A3: CIT Engine ─────────────────────────────────────────────────────
+
+func citEntry(lines ...domain.JournalLine) domain.JournalEntry {
+	return domain.JournalEntry{Lines: lines}
+}
+
+func TestCalculateCIT_MicroRate(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),  // 100M < 3B → MICRO 15%
+		citEntry(vatLine("641", 60000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 15.0, res.TaxRate)
+	assert.Equal(t, 40000000.0, res.TaxableIncome)
+	assert.Equal(t, 6000000.0, res.CITPayable)
+}
+
+func TestCalculateCIT_SmallRate(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 5000000000)),  // 5B → SMALL 17%
+		citEntry(vatLine("641", 2000000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 17.0, res.TaxRate)
+	assert.Equal(t, 510000000.0, res.CITPayable) // 3B * 17%
+}
+
+func TestCalculateCIT_StandardRate(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 60000000000)),  // 60B → STANDARD 20%
+		citEntry(vatLine("641", 30000000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 20.0, res.TaxRate)
+	assert.Equal(t, 6000000000.0, res.CITPayable) // 30B * 20%
+}
+
+func TestCalculateCIT_NonDeductibleAddedBack(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 60000000, 0)),
+		citEntry(vatLine("821", 5000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 45000000.0, res.TaxableIncome) // 100M - 60M + 5M
+	assert.Equal(t, 6750000.0, res.CITPayable)     // 45M * 15%
+}
+
+func TestCalculateCIT_Loss(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 50000000)),
+		citEntry(vatLine("641", 90000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, res.TaxableIncome)
+	assert.Equal(t, 0.0, res.CITPayable)
+}
+
+func TestCalculateCIT_RateTableOverridesSize(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+	require.NoError(t, repo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "CIT_MICRO", TaxType: domain.TaxTypeCIT,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 12.5,
+		ApplicableTo: "MICRO", EffectiveFrom: "2026-01-01", IsActive: true,
+	}))
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 60000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 12.5, res.TaxRate)
+	assert.Equal(t, 5000000.0, res.CITPayable) // 40M * 12.5%
+}

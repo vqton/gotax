@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"math"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -532,15 +532,33 @@ func contains(list []string, v string) bool {
 	return false
 }
 
-var citRate = 0.20
+// CIT size thresholds per CIT Law 67/2025/QH15 Art. 11(2): MICRO < 3B,
+// SMALL 3-50B, STANDARD >= 50B annual revenue. Size derived from the
+// revenue in the provided entries (company master lookup is future work).
+const (
+	citMicroRevenueLimit = 3e9
+	citSmallRevenueLimit = 50e9
+)
 
-func (s *taxService) CalculateCIT(_ context.Context, companyID string, year int, entries []domain.JournalEntry) (*domain.CITResult, error) {
+func citSizeKey(revenue float64) string {
+	switch {
+	case revenue < citMicroRevenueLimit:
+		return "MICRO"
+	case revenue < citSmallRevenueLimit:
+		return "SMALL"
+	default:
+		return "STANDARD"
+	}
+}
+
+func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year int, entries []domain.JournalEntry) (*domain.CITResult, error) {
 	if companyID == "" {
 		return nil, domain.ErrCompanyIDRequired
 	}
 	result := &domain.CITResult{
 		CompanyID:  companyID,
 		PeriodYear: year,
+		PeriodType: "ANNUAL",
 	}
 	for _, entry := range entries {
 		for _, line := range entry.Lines {
@@ -549,7 +567,6 @@ func (s *taxService) CalculateCIT(_ context.Context, companyID string, year int,
 				switch acct[0] {
 				case '5', '6', '7':
 					if acct[1] >= '1' && acct[1] <= '9' {
-						// revenue or expense
 						if acct[0] == '5' || acct[0] == '7' {
 							result.Revenue += line.CreditAmount
 						} else {
@@ -568,7 +585,12 @@ func (s *taxService) CalculateCIT(_ context.Context, companyID string, year int,
 	if result.TaxableIncome < 0 {
 		result.TaxableIncome = 0
 	}
-	result.CITPayable = math.Round(result.TaxableIncome*citRate*100) / 100
+	rate, err := s.resolveRate(ctx, domain.TaxTypeCIT, citSizeKey(result.Revenue), fmt.Sprintf("%04d-12-31", year))
+	if err != nil {
+		return nil, err
+	}
+	result.TaxRate = rate.RateValue
+	result.CITPayable = round2(result.TaxableIncome * result.TaxRate / 100)
 	result.CITFinal = result.CITPayable
 	return result, nil
 }

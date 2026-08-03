@@ -542,7 +542,8 @@ func TestCalculateCIT(t *testing.T) {
 	assert.Equal(t, 60000000.0, result.Expenses)
 	assert.Equal(t, 5000000.0, result.NonDeductible)
 	assert.Equal(t, 45000000.0, result.TaxableIncome) // 100M - 60M + 5M
-	assert.Equal(t, 9000000.0, result.CITPayable)      // 45M * 20%
+	assert.Equal(t, 15.0, result.TaxRate)             // 100M revenue → MICRO
+	assert.Equal(t, 6750000.0, result.CITPayable)     // 45M * 15%
 }
 
 func TestCalculateVAT_ZeroInput(t *testing.T) {
