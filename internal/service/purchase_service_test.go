@@ -45,6 +45,8 @@ func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) 
 		{Code: "1331", Name: "Thue GTGT duoc khau tru", Type: domain.AccountTypeAsset, IsActive: true},
 		{Code: "152", Name: "Nguyen vat lieu", Type: domain.AccountTypeAsset, IsActive: true},
 		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
+		{Code: "3333", Name: "Thue nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "33312", Name: "Thue GTGT hang nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
 	} {
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
@@ -1007,4 +1009,47 @@ func findEntry(entries []domain.JournalEntry, number string) *domain.JournalEntr
 		}
 	}
 	return nil
+}
+
+// ─── Import Purchase (P2-3) ──────────────────────────────────────────────
+
+func TestPostImportInvoice(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	sup := makeSupplier(t, svc, ctx, "IMP-SUP")
+	po := makePO(t, svc, ctx, sup.ID, 10, 1000)
+	grn := makeGRN(t, svc, ctx, po, 10)
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "IMP-1", SupplierID: sup.ID,
+		POID: po.ID, GRNID: grn.ID, InvoiceDate: time.Now(),
+		InvoiceType: domain.InvoiceTypeImport,
+		ImportDuty:  500000, ImportVAT: 1050000,
+		CustomsDeclarationNumber: "CD-2025-001",
+		Lines: []domain.SupplierInvoiceLine{{
+			POLineID: po.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			Quantity: 10, UnitPrice: 1000, VATRate: 10, VATType: domain.VAT10,
+			AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.VerifyInvoice(ctx, inv.ID))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+
+	entries, err := gl.GetEntriesByDateRange(ctx, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	entry := findEntry(entries, "IMP-1")
+	require.NotNil(t, entry)
+	creds := map[string]float64{}
+	for _, l := range entry.Lines {
+		if l.CreditAmount > 0 {
+			creds[l.AccountCode] += l.CreditAmount
+		}
+	}
+	assert.InDelta(t, 11000, creds["331"], 0.001)
+	assert.InDelta(t, 500000, creds["3333"], 0.001)
+	assert.InDelta(t, 1050000, creds["33312"], 0.001)
+
+	loaded, _ := svc.GetInvoice(ctx, inv.ID)
+	assert.InDelta(t, 11000, loaded.BalanceDue, 0.001)
 }

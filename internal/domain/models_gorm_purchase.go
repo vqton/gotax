@@ -121,6 +121,9 @@ type SupplierInvoiceGORM struct {
 	SupplierTaxCode   string                  `gorm:"column:supplier_tax_code;not null" json:"supplierTaxCode"`
 	InvoiceType       string                  `gorm:"column:invoice_type;not null;default:domestic" json:"invoiceType"`
 	OriginalInvoiceID string                  `gorm:"column:original_invoice_id;not null;default:'';index:idx_inv_original" json:"originalInvoiceId"`
+	ImportDuty        float64                 `gorm:"column:import_duty;not null;default:0" json:"importDuty"`
+	ImportVAT         float64                 `gorm:"column:import_vat;not null;default:0" json:"importVat"`
+	CustomsDeclarationNumber string           `gorm:"column:customs_declaration_number;not null;default:'';index:idx_inv_customs" json:"customsDeclarationNumber"`
 	Currency          string                  `gorm:"column:currency;not null;default:VND" json:"currency"`
 	ExchangeRate      float64                 `gorm:"column:exchange_rate;not null;default:1" json:"exchangeRate"`
 	Subtotal          float64                 `gorm:"column:subtotal;not null;default:0" json:"subtotal"`

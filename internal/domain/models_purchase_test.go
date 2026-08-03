@@ -294,3 +294,16 @@ func TestGRN_ReturnGRN(t *testing.T) {
 	}
 	assert.NoError(t, g.Validate())
 }
+
+// ─── Import Purchase (P2-3) ──────────────────────────────────────────────
+
+func TestSupplierInvoice_ImportValid(t *testing.T) {
+	inv := &SupplierInvoice{
+		InvoiceNumber: "IM-1", SupplierID: "s1", SupplierName: "S", SupplierTaxCode: "TX",
+		InvoiceDate: time.Now(), InvoiceType: InvoiceTypeImport,
+		ImportDuty: 500000, ImportVAT: 1050000, CustomsDeclarationNumber: "CD-2025-001",
+		Lines: []SupplierInvoiceLine{{ItemName: "W", Quantity: 10, AccountID: "152", VATAccountID: "1331"}},
+	}
+	assert.NoError(t, inv.Validate())
+	assert.Equal(t, "import", inv.InvoiceType)
+}

@@ -16,6 +16,8 @@ type APGLService interface {
 }
 
 const apPayableAccount = "331"
+const importDutyAccount = "3333"
+const importVATAccount = "33312"
 
 type PurchaseService struct {
 	supRepo  domain.SupplierRepository
@@ -476,6 +478,33 @@ func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *doma
 		lines = append(lines, domain.JournalLine{
 			AccountCode: apPayableAccount, CreditAmount: total, Description: "AP: " + inv.InvoiceNumber,
 		})
+	}
+	if inv.InvoiceType == domain.InvoiceTypeImport {
+		inventoryAcc, vatAcc := "152", "1331"
+		if len(inv.Lines) > 0 {
+			if inv.Lines[0].AccountID != "" {
+				inventoryAcc = inv.Lines[0].AccountID
+			}
+			if inv.Lines[0].VATAccountID != "" {
+				vatAcc = inv.Lines[0].VATAccountID
+			}
+		}
+		if inv.ImportDuty > 0 {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: inventoryAcc, DebitAmount: inv.ImportDuty, Description: "Import duty: " + inv.InvoiceNumber,
+			})
+			lines = append(lines, domain.JournalLine{
+				AccountCode: importDutyAccount, CreditAmount: inv.ImportDuty, Description: "Customs duty payable: " + inv.InvoiceNumber,
+			})
+		}
+		if inv.ImportVAT > 0 {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: vatAcc, DebitAmount: inv.ImportVAT, Description: "Import VAT input: " + inv.InvoiceNumber,
+			})
+			lines = append(lines, domain.JournalLine{
+				AccountCode: importVATAccount, CreditAmount: inv.ImportVAT, Description: "Import VAT payable: " + inv.InvoiceNumber,
+			})
+		}
 	}
 	return &domain.JournalEntry{
 		CompanyID:   inv.CompanyID,

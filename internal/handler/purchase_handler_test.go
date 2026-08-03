@@ -51,6 +51,8 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 		{Code: "1331", Name: "Thue GTGT duoc khau tru", Type: domain.AccountTypeAsset, IsActive: true},
 		{Code: "152", Name: "Nguyen vat lieu", Type: domain.AccountTypeAsset, IsActive: true},
 		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
+		{Code: "3333", Name: "Thue nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "33312", Name: "Thue GTGT hang nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
 	} {
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
@@ -882,4 +884,42 @@ func TestCreateCreditNoteHandler(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.True(t, out.TotalAmount < 0)
 	assert.Equal(t, inv.ID, out.OriginalInvoiceID)
+}
+
+func TestCreateImportInvoiceHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "I-SUP", Name: "I Sup", TaxCode: "I-TX", SupplierType: domain.SupplierTypeImport}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-I1", SupplierID: sup.ID, OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{ItemName: "W", Unit: "pcs", Quantity: 10, UnitPrice: 1000, VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-I1", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: po.Lines[0].ID, ItemName: "W", Unit: "pcs", QuantityReceived: 10}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	body := fmt.Sprintf(`{"invoice_number":"IMP-I1","supplier_id":"%s","invoice_type":"import","po_id":"%s","grn_id":"%s","invoice_date":"%s","import_duty":500000,"import_vat":1050000,"customs_declaration_number":"CD-2025-1","lines":[{"po_line_id":"%s","item_name":"W","unit":"pcs","quantity":10,"unit_price":1000,"vat_rate":10,"vat_type":"VAT_10","account_id":"152","vat_account_id":"1331"}]}`,
+		sup.ID, po.ID, grn.ID, time.Now().Format("2006-01-02T15:04:05Z07:00"), po.Lines[0].ID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/invoices?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var inv domain.SupplierInvoice
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &inv))
+	assert.InDelta(t, 500000, inv.ImportDuty, 0.001)
+
+	for _, path := range []string{
+		"/api/v1/purchase/invoices/" + inv.ID + "/verify",
+		"/api/v1/purchase/invoices/" + inv.ID + "/post",
+	} {
+		w := httptest.NewRecorder()
+		rq, _ := http.NewRequest("PATCH", path, nil)
+		r.ServeHTTP(w, rq)
+		assert.Equal(t, 200, w.Code, path)
+	}
 }

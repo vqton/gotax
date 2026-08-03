@@ -222,7 +222,7 @@ func (l *GRNItem) Validate() error {
 type InvoiceStatus string
 const (InvoiceDraft InvoiceStatus="DRAFT"; InvoiceVerified InvoiceStatus="VERIFIED"; InvoicePosted InvoiceStatus="POSTED"; InvoicePaid InvoiceStatus="PAID"; InvoiceCancelled InvoiceStatus="CANCELLED")
 
-const (InvoiceTypeInvoice="invoice"; InvoiceTypeCreditNote="credit_note")
+const (InvoiceTypeInvoice="invoice"; InvoiceTypeCreditNote="credit_note"; InvoiceTypeImport="import")
 
 type VATDeductionStatus string
 const (VATPending VATDeductionStatus="pending"; VATClaimed VATDeductionStatus="claimed"; VATRejected VATDeductionStatus="rejected")
@@ -239,6 +239,9 @@ type SupplierInvoice struct {
 	SupplierTaxCode      string              `json:"supplier_tax_code" validate:"required"`
 	InvoiceType          string              `json:"invoice_type"`
 	OriginalInvoiceID    string              `json:"original_invoice_id,omitempty"`
+	ImportDuty           float64             `json:"import_duty,omitempty"`
+	ImportVAT            float64             `json:"import_vat,omitempty"`
+	CustomsDeclarationNumber string          `json:"customs_declaration_number,omitempty"`
 	Currency             string              `json:"currency"`
 	ExchangeRate         float64             `json:"exchange_rate"`
 	Subtotal             float64             `json:"subtotal"`
