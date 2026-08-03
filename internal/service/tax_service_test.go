@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 
 func newTaxTestSvc() (*taxService, domain.TaxRepository) {
 	repo := repository.NewMemoryTaxRepo()
-	return NewTaxService(repo).(*taxService), repo
+	return NewTaxService(repo, repository.NewMemoryJournalRepo()).(*taxService), repo
 }
 
 // ─── A1: Rate Resolver ──────────────────────────────────────────────────
@@ -195,7 +196,7 @@ func TestCalculateCIT_MicroRate(t *testing.T) {
 	svc, _ := newTaxTestSvc()
 	ctx := context.Background()
 	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
-		citEntry(vatLine("5111", 0, 100000000)),  // 100M < 3B → MICRO 15%
+		citEntry(vatLine("5111", 0, 100000000)), // 100M < 3B → MICRO 15%
 		citEntry(vatLine("641", 60000000, 0)),
 	})
 	require.NoError(t, err)
@@ -208,7 +209,7 @@ func TestCalculateCIT_SmallRate(t *testing.T) {
 	svc, _ := newTaxTestSvc()
 	ctx := context.Background()
 	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
-		citEntry(vatLine("5111", 0, 5000000000)),  // 5B → SMALL 17%
+		citEntry(vatLine("5111", 0, 5000000000)), // 5B → SMALL 17%
 		citEntry(vatLine("641", 2000000000, 0)),
 	})
 	require.NoError(t, err)
@@ -220,7 +221,7 @@ func TestCalculateCIT_StandardRate(t *testing.T) {
 	svc, _ := newTaxTestSvc()
 	ctx := context.Background()
 	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
-		citEntry(vatLine("5111", 0, 60000000000)),  // 60B → STANDARD 20%
+		citEntry(vatLine("5111", 0, 60000000000)), // 60B → STANDARD 20%
 		citEntry(vatLine("641", 30000000000, 0)),
 	})
 	require.NoError(t, err)
@@ -343,4 +344,144 @@ func TestCalculatePIT_MultipleEmployees(t *testing.T) {
 	// e1: 447,500; e2: insurance 2.1M, taxable = 20-2.1-11 = 6.9M → 6.9*10%-0.25 = 440,000
 	assert.Equal(t, 887500.0, res.TotalPIT)
 	assert.Equal(t, 45000000.0, res.TotalGross)
+}
+
+// ─── A5: Declaration Engine ─────────────────────────────────────────────
+
+func newTaxTestSvcWithGL() (*taxService, domain.JournalRepository) {
+	repo := repository.NewMemoryTaxRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
+	return NewTaxService(repo, jeRepo).(*taxService), jeRepo
+}
+
+func postedEntry(id string, date string, lines ...domain.JournalLine) domain.JournalEntry {
+	d, _ := time.Parse("2006-01-02", date)
+	return domain.JournalEntry{
+		ID: id, EntryNumber: id, EntryDate: d,
+		CompanyID: "c1", Status: domain.JournalEntryPosted, Lines: lines,
+	}
+}
+
+func TestGenerateDeclaration_GTGT01(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10",
+		vatLine("5111", 0, 10000000), vatLine("33311", 0, 1000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+	je2 := postedEntry("JE2", "2026-01-15",
+		vatLine("152", 5000000, 0), vatLine("1331", 500000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je2))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01,
+		vatPeriod(), "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
+	assert.Equal(t, "c1", decl.CompanyID)
+
+	amounts := map[string]float64{}
+	for _, l := range decl.Lines {
+		amounts[l.LineCode] = l.Amount
+	}
+	assert.Equal(t, 500000.0, amounts["14"])  // input VAT goods/services
+	assert.Equal(t, 0.0, amounts["15"])       // input VAT FA
+	assert.Equal(t, 500000.0, amounts["16"])  // 14 + 15
+	assert.Equal(t, 1000000.0, amounts["21"]) // output VAT domestic
+	assert.Equal(t, 0.0, amounts["22"])
+	assert.Equal(t, 1000000.0, amounts["23"]) // 21 + 22
+	assert.Equal(t, 500000.0, amounts["30"])  // 23 - 16
+	assert.Equal(t, 500000.0, amounts["31"])  // payable
+	assert.Equal(t, 0.0, amounts["32"])       // refundable (XOR)
+	for _, l := range decl.Lines {
+		assert.Equal(t, domain.SrcTypeFROM_LEDGER, l.SourceType)
+	}
+}
+
+func TestGenerateDeclaration_TNDN03(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 100000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+	je2 := postedEntry("JE2", "2026-01-15", vatLine("641", 60000000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je2))
+	je3 := postedEntry("JE3", "2026-01-20", vatLine("821", 5000000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je3))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeTNDN03,
+		domain.TaxPeriod{PeriodType: domain.PeriodTypeAnnual, PeriodYear: 2026, PeriodNumber: 1},
+		"user-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
+
+	amounts := map[string]float64{}
+	for _, l := range decl.Lines {
+		amounts[l.LineCode] = l.Amount
+	}
+	assert.Equal(t, 100000000.0, amounts["04"])
+	assert.Equal(t, 100000000.0, amounts["06"])
+	assert.Equal(t, 45000000.0, amounts["12"]) // 100M - 60M + 5M
+	assert.Equal(t, 15.0, amounts["13"])       // MICRO
+	assert.Equal(t, 6750000.0, amounts["14"])  // 45M * 15%
+}
+
+func TestGenerateDeclaration_Duplicate(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+	_, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	_, err = svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	assert.ErrorIs(t, err, domain.ErrDuplicateDeclaration)
+}
+
+func TestGenerateDeclaration_UnsupportedType(t *testing.T) {
+	svc, _ := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	_, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeKKTNCN, vatPeriod(), "u1")
+	assert.ErrorIs(t, err, domain.ErrDeclarationTypeInvalid)
+}
+
+func TestGenerateDeclaration_ZeroDeclaration(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10",
+		vatLine("5111", 0, 10000000), vatLine("131", 11000000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+	// all entries cancelled → no posted journals
+	jePtr, _ := jeRepo.GetByID(ctx, "JE1")
+	jePtr.Status = domain.JournalEntryCancelled
+	require.NoError(t, jeRepo.Update(ctx, jePtr))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	for _, l := range decl.Lines {
+		assert.Equal(t, 0.0, l.Amount)
+	}
+}
+
+func TestGenerateDeclaration_SkipsDraftEntries(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
+	je.Status = domain.JournalEntryDraft
+	require.NoError(t, jeRepo.Create(ctx, &je))
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	for _, l := range decl.Lines {
+		assert.Equal(t, 0.0, l.Amount)
+	}
+}
+
+func TestGenerateDeclaration_IgnoresOtherCompany(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	other := postedEntry("JE-OTHER", "2026-01-10", vatLine("5111", 0, 10000000))
+	other.CompanyID = "company-999"
+	require.NoError(t, jeRepo.Create(ctx, &other))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	for _, l := range decl.Lines {
+		assert.Equal(t, 0.0, l.Amount)
+	}
 }

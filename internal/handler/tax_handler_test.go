@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,7 @@ type taxTestSetup struct {
 	r       *gin.Engine
 	svc     service.TaxServiceInterface
 	taxRepo domain.TaxRepository
+	jeRepo  domain.JournalRepository
 	compID  string
 }
 
@@ -28,7 +31,8 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 	gin.SetMode(gin.TestMode)
 
 	taxRepo := repository.NewMemoryTaxRepo()
-	taxSvc := service.NewTaxService(taxRepo)
+	jeRepo := repository.NewMemoryJournalRepo()
+	taxSvc := service.NewTaxService(taxRepo, jeRepo)
 	th := NewTaxHandler(taxSvc)
 
 	r := gin.New()
@@ -44,6 +48,7 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 		r:       r,
 		svc:     taxSvc,
 		taxRepo: taxRepo,
+		jeRepo:  jeRepo,
 		compID:  "company-1",
 	}
 }
@@ -70,6 +75,62 @@ func TestCreateDeclaration(t *testing.T) {
 	assert.Equal(t, domain.DeclTypeGTGT01, resp.DeclarationType)
 	assert.Equal(t, domain.DeclStatusDRAFT, resp.Status)
 	assert.NotEmpty(t, resp.ID)
+}
+
+func TestGenerateDeclaration(t *testing.T) {
+	ts := setupTaxTest(t)
+	je := &domain.JournalEntry{
+		ID: "JE1", EntryNumber: "JE1", CompanyID: ts.compID,
+		EntryDate: time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC),
+		Status:    domain.JournalEntryPosted,
+		Lines: []domain.JournalLine{
+			{AccountCode: "5111", CreditAmount: 10000000},
+			{AccountCode: "33311", CreditAmount: 1000000},
+		},
+	}
+	require.NoError(t, ts.jeRepo.Create(context.Background(), je))
+
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"declaration_type":"GTGT01",
+		"tax_period":{"period_type":"MONTHLY","period_year":2026,"period_number":1}
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/declarations/generate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp domain.TaxDeclaration
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, domain.DeclStatusVALIDATED, resp.Status)
+	assert.Len(t, resp.Lines, 9)
+	amounts := map[string]float64{}
+	for _, l := range resp.Lines {
+		amounts[l.LineCode] = l.Amount
+	}
+	assert.Equal(t, 1000000.0, amounts["23"])
+	assert.Equal(t, 1000000.0, amounts["31"])
+}
+
+func TestGenerateDeclaration_Conflict(t *testing.T) {
+	ts := setupTaxTest(t)
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"declaration_type":"GTGT01",
+		"tax_period":{"period_type":"MONTHLY","period_year":2026,"period_number":1}
+	}`
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/api/v1/tax/declarations/generate", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		ts.r.ServeHTTP(w, req)
+		if i == 0 {
+			assert.Equal(t, http.StatusCreated, w.Code)
+		} else {
+			assert.Equal(t, http.StatusConflict, w.Code)
+		}
+	}
 }
 
 func TestCreateDeclaration_Invalid(t *testing.T) {

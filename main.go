@@ -166,7 +166,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 		adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
 
 		taxRepo := repository.NewPGTaxRepo(gormDB)
-		taxSvc := service.NewTaxService(taxRepo)
+		taxSvc := service.NewTaxService(taxRepo, jeRepo)
 		taxH := handler.NewTaxHandler(taxSvc)
 		cashH := handler.NewCashHandler(svc)
 		bankRepo := repository.NewPGBankRepo(gormDB)
@@ -243,7 +243,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
 
 	taxRepo := repository.NewMemoryTaxRepo()
-	taxSvc := service.NewTaxService(taxRepo)
+	taxSvc := service.NewTaxService(taxRepo, jeRepo)
 	taxH := handler.NewTaxHandler(taxSvc)
 	cashH := handler.NewCashHandler(svc)
 	bankRepo := repository.NewMemoryBankRepo()

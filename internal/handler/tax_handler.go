@@ -26,6 +26,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 		declarations := tax.Group("/declarations")
 		{
 			declarations.POST("", h.CreateDeclaration)
+			declarations.POST("/generate", h.GenerateDeclaration)
 			declarations.GET("", h.ListDeclarations)
 			declarations.GET("/:id", h.GetDeclaration)
 			declarations.PUT("/:id", h.UpdateDeclaration)
@@ -98,7 +99,8 @@ func (h *TaxHandler) taxError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrDeclarationNotEditable),
 		errors.Is(err, domain.ErrDeclarationAlreadySubmitted),
-		errors.Is(err, domain.ErrInvoiceStatusInvalid):
+		errors.Is(err, domain.ErrInvoiceStatusInvalid),
+		errors.Is(err, domain.ErrDuplicateDeclaration):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -120,6 +122,25 @@ func (h *TaxHandler) CreateDeclaration(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, d)
+}
+
+func (h *TaxHandler) GenerateDeclaration(c *gin.Context) {
+	var req struct {
+		CompanyID       string                 `json:"company_id"`
+		DeclarationType domain.DeclarationType `json:"declaration_type"`
+		TaxPeriod       domain.TaxPeriod       `json:"tax_period"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	decl, err := h.svc.GenerateDeclaration(c.Request.Context(), req.CompanyID,
+		req.DeclarationType, req.TaxPeriod, c.GetString("user_id"))
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, decl)
 }
 
 func (h *TaxHandler) GetDeclaration(c *gin.Context) {
@@ -555,8 +576,8 @@ func (h *TaxHandler) CloseAuditCase(c *gin.Context) {
 
 func (h *TaxHandler) CalculateVAT(c *gin.Context) {
 	var req struct {
-		CompanyID string            `json:"company_id"`
-		Period    domain.TaxPeriod  `json:"period"`
+		CompanyID string                `json:"company_id"`
+		Period    domain.TaxPeriod      `json:"period"`
 		Entries   []domain.JournalEntry `json:"entries"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -573,8 +594,8 @@ func (h *TaxHandler) CalculateVAT(c *gin.Context) {
 
 func (h *TaxHandler) CalculateCIT(c *gin.Context) {
 	var req struct {
-		CompanyID string            `json:"company_id"`
-		Year      int               `json:"year"`
+		CompanyID string                `json:"company_id"`
+		Year      int                   `json:"year"`
 		Entries   []domain.JournalEntry `json:"entries"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {

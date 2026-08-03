@@ -218,6 +218,7 @@ var (
 	ErrDeclarationStatusInvalid  = errors.New("invalid declaration status")
 	ErrDeclarationAlreadySubmitted = errors.New("declaration already submitted")
 	ErrDeclarationNotEditable    = errors.New("declaration is not editable")
+	ErrDuplicateDeclaration     = errors.New("declaration already exists for period and type")
 	ErrCompanyIDRequired         = errors.New("company id is required")
 	ErrPeriodNumberInvalid       = errors.New("invalid period number")
 	ErrTaxRateNotFound           = errors.New("tax rate not found")

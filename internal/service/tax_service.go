@@ -135,17 +135,22 @@ type TaxServiceInterface interface {
 	CalculateVAT(ctx context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error)
 	CalculateCIT(ctx context.Context, companyID string, year int, entries []domain.JournalEntry) (*domain.CITResult, error)
 	CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employees []domain.PITEmployeeInput) (*domain.PITResult, error)
+
+	// Declaration Engine
+	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error)
 }
 
 type taxService struct {
-	repo domain.TaxRepository
-	now  func() time.Time
+	repo   domain.TaxRepository
+	jeRepo domain.JournalRepository
+	now    func() time.Time
 }
 
-func NewTaxService(repo domain.TaxRepository) TaxServiceInterface {
+func NewTaxService(repo domain.TaxRepository, jeRepo domain.JournalRepository) TaxServiceInterface {
 	return &taxService{
-		repo: repo,
-		now:  time.Now,
+		repo:   repo,
+		jeRepo: jeRepo,
+		now:    time.Now,
 	}
 }
 
@@ -352,9 +357,15 @@ func (s *taxService) CancelEInvoice(ctx context.Context, id, reason string) erro
 // ─── Tax Calendar ──────────────────────────────────────────────────────
 
 func (s *taxService) CreateCalendarEntry(ctx context.Context, c *domain.TaxCalendar) error {
-	if c.CompanyID == "" { return domain.ErrCompanyIDRequired }
-	if c.DeclarationDue == "" { return domain.ErrValidationFailed }
-	if c.Status == "" { c.Status = domain.CalStatusPENDING }
+	if c.CompanyID == "" {
+		return domain.ErrCompanyIDRequired
+	}
+	if c.DeclarationDue == "" {
+		return domain.ErrValidationFailed
+	}
+	if c.Status == "" {
+		c.Status = domain.CalStatusPENDING
+	}
 	return s.repo.CreateCalendarEntry(ctx, c)
 }
 
@@ -373,8 +384,12 @@ func (s *taxService) GetCalendarByCompany(ctx context.Context, companyID string)
 // ─── Alerts ────────────────────────────────────────────────────────────
 
 func (s *taxService) CreateAlert(ctx context.Context, a *domain.TaxAlert) error {
-	if a.CompanyID == "" { return domain.ErrCompanyIDRequired }
-	if a.Message == "" { return domain.ErrValidationFailed }
+	if a.CompanyID == "" {
+		return domain.ErrCompanyIDRequired
+	}
+	if a.Message == "" {
+		return domain.ErrValidationFailed
+	}
 	return s.repo.CreateAlert(ctx, a)
 }
 
@@ -389,9 +404,15 @@ func (s *taxService) ListAlerts(ctx context.Context, companyID string, limit int
 // ─── Audit Cases ───────────────────────────────────────────────────────
 
 func (s *taxService) CreateAuditCase(ctx context.Context, a *domain.TaxAuditCase) error {
-	if a.CompanyID == "" { return domain.ErrCompanyIDRequired }
-	if a.AuditPeriodStart == "" { return domain.ErrValidationFailed }
-	if a.Status == "" { a.Status = domain.AuditCaseOPEN }
+	if a.CompanyID == "" {
+		return domain.ErrCompanyIDRequired
+	}
+	if a.AuditPeriodStart == "" {
+		return domain.ErrValidationFailed
+	}
+	if a.Status == "" {
+		a.Status = domain.AuditCaseOPEN
+	}
 	return s.repo.CreateAuditCase(ctx, a)
 }
 
@@ -599,9 +620,9 @@ func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year in
 // PIT progressive brackets per PIT Law Art. 7 (monthly taxable income, VND).
 // tax = taxableIncome * rate% - reduction.
 var pitBrackets = []struct {
-	upper      float64
-	rate       float64
-	reduction  float64
+	upper     float64
+	rate      float64
+	reduction float64
 }{
 	{5e6, 5, 0},
 	{10e6, 10, 250000},
@@ -613,11 +634,11 @@ var pitBrackets = []struct {
 }
 
 const (
-	pitPersonalDeduction = 11e6  // PIT-03: 11M/month resident
+	pitPersonalDeduction  = 11e6  // PIT-03: 11M/month resident
 	pitDependantDeduction = 4.4e6 // PIT-04: 4.4M/month per dependant
-	pitSocialRate        = 0.08  // PIT-05
-	pitHealthRate        = 0.015 // PIT-06
-	pitUnemploymentRate  = 0.01  // PIT-07
+	pitSocialRate         = 0.08  // PIT-05
+	pitHealthRate         = 0.015 // PIT-06
+	pitUnemploymentRate   = 0.01  // PIT-07
 )
 
 func progressivePIT(monthlyTaxable float64) float64 {
@@ -666,4 +687,174 @@ func (s *taxService) CalculatePIT(ctx context.Context, companyID string, period 
 	result.TotalDeductions = round2(result.TotalDeductions)
 	result.TotalPIT = round2(result.TotalPIT)
 	return result, nil
+}
+
+// ─── A5: Declaration Engine ─────────────────────────────────────────────
+// Generates GTGT01 / TNDN03 declarations from posted journal entries.
+// Unsupported types (payroll-dependent, e.g. KK_TNCN) are rejected.
+
+func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error) {
+	if declType != domain.DeclTypeGTGT01 && declType != domain.DeclTypeTNDN03 {
+		return nil, domain.ErrDeclarationTypeInvalid
+	}
+	existing, err := s.repo.GetDeclarations(ctx, domain.TaxDeclarationFilter{
+		CompanyID: companyID, DeclarationType: declType,
+		PeriodYear: period.PeriodYear, PeriodNumber: period.PeriodNumber,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range existing {
+		if d.TaxPeriod.PeriodType == period.PeriodType && d.Status != domain.DeclStatusCANCELLED {
+			return nil, domain.ErrDuplicateDeclaration
+		}
+	}
+	from, to := periodDateRange(period)
+	journals, err := s.jeRepo.GetByDateRange(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	var posted []domain.JournalEntry
+	for _, je := range journals {
+		if je.CompanyID == companyID && je.Status == domain.JournalEntryPosted {
+			posted = append(posted, je)
+		}
+	}
+	decl := &domain.TaxDeclaration{
+		CompanyID:       companyID,
+		DeclarationType: declType,
+		TaxPeriod:       period,
+		Status:          domain.DeclStatusVALIDATED,
+		AdjustmentType:  domain.AdjTypeNONE,
+		Version:         1,
+		CreatedBy:       userID,
+		CreatedAt:       s.now().Format(time.RFC3339),
+	}
+	switch declType {
+	case domain.DeclTypeGTGT01:
+		res, err := s.CalculateVAT(ctx, companyID, period, posted)
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = vatDeclarationLines(res, posted)
+	case domain.DeclTypeTNDN03:
+		res, err := s.CalculateCIT(ctx, companyID, period.PeriodYear, posted)
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = citDeclarationLines(res, posted)
+	}
+	if err := validateDeclarationRules(decl); err != nil {
+		return nil, err
+	}
+	if err := decl.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateDeclaration(ctx, decl); err != nil {
+		return nil, err
+	}
+	return decl, nil
+}
+
+func periodDateRange(p domain.TaxPeriod) (from, to time.Time) {
+	switch p.PeriodType {
+	case domain.PeriodTypeQuarterly:
+		startMonth := time.Month((p.PeriodNumber-1)*3 + 1)
+		from = time.Date(p.PeriodYear, startMonth, 1, 0, 0, 0, 0, time.UTC)
+		to = time.Date(p.PeriodYear, startMonth+2, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, -1)
+	case domain.PeriodTypeAnnual:
+		from = time.Date(p.PeriodYear, 1, 1, 0, 0, 0, 0, time.UTC)
+		to = time.Date(p.PeriodYear, 12, 31, 23, 59, 59, 0, time.UTC)
+	default: // monthly
+		from = time.Date(p.PeriodYear, time.Month(p.PeriodNumber), 1, 0, 0, 0, 0, time.UTC)
+		to = from.AddDate(0, 1, -1)
+	}
+	return from, to
+}
+
+func entryIDs(entries []domain.JournalEntry) []string {
+	ids := make([]string, 0, len(entries))
+	for _, je := range entries {
+		ids = append(ids, je.ID)
+	}
+	return ids
+}
+
+// GTGT01 lines per TAX_RULES §2.1: [16]=[14]+[15], [23]=[21]+[22],
+// [30]=[23]-[16], XOR [31]/[32].
+func vatDeclarationLines(res *domain.VATResult, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+	payable, refundable := 0.0, 0.0
+	if res.VATPayable > 0 {
+		payable = res.VATPayable
+	} else {
+		refundable = res.VATRefundable
+	}
+	src := domain.SrcTypeFROM_LEDGER
+	ids := entryIDs(entries)
+	return []domain.TaxDeclarationLine{
+		{LineCode: "14", LineName: "VAT đầu vào được khấu trừ (hàng hóa, dịch vụ)", Amount: res.InputVAT, SourceType: src, SourceEntryIDs: ids, SortOrder: 14},
+		{LineCode: "15", LineName: "VAT đầu vào được khấu trừ (TSCĐ)", Amount: res.InputVATFA, SourceType: src, SourceEntryIDs: ids, SortOrder: 15},
+		{LineCode: "16", LineName: "Tổng VAT đầu vào được khấu trừ", Amount: res.TotalInputVAT, SourceType: src, SourceEntryIDs: ids, SortOrder: 16},
+		{LineCode: "21", LineName: "VAT đầu ra (nội địa)", Amount: res.OutputVAT, SourceType: src, SourceEntryIDs: ids, SortOrder: 21},
+		{LineCode: "22", LineName: "VAT đầu ra (xuất khẩu)", Amount: 0, SourceType: src, SourceEntryIDs: ids, SortOrder: 22},
+		{LineCode: "23", LineName: "Tổng VAT đầu ra", Amount: res.OutputVAT, SourceType: src, SourceEntryIDs: ids, SortOrder: 23},
+		{LineCode: "30", LineName: "VAT phải nộp/đề nghị hoàn ([23]-[16])", Amount: res.OutputVAT - res.TotalInputVAT, SourceType: src, SourceEntryIDs: ids, SortOrder: 30},
+		{LineCode: "31", LineName: "Thuế GTGT phải nộp", Amount: payable, SourceType: src, SourceEntryIDs: ids, SortOrder: 31},
+		{LineCode: "32", LineName: "Thuế GTGT đề nghị hoàn", Amount: refundable, SourceType: src, SourceEntryIDs: ids, SortOrder: 32},
+	}
+}
+
+// TNDN03 lines per TAX_RULES §2.1: [04]>=[06], [14]<=[12]*[13].
+func citDeclarationLines(res *domain.CITResult, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+	src := domain.SrcTypeFROM_LEDGER
+	ids := entryIDs(entries)
+	return []domain.TaxDeclarationLine{
+		{LineCode: "04", LineName: "Tổng doanh thu", Amount: res.Revenue, SourceType: src, SourceEntryIDs: ids, SortOrder: 4},
+		{LineCode: "06", LineName: "Doanh thu tính thuế", Amount: res.Revenue, SourceType: src, SourceEntryIDs: ids, SortOrder: 6},
+		{LineCode: "12", LineName: "Thu nhập chịu thuế", Amount: res.TaxableIncome, SourceType: src, SourceEntryIDs: ids, SortOrder: 12},
+		{LineCode: "13", LineName: "Thuế suất (%)", Amount: res.TaxRate, SourceType: src, SourceEntryIDs: ids, SortOrder: 13},
+		{LineCode: "14", LineName: "Thuế TNDN phải nộp", Amount: res.CITPayable, SourceType: src, SourceEntryIDs: ids, SortOrder: 14},
+	}
+}
+
+func lineAmount(lines []domain.TaxDeclarationLine, code string) float64 {
+	for _, l := range lines {
+		if l.LineCode == code {
+			return l.Amount
+		}
+	}
+	return 0
+}
+
+const vatEpsilon = 1.0 // 1 VND rounding tolerance
+
+func validateDeclarationRules(decl *domain.TaxDeclaration) error {
+	for _, l := range decl.Lines {
+		if l.Amount < 0 {
+			return domain.ErrValidationFailed
+		}
+	}
+	switch decl.DeclarationType {
+	case domain.DeclTypeGTGT01:
+		if lineAmount(decl.Lines, "16") != lineAmount(decl.Lines, "14")+lineAmount(decl.Lines, "15") {
+			return domain.ErrValidationFailed
+		}
+		if lineAmount(decl.Lines, "23") != lineAmount(decl.Lines, "21")+lineAmount(decl.Lines, "22") {
+			return domain.ErrValidationFailed
+		}
+		if lineAmount(decl.Lines, "30") != lineAmount(decl.Lines, "23")-lineAmount(decl.Lines, "16") {
+			return domain.ErrValidationFailed
+		}
+		if lineAmount(decl.Lines, "31") > 0 && lineAmount(decl.Lines, "32") > 0 {
+			return domain.ErrValidationFailed
+		}
+	case domain.DeclTypeTNDN03:
+		if lineAmount(decl.Lines, "04") < lineAmount(decl.Lines, "06") {
+			return domain.ErrValidationFailed
+		}
+		if lineAmount(decl.Lines, "14") > lineAmount(decl.Lines, "12")*lineAmount(decl.Lines, "13")/100+vatEpsilon {
+			return domain.ErrValidationFailed
+		}
+	}
+	return nil
 }
