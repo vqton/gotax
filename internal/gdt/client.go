@@ -8,6 +8,10 @@
 //	      200 → {"status","gdt_ref","message"}
 //	POST {base}/api/invoice/cancel   {"transaction_id": "...", "reason": "..."}
 //	      200 → 200
+//	POST {base}/api/submission/declare   {"xml": "...", "cert_id": "..."}
+//	      200 → {"submission_id","status","ack_ref","message"}
+//	GET  {base}/api/submission/status?id=...
+//	      200 → {"status","ack_ref","message"}
 //
 // Retry policy: 5xx and network errors are retried with backoff
 // (1s/5s/30s by default, max 3 attempts). 4xx are terminal.
@@ -124,6 +128,42 @@ func (c *Client) GetInvoiceStatus(ctx context.Context, transactionID string) (*S
 func (c *Client) CancelInvoice(ctx context.Context, transactionID, reason string) error {
 	body, _ := json.Marshal(map[string]string{"transaction_id": transactionID, "reason": reason})
 	return c.do(ctx, http.MethodPost, "/api/invoice/cancel", body, nil)
+}
+
+// DeclarationSubmitResponse is the GDT acknowledgement of a declaration
+// submission.
+type DeclarationSubmitResponse struct {
+	SubmissionID string `json:"submission_id"`
+	Status       string `json:"status"`
+	AckRef       string `json:"ack_ref,omitempty"`
+	Message      string `json:"message,omitempty"`
+}
+
+// DeclarationStatusResponse is the declaration status payload.
+type DeclarationStatusResponse struct {
+	Status  string `json:"status"`
+	AckRef  string `json:"ack_ref,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// SubmitDeclaration submits a signed declaration XML (HTKK file) to GDT.
+func (c *Client) SubmitDeclaration(ctx context.Context, declarationXML, certID string) (*DeclarationSubmitResponse, error) {
+	body, _ := json.Marshal(SubmitRequest{XML: declarationXML, CertID: certID})
+	var out DeclarationSubmitResponse
+	if err := c.do(ctx, http.MethodPost, "/api/submission/declare", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// QueryDeclarationStatus polls GDT for declaration status.
+func (c *Client) QueryDeclarationStatus(ctx context.Context, submissionID string) (*DeclarationStatusResponse, error) {
+	var out DeclarationStatusResponse
+	if err := c.do(ctx, http.MethodGet,
+		"/api/submission/status?id="+url.QueryEscape(submissionID), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // do performs a request with retry on 5xx/network errors.

@@ -21,6 +21,9 @@ type mockServer struct {
 	submitBody   atomic.Value
 	statusCalls  atomic.Int32
 	cancelCalls  atomic.Int32
+	declSubmitCalls atomic.Int32
+	declSubmitBody  atomic.Value
+	declStatusCalls atomic.Int32
 	authRequired bool
 	server       *httptest.Server
 }
@@ -57,6 +60,22 @@ func newMockServer(t *testing.T) *mockServer {
 	mux.HandleFunc("/api/invoice/cancel", func(w http.ResponseWriter, r *http.Request) {
 		m.cancelCalls.Add(1)
 		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/api/submission/declare", func(w http.ResponseWriter, r *http.Request) {
+		m.declSubmitCalls.Add(1)
+		var req SubmitRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		m.declSubmitBody.Store(req.XML)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED", AckRef: "ACK-REF-1"})
+	})
+	mux.HandleFunc("/api/submission/status", func(w http.ResponseWriter, r *http.Request) {
+		m.declStatusCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"})
 	})
 	m.server = httptest.NewServer(mux)
 	return m
@@ -184,6 +203,31 @@ func TestCancelInvoice(t *testing.T) {
 
 	require.NoError(t, c.CancelInvoice(context.Background(), "TXN-1", "buyer request"))
 	assert.Equal(t, int32(1), m.cancelCalls.Load())
+}
+
+func TestSubmitDeclaration(t *testing.T) {
+	m := newMockServer(t)
+	defer m.Close()
+	c := testClient(t, m.URL())
+
+	resp, err := c.SubmitDeclaration(context.Background(), "<BoKe/>", "sig-1")
+	require.NoError(t, err)
+	assert.Equal(t, "SUB-1", resp.SubmissionID)
+	assert.Equal(t, "SUBMITTED", resp.Status)
+	assert.Equal(t, "<BoKe/>", m.declSubmitBody.Load().(string))
+	assert.Equal(t, int32(1), m.declSubmitCalls.Load())
+}
+
+func TestQueryDeclarationStatus(t *testing.T) {
+	m := newMockServer(t)
+	defer m.Close()
+	c := testClient(t, m.URL())
+
+	st, err := c.QueryDeclarationStatus(context.Background(), "SUB-1")
+	require.NoError(t, err)
+	assert.Equal(t, "ACKNOWLEDGED", st.Status)
+	assert.Equal(t, "ACK-REF-1", st.AckRef)
+	assert.Equal(t, int32(1), m.declStatusCalls.Load())
 }
 
 func TestNewInvalidURL(t *testing.T) {
