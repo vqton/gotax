@@ -485,3 +485,65 @@ func TestGenerateDeclaration_IgnoresOtherCompany(t *testing.T) {
 		assert.Equal(t, 0.0, l.Amount)
 	}
 }
+
+// ─── A6: Payment Automation ─────────────────────────────────────────────
+
+func TestAcknowledgeDeclaration_CreatesPayable(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
+	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-1"))
+
+	payments, err := svc.ListPayments(ctx, domain.PaymentFilter{
+		CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, payments, 1)
+	assert.Equal(t, decl.ID, payments[0].DeclarationID)
+	assert.Equal(t, 1000000.0, payments[0].DeclaredAmount)
+	assert.Equal(t, domain.PayStatusPENDING, payments[0].Status)
+	assert.Equal(t, "2026-02-20", payments[0].DueDate[:10])
+}
+
+func TestAcknowledgeDeclaration_NoPaymentWhenRefundable(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-01-10",
+		vatLine("152", 20000000, 0), vatLine("1331", 2000000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	require.NoError(t, err)
+	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
+	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-2"))
+
+	payments, err := svc.ListPayments(ctx, domain.PaymentFilter{CompanyID: "c1"})
+	require.NoError(t, err)
+	assert.Empty(t, payments)
+}
+
+func TestAcknowledgeDeclaration_CITAnnualDueDate(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-06-30", vatLine("5111", 0, 100000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeTNDN03,
+		domain.TaxPeriod{PeriodType: domain.PeriodTypeAnnual, PeriodYear: 2026, PeriodNumber: 1}, "u1")
+	require.NoError(t, err)
+	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
+	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-3"))
+
+	payments, err := svc.ListPayments(ctx, domain.PaymentFilter{
+		CompanyID: "c1", TaxType: domain.TaxTypeCIT, PeriodYear: 2026,
+	})
+	require.NoError(t, err)
+	require.Len(t, payments, 1)
+	assert.Equal(t, "2027-03-31", payments[0].DueDate[:10])
+}

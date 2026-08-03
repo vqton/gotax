@@ -196,7 +196,12 @@ func (s *taxService) AcknowledgeDeclaration(ctx context.Context, id, ref string)
 	d.Status = domain.DeclStatusACKNOWLEDGED
 	d.AcknowledgedAt = s.now().Format(time.RFC3339)
 	d.AcknowledgementRef = ref
-	return s.repo.UpdateDeclaration(ctx, d)
+	if err := s.repo.UpdateDeclaration(ctx, d); err != nil {
+		return err
+	}
+	// A6: Declaration→payment automation. Acknowledged payable declarations
+	// auto-create a PENDING TaxPayment with statutory due date.
+	return s.createPaymentForDeclaration(ctx, d)
 }
 
 func (s *taxService) RejectDeclaration(ctx context.Context, id, reason string) error {
@@ -829,13 +834,10 @@ func lineAmount(lines []domain.TaxDeclarationLine, code string) float64 {
 const vatEpsilon = 1.0 // 1 VND rounding tolerance
 
 func validateDeclarationRules(decl *domain.TaxDeclaration) error {
-	for _, l := range decl.Lines {
-		if l.Amount < 0 {
-			return domain.ErrValidationFailed
-		}
-	}
 	switch decl.DeclarationType {
 	case domain.DeclTypeGTGT01:
+		// [16], [23], [30] are algebraic sums — [30] may be negative when
+		// input VAT exceeds output VAT (refundable direction).
 		if lineAmount(decl.Lines, "16") != lineAmount(decl.Lines, "14")+lineAmount(decl.Lines, "15") {
 			return domain.ErrValidationFailed
 		}
@@ -845,10 +847,18 @@ func validateDeclarationRules(decl *domain.TaxDeclaration) error {
 		if lineAmount(decl.Lines, "30") != lineAmount(decl.Lines, "23")-lineAmount(decl.Lines, "16") {
 			return domain.ErrValidationFailed
 		}
+		if lineAmount(decl.Lines, "31") < 0 || lineAmount(decl.Lines, "32") < 0 {
+			return domain.ErrValidationFailed
+		}
 		if lineAmount(decl.Lines, "31") > 0 && lineAmount(decl.Lines, "32") > 0 {
 			return domain.ErrValidationFailed
 		}
 	case domain.DeclTypeTNDN03:
+		for _, l := range decl.Lines {
+			if l.Amount < 0 {
+				return domain.ErrValidationFailed
+			}
+		}
 		if lineAmount(decl.Lines, "04") < lineAmount(decl.Lines, "06") {
 			return domain.ErrValidationFailed
 		}
@@ -857,4 +867,73 @@ func validateDeclarationRules(decl *domain.TaxDeclaration) error {
 		}
 	}
 	return nil
+}
+
+// ─── A6: Payment Automation ─────────────────────────────────────────────
+
+func (s *taxService) createPaymentForDeclaration(ctx context.Context, d *domain.TaxDeclaration) error {
+	payable := lineAmount(d.Lines, "31")
+	if d.DeclarationType == domain.DeclTypeTNDN03 {
+		payable = lineAmount(d.Lines, "14")
+	}
+	if payable <= 0 {
+		return nil // refundable or zero declaration — no payable
+	}
+	existing, err := s.repo.GetPayments(ctx, domain.PaymentFilter{
+		CompanyID: d.CompanyID, TaxType: declarationTaxType(d.DeclarationType),
+		PeriodYear: d.TaxPeriod.PeriodYear, PeriodNumber: d.TaxPeriod.PeriodNumber,
+	})
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.DeclarationID == d.ID {
+			return nil // already created
+		}
+	}
+	p := &domain.TaxPayment{
+		CompanyID:      d.CompanyID,
+		DeclarationID:  d.ID,
+		TaxType:        declarationTaxType(d.DeclarationType),
+		PeriodYear:     d.TaxPeriod.PeriodYear,
+		PeriodNumber:   d.TaxPeriod.PeriodNumber,
+		DeclaredAmount: payable,
+		DueDate:        paymentDueDate(d),
+		Status:         domain.PayStatusPENDING,
+		Notes:          "auto-generated on declaration acknowledgement",
+		CreatedAt:      s.now().Format(time.RFC3339),
+	}
+	return s.repo.CreatePayment(ctx, p)
+}
+
+func declarationTaxType(dt domain.DeclarationType) domain.TaxType {
+	switch {
+	case dt == domain.DeclTypeGTGT01 || dt == domain.DeclTypeGTGT02 ||
+		dt == domain.DeclTypeGTGT03 || dt == domain.DeclTypeGTGT04 ||
+		dt == domain.DeclTypeGTGT05:
+		return domain.TaxTypeVAT
+	case dt == domain.DeclTypeTNDN03 || dt == domain.DeclTypeTNDN04 ||
+		dt == domain.DeclTypeTNDN02 || dt == domain.DeclTypeTNDN05 ||
+		dt == domain.DeclTypeTNDN06:
+		return domain.TaxTypeCIT
+	case dt == domain.DeclTypeKKTNCN || dt == domain.DeclTypeQTTTNCN:
+		return domain.TaxTypePIT
+	}
+	return domain.TaxTypeVAT
+}
+
+// Statutory deadlines: VAT monthly = 20th next month (VAT-12); VAT/CIT
+// quarterly = 30th of month after quarter end (VAT-12, CIT-08); CIT annual
+// = 31-Mar next year (CIT-09).
+func paymentDueDate(d *domain.TaxDeclaration) string {
+	y, n := d.TaxPeriod.PeriodYear, d.TaxPeriod.PeriodNumber
+	switch d.TaxPeriod.PeriodType {
+	case domain.PeriodTypeQuarterly:
+		endMonth := time.Month(n * 3)
+		return time.Date(y, endMonth+1, 30, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	case domain.PeriodTypeAnnual:
+		return time.Date(y+1, 3, 31, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	default: // monthly
+		return time.Date(y, time.Month(n)+1, 20, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	}
 }
