@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"gotax/internal/domain"
+	"gotax/internal/validate"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type PurchaseService struct {
 	invRepo  domain.SupplierInvoiceRepository
 	aptRepo  domain.APTransactionRepository
 	costRepo domain.CostAllocationRepository
+	provRepo domain.DoubtfulDebtProvisionRepository
 	gl       APGLService
 	now      func() time.Time
 }
@@ -34,13 +36,15 @@ func NewPurchaseService(
 	invRepo domain.SupplierInvoiceRepository,
 	aptRepo domain.APTransactionRepository,
 	costRepo domain.CostAllocationRepository,
+	provRepo domain.DoubtfulDebtProvisionRepository,
 	gl APGLService,
 ) *PurchaseService {
 	return &PurchaseService{
 		supRepo: supRepo, poRepo: poRepo, grnRepo: grnRepo,
 		invRepo: invRepo, aptRepo: aptRepo, costRepo: costRepo,
-		gl:  gl,
-		now: time.Now,
+		provRepo: provRepo,
+		gl:       gl,
+		now:      time.Now,
 	}
 }
 
@@ -95,7 +99,7 @@ func (s *PurchaseService) DeleteSupplier(ctx context.Context, id string) error {
 // ─── Purchase Order ─────────────────────────────────────────────────────
 
 func (s *PurchaseService) CreatePO(ctx context.Context, po *domain.PurchaseOrder) error {
-	if err := po.Validate(); err != nil {
+	if err := validate.PurchaseOrder(po); err != nil {
 		return err
 	}
 	po.CalculateTotals()
@@ -179,7 +183,7 @@ func (s *PurchaseService) ClosePO(ctx context.Context, id string) error {
 // ─── GRN ─────────────────────────────────────────────────────────────────
 
 func (s *PurchaseService) CreateGRN(ctx context.Context, grn *domain.GRN) error {
-	if err := grn.Validate(); err != nil {
+	if err := validate.GRN(grn); err != nil {
 		return err
 	}
 	if _, err := s.poRepo.GetPO(ctx, grn.POID); err != nil {
@@ -248,7 +252,7 @@ func (s *PurchaseService) CreateInvoice(ctx context.Context, inv *domain.Supplie
 	}
 	inv.SupplierName = sup.Name
 	inv.SupplierTaxCode = sup.TaxCode
-	if err := inv.Validate(); err != nil {
+	if err := validate.SupplierInvoice(inv); err != nil {
 		return err
 	}
 	if inv.Currency == "" {
@@ -431,7 +435,7 @@ func (s *PurchaseService) ClaimVAT(ctx context.Context, id string) error {
 }
 
 func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.SupplierInvoice) error {
-	if err := inv.Validate(); err != nil {
+	if err := validate.SupplierInvoice(inv); err != nil {
 		return err
 	}
 	dup, _ := s.invRepo.GetInvoiceByNumber(ctx, inv.CompanyID, inv.InvoiceNumber)
@@ -466,7 +470,7 @@ func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.Suppl
 // ─── AP Transactions ────────────────────────────────────────────────────
 
 func (s *PurchaseService) CreateAPTransaction(ctx context.Context, t *domain.APTransaction) error {
-	if err := t.Validate(); err != nil {
+	if err := validate.APTransaction(t); err != nil {
 		return err
 	}
 	if _, err := s.supRepo.GetSupplier(ctx, t.SupplierID); err != nil {
@@ -561,7 +565,7 @@ func (s *PurchaseService) GetAPSummary(ctx context.Context, companyID string) ([
 // ─── Cost Allocation ────────────────────────────────────────────────────
 
 func (s *PurchaseService) CreateCostAllocation(ctx context.Context, c *domain.CostAllocation) error {
-	if err := c.Validate(); err != nil {
+	if err := validate.CostAllocation(c); err != nil {
 		return err
 	}
 	return s.costRepo.CreateCostAllocation(ctx, c)
@@ -573,4 +577,364 @@ func (s *PurchaseService) GetCostAllocation(ctx context.Context, id string) (*do
 
 func (s *PurchaseService) ListCostAllocationsByInvoice(ctx context.Context, invoiceID string) ([]domain.CostAllocation, error) {
 	return s.costRepo.ListCostAllocationsByInvoice(ctx, invoiceID)
+}
+
+// ─── Doubtful Debt Provisions (Circular 99) ─────────────────────────────
+
+// CalculateDoubtfulDebtProvision computes provision lines from outstanding
+// supplier prepayments aged by months overdue. Circular 99 tiers: 30/50/70/100%.
+func (s *PurchaseService) CalculateDoubtfulDebtProvision(ctx context.Context, companyID string, asOfDate time.Time) ([]domain.DoubtfulDebtProvisionLine, error) {
+	txns, _, err := s.aptRepo.ListAPTransactions(ctx, companyID, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	bal := make(map[string]float64)
+	oldest := make(map[string]time.Time)
+	for _, t := range txns {
+		if t.TransactionType != domain.APTransPrepayment {
+			continue
+		}
+		bal[t.SupplierID] += t.Amount
+		if d, ok := oldest[t.SupplierID]; !ok || t.TransactionDate.Before(d) {
+			oldest[t.SupplierID] = t.TransactionDate
+		}
+	}
+	if len(bal) == 0 {
+		return nil, domain.ErrProvisionNoPrepayments
+	}
+
+	supIDs := make([]string, 0, len(bal))
+	for sid := range bal {
+		supIDs = append(supIDs, sid)
+	}
+	suppliers, _ := s.supRepo.ListSuppliersByIDs(ctx, supIDs)
+	supMap := make(map[string]domain.Supplier, len(suppliers))
+	for i := range suppliers {
+		supMap[suppliers[i].ID] = suppliers[i]
+	}
+
+	lines := make([]domain.DoubtfulDebtProvisionLine, 0, len(bal))
+	for sid, outstanding := range bal {
+		age := ageInMonths(oldest[sid], asOfDate)
+		rate := domain.DoubtfulDebtRate(age)
+		if rate <= 0 {
+			continue
+		}
+		line := domain.DoubtfulDebtProvisionLine{
+			SupplierID:        sid,
+			OutstandingAmount: round2(outstanding),
+			AgeMonths:         age,
+			RatePct:           rate,
+			ProvisionAmount:   round2(outstanding * rate),
+		}
+		if sup, ok := supMap[sid]; ok {
+			line.SupplierName = sup.Name
+			line.TaxCode = sup.TaxCode
+		}
+		lines = append(lines, line)
+	}
+	return lines, nil
+}
+
+func (s *PurchaseService) CreateDoubtfulDebtProvision(ctx context.Context, p *domain.DoubtfulDebtProvision) error {
+	if p.AsOfDate == "" {
+		return domain.ErrProvisionDateRequired
+	}
+	if _, err := time.Parse(time.DateOnly, p.AsOfDate); err != nil {
+		return domain.ErrProvisionDateRequired
+	}
+	if p.Status == "" {
+		p.Status = domain.ProvisionDraft
+	}
+	var totalOut, totalProv float64
+	for i := range p.Lines {
+		if p.Lines[i].RatePct <= 0 {
+			p.Lines[i].RatePct = domain.DoubtfulDebtRate(p.Lines[i].AgeMonths)
+		}
+		p.Lines[i].ProvisionAmount = round2(p.Lines[i].OutstandingAmount * p.Lines[i].RatePct)
+		totalOut += p.Lines[i].OutstandingAmount
+		totalProv += p.Lines[i].ProvisionAmount
+	}
+	if len(p.Lines) == 0 {
+		return domain.ErrProvisionNoLines
+	}
+	p.TotalOutstanding = round2(totalOut)
+	p.TotalProvision = round2(totalProv)
+	p.CreatedAt = s.now()
+	if err := s.provRepo.CreateProvision(ctx, p); err != nil {
+		return err
+	}
+	for i := range p.Lines {
+		p.Lines[i].ProvisionID = p.ID
+	}
+	return s.provRepo.CreateProvisionLines(ctx, p.Lines)
+}
+
+func (s *PurchaseService) GetDoubtfulDebtProvision(ctx context.Context, id string) (*domain.DoubtfulDebtProvision, error) {
+	return s.provRepo.GetProvision(ctx, id)
+}
+
+func (s *PurchaseService) ListDoubtfulDebtProvisions(ctx context.Context, companyID string, offset, limit int) ([]domain.DoubtfulDebtProvision, int, error) {
+	return s.provRepo.ListProvisions(ctx, companyID, limit, offset)
+}
+
+// ─── Regulatory Reports (Circular 99) ───────────────────────────────────
+
+// GetPurchaseLedger builds S01-DN (sổ chi tiết mua hàng): goods-receipt
+// postings in the period as increases, plus opening/closing balances.
+func (s *PurchaseService) GetPurchaseLedger(ctx context.Context, companyID, fromDate, toDate string) (*domain.PurchaseLedgerReport, error) {
+	rpt := &domain.PurchaseLedgerReport{CompanyID: companyID, FromDate: fromDate, ToDate: toDate}
+
+	open, err := s.grnTotalBefore(ctx, companyID, fromDate)
+	if err != nil {
+		return nil, err
+	}
+	rpt.Opening = open
+
+	grns, _, err := s.grnRepo.ListGRNs(ctx, domain.GRNFilter{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range grns {
+		if g.Status != domain.GRNPosted {
+			continue
+		}
+		supplierName := s.supplierNameForGRN(ctx, g)
+		inc := grnTotal(&g)
+		rpt.Increase += inc
+		rpt.Rows = append(rpt.Rows, domain.PurchaseLedgerRow{
+			Date: g.ReceiptDate.Format(time.DateOnly), DocNumber: g.GRNNumber,
+			Description: "Nhập kho", SupplierID: "", SupplierName: supplierName,
+			Increase: round2(inc),
+		})
+	}
+	rpt.Closing = round2(rpt.Opening + rpt.Increase - rpt.Decrease)
+	return rpt, nil
+}
+
+// GetSupplierLedger builds S02-DN (sổ chi tiết công nợ phải trả) for a supplier.
+func (s *PurchaseService) GetSupplierLedger(ctx context.Context, companyID, supplierID, fromDate, toDate string) (*domain.SupplierLedgerReport, error) {
+	sup, err := s.supRepo.GetSupplier(ctx, supplierID)
+	if err != nil {
+		return nil, err
+	}
+	rpt := &domain.SupplierLedgerReport{
+		SupplierID: sup.ID, SupplierName: sup.Name, TaxCode: sup.TaxCode,
+		FromDate: fromDate, ToDate: toDate,
+	}
+
+	all, _, err := s.aptRepo.ListAPTransactions(ctx, companyID, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	f := func(dt time.Time) bool { return !dt.IsZero() }
+	fromT, _ := time.Parse(time.DateOnly, fromDate)
+	toT, _ := time.Parse(time.DateOnly, toDate)
+
+	balance := 0.0
+	for _, t := range all {
+		if t.SupplierID != supplierID {
+			continue
+		}
+		if !f(t.TransactionDate) {
+			continue
+		}
+		if t.TransactionDate.Before(fromT) {
+			balance += ledgerDelta(t)
+			continue
+		}
+		if t.TransactionDate.After(toT) {
+			continue
+		}
+		delta := ledgerDelta(t)
+		balance += delta
+		rpt.Rows = append(rpt.Rows, domain.SupplierLedgerRow{
+			Date: t.TransactionDate.Format(time.DateOnly), DocNumber: t.ReferenceID,
+			Description: string(t.TransactionType), Debit: ledgerDebit(t), Credit: ledgerCredit(t),
+			Balance: round2(balance),
+		})
+	}
+	rpt.Opening = round2(rpt.Opening)
+	rpt.Closing = round2(balance)
+	return rpt, nil
+}
+
+// GetGoodsPurchaseReport builds S03-DN (sổ chi tiết hàng hóa): line-level goods purchases.
+func (s *PurchaseService) GetGoodsPurchaseReport(ctx context.Context, companyID, fromDate, toDate string) (*domain.GoodsPurchaseReport, error) {
+	rpt := &domain.GoodsPurchaseReport{CompanyID: companyID, FromDate: fromDate, ToDate: toDate}
+	invs, _, err := s.invRepo.ListInvoices(ctx, domain.SupplierInvoiceFilter{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range invs {
+		if inv.Status == domain.InvoiceCancelled {
+			continue
+		}
+		for _, l := range inv.Lines {
+			row := domain.GoodsPurchaseRow{
+				ItemName: l.ItemName, Unit: l.Unit, Quantity: l.Quantity,
+				UnitPrice: l.UnitPrice, LineTotal: l.LineTotal,
+				VATRate: l.VATRate, VATAmount: l.LineVATAmount, AccountID: l.AccountID,
+			}
+			rpt.TotalQuantity += l.Quantity
+			rpt.TotalAmount += l.LineTotal
+			rpt.TotalVAT += l.LineVATAmount
+			rpt.Rows = append(rpt.Rows, row)
+		}
+	}
+	rpt.TotalAmount = round2(rpt.TotalAmount)
+	rpt.TotalVAT = round2(rpt.TotalVAT)
+	return rpt, nil
+}
+
+// GetVATInputReport builds the VAT input tracking report (bảng kê hóa đơn VAT đầu vào).
+func (s *PurchaseService) GetVATInputReport(ctx context.Context, companyID, fromDate, toDate string) (*domain.VATInputReport, error) {
+	rpt := &domain.VATInputReport{CompanyID: companyID, FromDate: fromDate, ToDate: toDate}
+	invs, _, err := s.invRepo.ListInvoices(ctx, domain.SupplierInvoiceFilter{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range invs {
+		if inv.Status == domain.InvoiceCancelled {
+			continue
+		}
+		// group lines by VAT rate
+		type vatGroup struct{ subtotal, vat float64 }
+		byRate := make(map[float64]vatGroup)
+		for _, l := range inv.Lines {
+			v := byRate[l.VATRate]
+			v.subtotal += l.LineTotal
+			v.vat += l.LineVATAmount
+			byRate[l.VATRate] = v
+		}
+		for rate, v := range byRate {
+			rpt.TotalSubtotal += v.subtotal
+			rpt.TotalVAT += v.vat
+			rpt.Rows = append(rpt.Rows, domain.VATInputRow{
+				InvoiceNumber: inv.InvoiceNumber, InvoiceDate: inv.InvoiceDate.Format(time.DateOnly),
+				SupplierName: inv.SupplierName, SupplierTaxCode: inv.SupplierTaxCode,
+				VATRate: rate, Subtotal: round2(v.subtotal), VATAmount: round2(v.vat),
+				DeductionStatus: string(inv.VATDeductionStatus),
+			})
+		}
+	}
+	rpt.TotalSubtotal = round2(rpt.TotalSubtotal)
+	rpt.TotalVAT = round2(rpt.TotalVAT)
+	return rpt, nil
+}
+
+// GetUninvoicedReceipts lists posted GRNs not yet matched to an invoice.
+func (s *PurchaseService) GetUninvoicedReceipts(ctx context.Context, companyID string) ([]domain.UninvoicedReceiptRow, error) {
+	invs, _, err := s.invRepo.ListInvoices(ctx, domain.SupplierInvoiceFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	invoicedGRNs := make(map[string]bool)
+	for _, inv := range invs {
+		if inv.GRNID != "" {
+			invoicedGRNs[inv.GRNID] = true
+		}
+	}
+	grns, _, err := s.grnRepo.ListGRNs(ctx, domain.GRNFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.UninvoicedReceiptRow
+	for _, g := range grns {
+		if g.Status != domain.GRNPosted || invoicedGRNs[g.ID] {
+			continue
+		}
+		supplierName := s.supplierNameForGRN(ctx, g)
+		for _, l := range g.Lines {
+			rows = append(rows, domain.UninvoicedReceiptRow{
+				GRNNumber: g.GRNNumber, ReceiptDate: g.ReceiptDate.Format(time.DateOnly),
+				SupplierName: supplierName, POID: g.POID, ItemName: l.ItemName,
+				Unit: l.Unit, Quantity: l.QuantityReceived, UnitPrice: l.UnitPrice,
+				LineTotal: round2(l.LineTotal),
+			})
+		}
+	}
+	return rows, nil
+}
+
+func ledgerDelta(t domain.APTransaction) float64 {
+	switch t.TransactionType {
+	case domain.APTransInvoice, domain.APTransCreditNote:
+		return t.Amount
+	default:
+		return -t.Amount
+	}
+}
+
+func ledgerDebit(t domain.APTransaction) float64 {
+	switch t.TransactionType {
+	case domain.APTransInvoice, domain.APTransCreditNote:
+		return 0
+	default:
+		return round2(t.Amount)
+	}
+}
+
+func ledgerCredit(t domain.APTransaction) float64 {
+	switch t.TransactionType {
+	case domain.APTransInvoice, domain.APTransCreditNote:
+		return round2(t.Amount)
+	default:
+		return 0
+	}
+}
+
+func grnTotal(g *domain.GRN) float64 {
+	var sum float64
+	for _, l := range g.Lines {
+		sum += l.LineTotal
+	}
+	return sum
+}
+
+func (s *PurchaseService) grnTotalBefore(ctx context.Context, companyID, fromDate string) (float64, error) {
+	grns, _, err := s.grnRepo.ListGRNs(ctx, domain.GRNFilter{CompanyID: companyID, ToDate: fromDate})
+	if err != nil {
+		return 0, err
+	}
+	var sum float64
+	for _, g := range grns {
+		if g.Status != domain.GRNPosted {
+			continue
+		}
+		sum += grnTotal(&g)
+	}
+	return round2(sum), nil
+}
+
+func (s *PurchaseService) supplierNameForGRN(ctx context.Context, g domain.GRN) string {
+	if g.POID == "" {
+		return ""
+	}
+	po, err := s.poRepo.GetPO(ctx, g.POID)
+	if err != nil || po == nil {
+		return ""
+	}
+	sup, err := s.supRepo.GetSupplier(ctx, po.SupplierID)
+	if err != nil || sup == nil {
+		return ""
+	}
+	return sup.Name
+}
+
+func ageInMonths(from, to time.Time) int {
+	if to.Before(from) {
+		return 0
+	}
+	return (to.Year()-from.Year())*12 + int(to.Month()) - int(from.Month())
+}
+
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }

@@ -14,7 +14,7 @@ import (
 
 func newPurchaseTestSvc() (*PurchaseService, context.Context) {
 	repo := repository.NewMemoryPurchaseRepo()
-	return NewPurchaseService(repo, repo, repo, repo, repo, repo, nil), context.Background()
+	return NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, nil), context.Background()
 }
 
 func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) {
@@ -50,7 +50,7 @@ func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) 
 	}
 
 	repo := repository.NewMemoryPurchaseRepo()
-	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, gl)
+	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, gl)
 	return svc, gl, ctx
 }
 
@@ -180,6 +180,30 @@ func TestPO_ApproveTwiceFails(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrPOInvalidTransition)
 	loaded, _ := svc.GetPO(ctx, po.ID)
 	assert.Equal(t, domain.POStatusApproved, loaded.Status)
+}
+
+func TestGetPOByNumber_NotFound(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "S004B")
+	po := makePO(t, svc, ctx, sup.ID, 1, 100)
+	_, err := svc.GetPOByNumber(ctx, "c1", "NO-SUCH-PO")
+	assert.ErrorIs(t, err, domain.ErrPONotFound)
+	got, err := svc.GetPOByNumber(ctx, "c1", po.PONumber)
+	require.NoError(t, err)
+	assert.Equal(t, po.ID, got.ID)
+}
+
+func TestUpdatePO_AfterApprovedFails(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "S004C")
+	po := makePO(t, svc, ctx, sup.ID, 1, 100)
+	require.NoError(t, svc.ApprovePO(ctx, po.ID, "user"))
+	err := svc.UpdatePO(ctx, &domain.PurchaseOrder{
+		ID: po.ID, CompanyID: "c1", PONumber: po.PONumber, SupplierID: sup.ID,
+		OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{ItemName: "Widget", Unit: "pcs", Quantity: 2, UnitPrice: 200, AccountID: "152", VATAccountID: "1331"}},
+	})
+	assert.ErrorIs(t, err, domain.ErrPOCannotUpdate)
 }
 
 // ─── GRN ─────────────────────────────────────────────────────────────────
@@ -462,4 +486,261 @@ func TestCostAllocation_CreateAndList(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, allocs, 1)
 	assert.Equal(t, c.ID, allocs[0].ID)
+}
+
+// ─── Doubtful Debt Provisions ───────────────────────────────────────────
+
+func makePrepayment(t *testing.T, svc *PurchaseService, ctx context.Context, supID string, date time.Time, amount float64) {
+	t.Helper()
+	txn := &domain.APTransaction{
+		CompanyID: "c1", SupplierID: supID, TransactionType: domain.APTransPrepayment,
+		TransactionDate: date, Amount: amount, Currency: "VND",
+	}
+	require.NoError(t, svc.CreateAPTransaction(ctx, txn))
+}
+
+func TestProvision_CalculateTiers(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	asOf := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	sup5 := makeSupplier(t, svc, ctx, "S5")   // 5 months -> 0%
+	sup7 := makeSupplier(t, svc, ctx, "S7")   // 7 months -> 30%
+	sup13 := makeSupplier(t, svc, ctx, "S13") // 13 months -> 50%
+	sup25 := makeSupplier(t, svc, ctx, "S25") // 25 months -> 70%
+	sup40 := makeSupplier(t, svc, ctx, "S40") // 40 months -> 100%
+
+	makePrepayment(t, svc, ctx, sup5.ID, asOf.AddDate(0, -5, 0), 1000)
+	makePrepayment(t, svc, ctx, sup7.ID, asOf.AddDate(0, -7, 0), 1000)
+	makePrepayment(t, svc, ctx, sup13.ID, asOf.AddDate(0, -13, 0), 2000)
+	makePrepayment(t, svc, ctx, sup25.ID, asOf.AddDate(0, -25, 0), 1000)
+	makePrepayment(t, svc, ctx, sup40.ID, asOf.AddDate(0, -40, 0), 1000)
+
+	lines, err := svc.CalculateDoubtfulDebtProvision(ctx, "c1", asOf)
+	require.NoError(t, err)
+	require.Len(t, lines, 4)
+	bySup := map[string]domain.DoubtfulDebtProvisionLine{}
+	for _, l := range lines {
+		bySup[l.SupplierID] = l
+	}
+	_, ok := bySup[sup5.ID]
+	assert.False(t, ok, "5-month prepayment must be excluded (0% rate)")
+	assert.Equal(t, 7, bySup[sup7.ID].AgeMonths)
+	assert.Equal(t, 0.30, bySup[sup7.ID].RatePct)
+	assert.Equal(t, 300.0, bySup[sup7.ID].ProvisionAmount)
+	assert.Equal(t, 0.50, bySup[sup13.ID].RatePct)
+	assert.Equal(t, 1000.0, bySup[sup13.ID].ProvisionAmount)
+	assert.Equal(t, 0.70, bySup[sup25.ID].RatePct)
+	assert.Equal(t, 700.0, bySup[sup25.ID].ProvisionAmount)
+	assert.Equal(t, 1.0, bySup[sup40.ID].RatePct)
+	assert.Equal(t, 1000.0, bySup[sup40.ID].ProvisionAmount)
+	assert.Equal(t, "Supplier S7", bySup[sup7.ID].SupplierName)
+}
+
+func TestProvision_CalculateNoPrepayments(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SX")
+	makePrepayment(t, svc, ctx, sup.ID, time.Now().AddDate(0, -2, 0), 500)
+	lines, err := svc.CalculateDoubtfulDebtProvision(ctx, "c1", time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, lines)
+
+	_, err = svc.CalculateDoubtfulDebtProvision(ctx, "other-company", time.Now())
+	assert.ErrorIs(t, err, domain.ErrProvisionNoPrepayments)
+}
+
+func TestProvision_CalculateAggregatesPerSupplier(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	asOf := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	sup := makeSupplier(t, svc, ctx, "SAGG")
+	makePrepayment(t, svc, ctx, sup.ID, asOf.AddDate(0, -20, 0), 600)
+	makePrepayment(t, svc, ctx, sup.ID, asOf.AddDate(0, -19, 0), 400)
+	lines, err := svc.CalculateDoubtfulDebtProvision(ctx, "c1", asOf)
+	require.NoError(t, err)
+	require.Len(t, lines, 1)
+	assert.Equal(t, 1000.0, lines[0].OutstandingAmount)
+	assert.Equal(t, 20, lines[0].AgeMonths)
+	assert.Equal(t, 0.50, lines[0].RatePct)
+	assert.Equal(t, 500.0, lines[0].ProvisionAmount)
+}
+
+func TestProvision_CreateAndGet(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SC")
+	prov := &domain.DoubtfulDebtProvision{
+		CompanyID: "c1", AsOfDate: "2026-08-01", CreatedBy: "u1",
+		Lines: []domain.DoubtfulDebtProvisionLine{{
+			SupplierID: sup.ID, SupplierName: sup.Name, OutstandingAmount: 1000,
+			AgeMonths: 18, RatePct: 0.50,
+		}},
+	}
+	require.NoError(t, svc.CreateDoubtfulDebtProvision(ctx, prov))
+	assert.NotEmpty(t, prov.ID)
+	assert.Equal(t, 500.0, prov.TotalProvision)
+	assert.Equal(t, 1000.0, prov.TotalOutstanding)
+
+	loaded, err := svc.GetDoubtfulDebtProvision(ctx, prov.ID)
+	require.NoError(t, err)
+	require.Len(t, loaded.Lines, 1)
+	assert.Equal(t, prov.ID, loaded.Lines[0].ProvisionID)
+	assert.Equal(t, 500.0, loaded.Lines[0].ProvisionAmount)
+
+	provisions, total, err := svc.ListDoubtfulDebtProvisions(ctx, "c1", 0, 10)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, provisions, 1)
+}
+
+func TestProvision_CreateValidation(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	err := svc.CreateDoubtfulDebtProvision(ctx, &domain.DoubtfulDebtProvision{
+		CompanyID: "c1", AsOfDate: "not-a-date", Lines: []domain.DoubtfulDebtProvisionLine{{SupplierID: "x"}},
+	})
+	assert.ErrorIs(t, err, domain.ErrProvisionDateRequired)
+
+	err = svc.CreateDoubtfulDebtProvision(ctx, &domain.DoubtfulDebtProvision{
+		CompanyID: "c1", AsOfDate: "2026-08-01",
+	})
+	assert.ErrorIs(t, err, domain.ErrProvisionNoLines)
+}
+
+func TestDoubtfulDebtRate(t *testing.T) {
+	cases := []struct {
+		months int
+		want   float64
+	}{
+		{0, 0}, {5, 0}, {6, 0.30}, {11, 0.30}, {12, 0.50},
+		{23, 0.50}, {24, 0.70}, {35, 0.70}, {36, 1.0}, {120, 1.0},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, domain.DoubtfulDebtRate(c.months), "months=%d", c.months)
+	}
+}
+
+// ─── Regulatory Reports ──────────────────────────────────────────────────
+
+func TestReport_PurchaseLedger(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SRL")
+	po := makePO(t, svc, ctx, sup.ID, 10, 1000)
+	grn := makeGRN(t, svc, ctx, po, 10)
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	from := time.Now().AddDate(0, -1, 0).Format(time.DateOnly)
+	to := time.Now().AddDate(0, 1, 0).Format(time.DateOnly)
+	rpt, err := svc.GetPurchaseLedger(ctx, "c1", from, to)
+	require.NoError(t, err)
+	require.Len(t, rpt.Rows, 1)
+	assert.Equal(t, 10000.0, rpt.Increase)
+	assert.Equal(t, sup.Name, rpt.Rows[0].SupplierName)
+	assert.Equal(t, rpt.Opening, rpt.Closing-rpt.Increase+rpt.Decrease)
+}
+
+func TestReport_SupplierLedger(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SSL")
+	// invoice -> credit, payment -> debit
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-SL", SupplierID: sup.ID,
+		SupplierName: sup.Name, SupplierTaxCode: sup.TaxCode, InvoiceDate: time.Now(),
+		Currency: "VND", Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 1, UnitPrice: 5000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.CreateAPTransaction(ctx, &domain.APTransaction{
+		CompanyID: "c1", SupplierID: sup.ID, InvoiceID: inv.ID,
+		TransactionType: domain.APTransInvoice, TransactionDate: time.Now(), Amount: 5500, Currency: "VND",
+	}))
+	require.NoError(t, svc.CreateAPTransaction(ctx, &domain.APTransaction{
+		CompanyID: "c1", SupplierID: sup.ID,
+		TransactionType: domain.APTransPayment, TransactionDate: time.Now(), Amount: 2500, Currency: "VND",
+	}))
+
+	from := time.Now().AddDate(0, -1, 0).Format(time.DateOnly)
+	to := time.Now().AddDate(0, 1, 0).Format(time.DateOnly)
+	rpt, err := svc.GetSupplierLedger(ctx, "c1", sup.ID, from, to)
+	require.NoError(t, err)
+	require.Len(t, rpt.Rows, 2)
+	var invRow, payRow domain.SupplierLedgerRow
+	for _, r := range rpt.Rows {
+		switch r.Description {
+		case string(domain.APTransInvoice):
+			invRow = r
+		case string(domain.APTransPayment):
+			payRow = r
+		}
+	}
+	assert.Equal(t, 5500.0, invRow.Credit)
+	assert.Equal(t, 2500.0, payRow.Debit)
+	assert.Equal(t, 3000.0, rpt.Closing)
+}
+
+func TestReport_GoodsPurchase(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SGP")
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-GP", SupplierID: sup.ID,
+		SupplierName: sup.Name, SupplierTaxCode: sup.TaxCode, InvoiceDate: time.Now(),
+		Currency: "VND", Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget A", Unit: "pcs", Quantity: 2, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}, {
+			ItemName: "Widget B", Unit: "box", Quantity: 3, UnitPrice: 500,
+			VATRate: 8, VATType: domain.VAT8, AccountID: "642", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+
+	from := time.Now().AddDate(0, -1, 0).Format(time.DateOnly)
+	to := time.Now().AddDate(0, 1, 0).Format(time.DateOnly)
+	rpt, err := svc.GetGoodsPurchaseReport(ctx, "c1", from, to)
+	require.NoError(t, err)
+	require.Len(t, rpt.Rows, 2)
+	assert.Equal(t, 3500.0, rpt.TotalAmount)
+	assert.Equal(t, 200.0+120.0, rpt.TotalVAT)
+	assert.Equal(t, "Widget A", rpt.Rows[0].ItemName)
+}
+
+func TestReport_VATInput(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SVI")
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-VI", SupplierID: sup.ID,
+		SupplierName: sup.Name, SupplierTaxCode: sup.TaxCode, InvoiceDate: time.Now(),
+		Currency: "VND", VATDeductionStatus: domain.VATClaimed,
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 2, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}, {
+			ItemName: "Service", Unit: "hr", Quantity: 1, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "642", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+
+	from := time.Now().AddDate(0, -1, 0).Format(time.DateOnly)
+	to := time.Now().AddDate(0, 1, 0).Format(time.DateOnly)
+	rpt, err := svc.GetVATInputReport(ctx, "c1", from, to)
+	require.NoError(t, err)
+	require.Len(t, rpt.Rows, 1)
+	assert.Equal(t, 10.0, rpt.Rows[0].VATRate)
+	assert.Equal(t, 3000.0, rpt.Rows[0].Subtotal)
+	assert.Equal(t, 300.0, rpt.Rows[0].VATAmount)
+	assert.Equal(t, "claimed", rpt.Rows[0].DeductionStatus)
+	assert.Equal(t, 300.0, rpt.TotalVAT)
+}
+
+func TestReport_UninvoicedReceipts(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "SUI")
+	po := makePO(t, svc, ctx, sup.ID, 5, 1000)
+	grn := makeGRN(t, svc, ctx, po, 5)
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	rows, err := svc.GetUninvoicedReceipts(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, grn.GRNNumber, rows[0].GRNNumber)
+	assert.Equal(t, 5.0, rows[0].Quantity)
+	assert.Equal(t, sup.Name, rows[0].SupplierName)
 }

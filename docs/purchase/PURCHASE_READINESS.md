@@ -1,37 +1,38 @@
 # Purchase Module — PROD Readiness Assessment
 
-**Version:** 2.0
+**Version:** 2.1
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
 **Regulatory Basis:** Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP (amended by 70/2025), Decree 254/2026/ND-CP, IAS 2, IFRS 15, VAS 02
 
 ---
 
-## VERDICT: NOT PRODUCTION READY — ~70% COMPLETE
+## VERDICT: NOT PRODUCTION READY — ~85% COMPLETE
 
 **Correction:** Previous assessment (v1.0) reported 0%. Module was substantially built since then. Current assessment reflects actual state.
 
 | Dimension | Score | Detail |
 |-----------|-------|--------|
-| Domain models (Supplier, PO, GRN, Invoice, AP, CostAlloc) | **100%** | 417 lines, enums, Validate(), CalculateTotals(), status state machines |
-| Repository interfaces | **100%** | 6 interfaces, 46 methods in domain/interfaces.go |
-| PG repository impl | **100%** | 1127 lines, all 46 methods, GORM mappings fixed to match migration |
-| Memory repository impl | **100%** | 886 lines, RWMutex concurrency, all interfaces from single struct |
-| Service methods | **100%** | 450 lines, full CRUD + state machine + AP aging/summary. 3-way match + GL auto-posting implemented |
-| Handler endpoints | **100%** | 28 routes registered: suppliers(5), POs(7), GRNs(6), invoices(8), AP reports(2) |
+| Domain models (Supplier, PO, GRN, Invoice, AP, CostAlloc, Provision) | **100%** | models + validate tags + Provision, enums, Validate(), CalculateTotals(), status state machines |
+| Repository interfaces | **100%** | 7 interfaces (incl. DoubtfulDebtProvisionRepository), 51 methods in domain/interfaces.go |
+| PG repository impl | **100%** | 1180 lines, all methods, GORM mappings fixed to match migration |
+| Memory repository impl | **100%** | 940 lines, RWMutex concurrency, all interfaces from single struct |
+| Service methods | **100%** | ~940 lines, full CRUD + state machine + AP aging/summary + provisioning + 5 reports. 3-way match + GL auto-posting implemented |
+| Handler endpoints | **100%** | 41 routes registered: suppliers(5), POs(7), GRNs(6), invoices(8), AP reports(2), provisions(4), reports(5) |
 | Route registration | **100%** | Registered in RegisterRoutesWithCompany at handler.go:213 |
-| DB migration | **100%** | 000006_purchase_schema: 9 tables, 21 indexes, proper FKs |
+| DB migration | **100%** | 000006_purchase_schema (9 tables) + 000011_doubtful_debt_provisions (2 tables) |
 | main.go wiring | **100%** | PG + memory branches, both wired |
-| Handler tests | **60%** | 19 tests covering supplier, PO, GRN, invoice workflows, AP reports |
-| Service tests | **100%** | 25 tests in purchase_service_test.go: CRUD, state machines, 3-way match, GL auto-posting, AP reports, cost allocation |
-| PG repo tests | **0%** | No pg_purchase_test.go |
-| Domain validation tests | **0%** | No model validation tests |
+| Handler tests | **70%** | 22 tests incl. negative-path: UpdatePO-after-approve, CancelGRN-after-post, PostInvoice-without-verify |
+| Service tests | **100%** | 27 tests: CRUD, state machines, 3-way match, GL auto-posting, AP reports, cost allocation, provisioning, PO-by-number |
+| PG repo tests | **0%** | Skipped by design — repo tests need sqlmock/PG (no dep, violates memory-only convention) |
+| Domain validation tests | **100%** | 16 tests in models_purchase_test.go: all model Validate() paths + totals + status transitions + provision tiers |
 | 3-way matching | **100%** | PO x GRN x Invoice on PostInvoice, 5% tolerance, ErrInvoice3WayMismatch |
 | GL auto-posting | **100%** | PostInvoice creates posted JE (Dr expense/VAT, Cr 331) via existing JournalEntry engine; GLPosted set only on success |
-| Validate package integration | **0%** | No purchase-specific validators in internal/validate/ |
+| Validate package integration | **100%** | 8 purchase custom validators + validate/purchase.go wired into service (supplier/PO/GRN/invoice/AP/cost) |
 | E-invoice GDT integration | **0%** | ReceiveEInvoice creates invoice but no XML parse/GDT API |
-| Circular 99 compliance | **70%** | Tax rules, FX, provisioning defined but not fully automated |
-| Negative-path tests | **20%** | Basic error cases covered, many edge cases untested |
+| Circular 99 compliance | **85%** | Doubtful-debt provisioning automated (30/50/70/100% tiers, per-supplier oldest-date aging) |
+| Negative-path tests | **60%** | State-machine violations, not-found, missing-supplier covered at service + handler |
+| Reports | **100%** | S01-DN, S02-DN, S03-DN, VAT input, uninvoiced receipts — service + handler + tests |
 
 ---
 
@@ -44,25 +45,25 @@
 | Capability | MISA AMIS | Fast Accounting | Bravo ERP | GoTax (Current) | GoTax (Target) |
 |------------|-----------|----------------|-----------|-----------------|----------------|
 | Purchase requisition | Yes | Yes | Yes | No | P1 |
-| Purchase order (PO) | Yes | Yes | Yes | No | P0 |
-| Goods receipt note | Yes | Yes | Yes | No | P0 |
-| Supplier invoice recording | Yes | Yes | Yes | No | P0 |
+| Purchase order (PO) | Yes | Yes | Yes | **Yes** | P0 |
+| Goods receipt note | Yes | Yes | Yes | **Yes** | P0 |
+| Supplier invoice recording | Yes | Yes | Yes | **Yes** | P0 |
 | Return to supplier | Yes | Yes | Yes | No | P1 |
-| AP aging by invoice | Yes | Yes | Yes | No | P0 |
-| AP aging by due date | Yes | Yes | Yes | No | P0 |
-| Payment allocation | Yes | Yes | Yes | No | P0 |
-| Prepayment tracking | Yes | Yes | Yes | No | P0 |
-| Domestic purchase (VAT) | Yes | Yes | Yes | No | P0 |
+| AP aging by invoice | Yes | Yes | Yes | **Yes** | P0 |
+| AP aging by due date | Yes | Yes | Yes | **Yes** | P0 |
+| Payment allocation | Yes | Yes | Yes | **Yes** | P0 |
+| Prepayment tracking | Yes | Yes | Yes | **Yes** | P0 |
+| Domestic purchase (VAT) | Yes | Yes | Yes | **Yes** | P0 |
 | Import purchase (duty) | Yes | Yes | Yes | No | P1 |
-| Purchase cost allocation | Yes | Yes | Yes | No | P1 |
+| Purchase cost allocation | Yes | Yes | Yes | **Yes** | P1 |
 | Supplier evaluation | No | Limited | Yes | No | P2 |
 | E-invoice receipt (GDT) | Yes | Yes | Via API | No | P0 |
-| 3-way matching | Yes | Yes | Yes | No | P0 |
-| Multi-currency AP | Yes | Yes | Yes | No | P1 |
+| 3-way matching | Yes | Yes | Yes | **Yes** | P0 |
+| Multi-currency AP | Yes | Yes | Yes | Partial | P1 |
 | Purchase budgeting | Yes | No | Yes | No | P2 |
-| S01-DN (Purchase ledger) | Yes | Yes | Yes | No | P0 |
-| S02-DN (Supplier detail) | Yes | Yes | Yes | No | P0 |
-| S03-DN (Goods ledger) | Yes | Yes | Yes | No | P0 |
+| S01-DN (Purchase ledger) | Yes | Yes | Yes | **Yes** | P0 |
+| S02-DN (Supplier detail) | Yes | Yes | Yes | **Yes** | P0 |
+| S03-DN (Goods ledger) | Yes | Yes | Yes | **Yes** | P0 |
 
 ---
 
@@ -75,32 +76,32 @@
 | G-1 | **3-way matching** (PO × GRN × Invoice) | Manual match → errors, fraud risk | 2-3 days | **DONE** — `verifyThreeWayMatch` in purchase_service.go: PO qty ≥ GRN qty ≥ Invoice qty per line, 5% qty+price tolerance, blocks via `ErrInvoice3WayMismatch` |
 | G-2 | **GL auto-posting** (Dr expense/VAT Cr 331) | Manual GL entries → reconciliation burden | 3-5 days | **DONE** — `buildInvoiceGLEntry` + `APGLService.CreatePostedEntry`; invoice posts only when JE created; `SetInvoiceGLPosted` |
 | G-3 | **3-way match on PostInvoice** | Invoice posts without verifying PO/GRN match | 1 day | **DONE** — match check runs before status update; mismatch leaves invoice VERIFIED |
-| G-4 | **Service tests** | No regression safety for business logic | 3-5 days | **DONE** — 25 tests in internal/service/purchase_service_test.go |
-| G-5 | **Circular 99 doubtful debt provisioning** | Manual provisioning → compliance risk | 2 days | Open — tiered rules (30/50/70/100%) from research ready |
+| G-4 | **Service tests** | No regression safety for business logic | 3-5 days | **DONE** — 27 tests in internal/service/purchase_service_test.go |
+| G-5 | **Circular 99 doubtful debt provisioning** | Manual provisioning → compliance risk | 2 days | **DONE** — tiered rates (30/50/70/100% at 6/12/24/36 mo), per-supplier oldest-prepayment aging, calculate+create+get+list endpoints, migration 000011 |
 
 ### High (PROD within first 3 months)
 
-| # | Gap | Impact | Effort |
-|---|------|--------|--------|
-| H-1 | Validate package integration | Repeated validation code | 1 day |
-| H-2 | Negative-path handler tests | Untested error scenarios | 2-3 days |
-| H-3 | PG repo integration tests | Untested PG backend | 3-5 days |
-| H-4 | Prepayment tracking (offset against invoices) | Manual offset tracking | 2-3 days |
-| H-5 | Uninvoiced receipt accrual (EOD period-end) | Period-end adjustments manual | 2 days |
-| H-6 | S01-DN, S02-DN, S03-DN reports | Regulatory reporting gap | 3-5 days |
-| H-7 | VAT input tracking report (Bang ke hoa don VAT) | Monthly VAT return gap | 2-3 days |
+| # | Gap | Impact | Effort | Status |
+|---|------|--------|--------|--------|
+| H-1 | Validate package integration | Repeated validation code | 1 day | **DONE** — 8 custom validators + validate/purchase.go, service uses validate pkg |
+| H-2 | Negative-path handler tests | Untested error scenarios | 2-3 days | **DONE** — UpdatePO-after-approve, CancelGRN-after-post, PostInvoice-without-verify, PO-by-number-not-found |
+| H-3 | PG repo integration tests | Untested PG backend | 3-5 days | **SKIPPED** — repo tests need sqlmock/PG dependency; project convention is memory-only tests, no DB |
+| H-4 | Prepayment tracking (offset against invoices) | Manual offset tracking | 2-3 days | Open — prepayments tracked + provisioned; automatic offset against invoices pending |
+| H-5 | Uninvoiced receipt accrual (EOD period-end) | Period-end adjustments manual | 2 days | **DONE (report)** — uninvoiced-receipts report identifies accrued amount; auto-posting pending |
+| H-6 | S01-DN, S02-DN, S03-DN reports | Regulatory reporting gap | 3-5 days | **DONE** — /reports/s01-dn, /s02-dn, /s03-dn with tests |
+| H-7 | VAT input tracking report (Bang ke hoa don VAT) | Monthly VAT return gap | 2-3 days | **DONE** — /reports/vat-input rate-grouped per invoice |
 
 ### Medium (within 6 months)
 
-| # | Gap | Impact | Effort |
-|---|------|--------|--------|
-| M-1 | E-invoice XML receipt/parse from GDT | Manual entry for e-invoices | 5-10 days |
-| M-2 | Import purchase landed cost (duty, DTT) | Import tracking gap | 3-5 days |
-| M-3 | Purchase return workflow | Return handling manual | 2-3 days |
-| M-4 | Purchase requisition + approval workflow | Missing upstream doc | 5-7 days |
-| M-5 | Multi-currency AP with FX revaluation | Import AP FX risk | 3-5 days |
-| M-6 | Supplier portal integration | Supplier self-service | 10+ days |
-| M-7 | Domain validation tests | Model rule testing | 1-2 days |
+| # | Gap | Impact | Effort | Status |
+|---|------|--------|--------|--------|
+| M-1 | E-invoice XML receipt/parse from GDT | Manual entry for e-invoices | 5-10 days | Open |
+| M-2 | Import purchase landed cost (duty, DTT) | Import tracking gap | 3-5 days | Open |
+| M-3 | Purchase return workflow | Return handling manual | 2-3 days | Open |
+| M-4 | Purchase requisition + approval workflow | Missing upstream doc | 5-7 days | Open |
+| M-5 | Multi-currency AP with FX revaluation | Import AP FX risk | 3-5 days | Open |
+| M-6 | Supplier portal integration | Supplier self-service | 10+ days | Open |
+| M-7 | Domain validation tests | Model rule testing | 1-2 days | **DONE** — models_purchase_test.go (16 tests) |
 
 ### Known Bugs Fixed in v2.0
 

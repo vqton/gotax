@@ -14,9 +14,9 @@ const (PaymentNet30 PaymentTerms="net30"; PaymentNet60 PaymentTerms="net60"; Pay
 type Supplier struct {
 	ID                string         `json:"id"`
 	CompanyID         string         `json:"company_id"`
-	Code              string         `json:"code"`
-	Name              string         `json:"name"`
-	TaxCode           string         `json:"tax_code"`
+	Code              string         `json:"code" validate:"required"`
+	Name              string         `json:"name" validate:"required"`
+	TaxCode           string         `json:"tax_code" validate:"required"`
 	Address           string         `json:"address,omitempty"`
 	Phone             string         `json:"phone,omitempty"`
 	Email             string         `json:"email,omitempty"`
@@ -27,7 +27,7 @@ type Supplier struct {
 	CreditLimit       float64        `json:"credit_limit"`
 	Currency          string         `json:"currency"`
 	SupplierType      SupplierType   `json:"supplier_type,omitempty"`
-	Status            SupplierStatus `json:"status"`
+	Status            SupplierStatus `json:"status" validate:"suppstatus"`
 	Notes             string         `json:"notes,omitempty"`
 	CreatedAt         time.Time      `json:"created_at,omitempty"`
 	UpdatedAt         time.Time      `json:"updated_at,omitempty"`
@@ -66,10 +66,10 @@ const (VAT0 VATType="VAT_0"; VAT5 VATType="VAT_5"; VAT8 VATType="VAT_8"; VAT10 V
 type PurchaseOrder struct {
 	ID              string    `json:"id"`
 	CompanyID       string    `json:"company_id"`
-	PONumber        string    `json:"po_number"`
-	SupplierID      string    `json:"supplier_id"`
+	PONumber        string    `json:"po_number" validate:"required"`
+	SupplierID      string    `json:"supplier_id" validate:"required"`
 	RequisitionID   string    `json:"requisition_id,omitempty"`
-	OrderDate       time.Time `json:"order_date"`
+	OrderDate       time.Time `json:"order_date" validate:"required"`
 	ExpectedDate    *time.Time `json:"expected_date,omitempty"`
 	Currency        string    `json:"currency"`
 	ExchangeRate    float64   `json:"exchange_rate"`
@@ -79,7 +79,7 @@ type PurchaseOrder struct {
 	DiscountAmount  float64   `json:"discount_amount"`
 	TaxAmount       float64   `json:"tax_amount"`
 	TotalAmount     float64   `json:"total_amount"`
-	Status          POStatus  `json:"status"`
+	Status          POStatus  `json:"status" validate:"postatus"`
 	ApprovedBy      string    `json:"approved_by,omitempty"`
 	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
 	CancelledReason string    `json:"cancelled_reason,omitempty"`
@@ -87,7 +87,7 @@ type PurchaseOrder struct {
 	CreatedBy       string    `json:"created_by"`
 	CreatedAt       time.Time `json:"created_at,omitempty"`
 	UpdatedAt       time.Time `json:"updated_at,omitempty"`
-	Lines           []POItem  `json:"lines"`
+	Lines           []POItem  `json:"lines" validate:"min=1"`
 }
 
 func (po *PurchaseOrder) Validate() error {
@@ -129,15 +129,15 @@ type POItem struct {
 	POID         string  `json:"po_id"`
 	LineNumber   int     `json:"line_number"`
 	ItemCode     string  `json:"item_code,omitempty"`
-	ItemName     string  `json:"item_name"`
-	Unit         string  `json:"unit"`
-	Quantity     float64 `json:"quantity"`
-	UnitPrice    float64 `json:"unit_price"`
+	ItemName     string  `json:"item_name" validate:"required"`
+	Unit         string  `json:"unit" validate:"required"`
+	Quantity     float64 `json:"quantity" validate:"gt=0"`
+	UnitPrice    float64 `json:"unit_price" validate:"gte=0"`
 	DiscountPct  float64 `json:"discount_pct"`
 	VATRate      float64 `json:"vat_rate"`
 	VATType      VATType `json:"vat_type"`
-	AccountID    string  `json:"account_id"`
-	VATAccountID string  `json:"vat_account_id"`
+	AccountID    string  `json:"account_id" validate:"required"`
+	VATAccountID string  `json:"vat_account_id" validate:"required"`
 	LineTotal    float64 `json:"line_total"`
 	LineVATAmount float64 `json:"line_vat_amount"`
 	ReceivedQty  float64 `json:"received_qty"`
@@ -169,19 +169,19 @@ func (s GRNStatus) ValidTransition(next GRNStatus) bool {
 type GRN struct {
 	ID              string     `json:"id"`
 	CompanyID       string     `json:"company_id"`
-	GRNNumber       string     `json:"grn_number"`
+	GRNNumber       string     `json:"grn_number" validate:"required"`
 	POID            string     `json:"po_id,omitempty"`
 	WarehouseID     string     `json:"warehouse_id,omitempty"`
-	ReceiptDate     time.Time  `json:"receipt_date"`
+	ReceiptDate     time.Time  `json:"receipt_date" validate:"required"`
 	Warehouse       string     `json:"warehouse,omitempty"`
-	Status          GRNStatus  `json:"status"`
+	Status          GRNStatus  `json:"status" validate:"grnstatus"`
 	Notes           string     `json:"notes,omitempty"`
 	CreatedBy       string     `json:"created_by"`
 	PostedAt        time.Time  `json:"posted_at,omitempty"`
 	CancelledReason string     `json:"cancelled_reason,omitempty"`
 	CreatedAt       time.Time  `json:"created_at,omitempty"`
 	UpdatedAt       time.Time  `json:"updated_at,omitempty"`
-	Lines           []GRNItem  `json:"lines"`
+	Lines           []GRNItem  `json:"lines" validate:"min=1"`
 }
 
 func (g *GRN) Validate() error {
@@ -200,12 +200,12 @@ func (g *GRN) Validate() error {
 type GRNItem struct {
 	ID               string  `json:"id"`
 	GRNID            string  `json:"grn_id"`
-	POLineID         string  `json:"po_line_id,omitempty"`
+	POLineID         string  `json:"po_line_id,omitempty" validate:"required"`
 	ItemID           string  `json:"item_id,omitempty"`
 	ItemCode         string  `json:"item_code,omitempty"`
-	ItemName         string  `json:"item_name"`
+	ItemName         string  `json:"item_name" validate:"required"`
 	Unit             string  `json:"unit"`
-	QuantityReceived float64 `json:"quantity_received"`
+	QuantityReceived float64 `json:"quantity_received" validate:"gte=0"`
 	QuantityRejected float64 `json:"quantity_rejected"`
 	UnitPrice        float64 `json:"unit_price"`
 	LineTotal        float64 `json:"line_total"`
@@ -227,13 +227,13 @@ const (VATPending VATDeductionStatus="pending"; VATClaimed VATDeductionStatus="c
 type SupplierInvoice struct {
 	ID                   string              `json:"id"`
 	CompanyID            string              `json:"company_id"`
-	InvoiceNumber        string              `json:"invoice_number"`
-	InvoiceDate          time.Time           `json:"invoice_date"`
+	InvoiceNumber        string              `json:"invoice_number" validate:"required"`
+	InvoiceDate          time.Time           `json:"invoice_date" validate:"required"`
 	POID                 string              `json:"po_id,omitempty"`
 	GRNID                string              `json:"grn_id,omitempty"`
-	SupplierID           string              `json:"supplier_id"`
-	SupplierName         string              `json:"supplier_name"`
-	SupplierTaxCode      string              `json:"supplier_tax_code"`
+	SupplierID           string              `json:"supplier_id" validate:"required"`
+	SupplierName         string              `json:"supplier_name" validate:"required"`
+	SupplierTaxCode      string              `json:"supplier_tax_code" validate:"required"`
 	InvoiceType          string              `json:"invoice_type"`
 	Currency             string              `json:"currency"`
 	ExchangeRate         float64             `json:"exchange_rate"`
@@ -247,14 +247,14 @@ type SupplierInvoice struct {
 	VATDeductionStatus   VATDeductionStatus  `json:"vat_deduction_status"`
 	EInvoiceData         string              `json:"e_invoice_data,omitempty"`
 	EInvoiceCode         string              `json:"e_invoice_code,omitempty"`
-	Status               InvoiceStatus       `json:"status"`
+	Status               InvoiceStatus       `json:"status" validate:"invstatus"`
 	GLPosted             bool                `json:"gl_posted"`
 	GLPostedAt           *time.Time          `json:"gl_posted_at,omitempty"`
 	Notes                string              `json:"notes,omitempty"`
 	CreatedBy            string              `json:"created_by"`
 	CreatedAt            time.Time           `json:"created_at,omitempty"`
 	UpdatedAt            time.Time           `json:"updated_at,omitempty"`
-	Lines                []SupplierInvoiceLine `json:"lines"`
+	Lines                []SupplierInvoiceLine `json:"lines" validate:"min=1"`
 }
 
 func (inv *SupplierInvoice) Validate() error {
@@ -294,16 +294,16 @@ type SupplierInvoiceLine struct {
 	POLineID     string  `json:"po_line_id,omitempty"`
 	GRNLineID    string  `json:"grn_line_id,omitempty"`
 	ItemCode     string  `json:"item_code,omitempty"`
-	ItemName     string  `json:"item_name"`
+	ItemName     string  `json:"item_name" validate:"required"`
 	Unit         string  `json:"unit"`
-	Quantity     float64 `json:"quantity"`
-	UnitPrice    float64 `json:"unit_price"`
+	Quantity     float64 `json:"quantity" validate:"gt=0"`
+	UnitPrice    float64 `json:"unit_price" validate:"gte=0"`
 	VATRate      float64 `json:"vat_rate"`
 	VATType      VATType `json:"vat_type"`
 	LineTotal    float64 `json:"line_total"`
 	LineVATAmount float64 `json:"line_vat_amount"`
-	AccountID    string  `json:"account_id"`
-	VATAccountID string  `json:"vat_account_id"`
+	AccountID    string  `json:"account_id" validate:"required"`
+	VATAccountID string  `json:"vat_account_id" validate:"required"`
 }
 
 func (l *SupplierInvoiceLine) Validate() error {
@@ -321,11 +321,11 @@ const (APTransInvoice APTransactionType="invoice"; APTransCreditNote APTransacti
 type APTransaction struct {
 	ID              string            `json:"id"`
 	CompanyID       string            `json:"company_id"`
-	SupplierID      string            `json:"supplier_id"`
+	SupplierID      string            `json:"supplier_id" validate:"required"`
 	InvoiceID       string            `json:"invoice_id,omitempty"`
-	TransactionType APTransactionType `json:"transaction_type"`
-	TransactionDate time.Time         `json:"transaction_date"`
-	Amount          float64           `json:"amount"`
+	TransactionType APTransactionType `json:"transaction_type" validate:"apttype"`
+	TransactionDate time.Time         `json:"transaction_date" validate:"required"`
+	Amount          float64           `json:"amount" validate:"ne=0"`
 	Currency        string            `json:"currency"`
 	ReferenceType   string            `json:"reference_type,omitempty"`
 	ReferenceID     string            `json:"reference_id,omitempty"`
@@ -354,10 +354,10 @@ const (CostAllocByQty CostAllocationMethod="by_qty"; CostAllocByValue CostAlloca
 type CostAllocation struct {
 	ID               string               `json:"id"`
 	CompanyID        string               `json:"company_id"`
-	InvoiceID        string               `json:"invoice_id"`
-	CostType         CostAllocationType   `json:"cost_type"`
-	CostAmount       float64              `json:"cost_amount"`
-	AllocationMethod CostAllocationMethod `json:"allocation_method"`
+	InvoiceID        string               `json:"invoice_id" validate:"required"`
+	CostType         CostAllocationType   `json:"cost_type" validate:"costtype"`
+	CostAmount       float64              `json:"cost_amount" validate:"gt=0"`
+	AllocationMethod CostAllocationMethod `json:"allocation_method" validate:"allocmethod"`
 	AllocatedLines   string               `json:"allocated_lines"`
 	Notes            string               `json:"notes,omitempty"`
 }
@@ -429,4 +429,159 @@ type APSummary struct {
 	TotalPaid       float64 `json:"total_paid"`
 	Outstanding     float64 `json:"outstanding"`
 	Currency        string  `json:"currency"`
+}
+
+type ProvisionStatus string
+const (
+	ProvisionDraft  ProvisionStatus = "DRAFT"
+	ProvisionPosted ProvisionStatus = "POSTED"
+)
+
+// Doubtful debt provisioning per Circular 99/2025/TT-BTC (replaces 48/2019):
+// 6mo-1yr=30%, 1-2yr=50%, 2-3yr=70%, 3yr+=100%, applied to outstanding
+// supplier prepayments (advances) aged by months overdue from the transaction date.
+type DoubtfulDebtProvision struct {
+	ID             string                        `json:"id"`
+	CompanyID      string                        `json:"company_id"`
+	AsOfDate       string                        `json:"as_of_date"`
+	TotalOutstanding float64                     `json:"total_outstanding"`
+	TotalProvision float64                       `json:"total_provision"`
+	Status         ProvisionStatus               `json:"status"`
+	Lines          []DoubtfulDebtProvisionLine   `json:"lines,omitempty"`
+	CreatedBy      string                        `json:"created_by"`
+	CreatedAt      time.Time                     `json:"created_at,omitempty"`
+}
+
+type DoubtfulDebtProvisionLine struct {
+	ID               string  `json:"id"`
+	ProvisionID      string  `json:"provision_id,omitempty"`
+	SupplierID       string  `json:"supplier_id"`
+	SupplierName     string  `json:"supplier_name"`
+	TaxCode          string  `json:"tax_code"`
+	OutstandingAmount float64 `json:"outstanding_amount"`
+	AgeMonths        int     `json:"age_months"`
+	RatePct          float64 `json:"rate_pct"`
+	ProvisionAmount  float64 `json:"provision_amount"`
+}
+
+func (p *DoubtfulDebtProvision) Validate() error {
+	if p.AsOfDate == "" {
+		return ErrProvisionDateRequired
+	}
+	if len(p.Lines) == 0 {
+		return ErrProvisionNoLines
+	}
+	return nil
+}
+
+// DoubtfulDebtRate returns the Circular 99 provisioning rate for an age in months.
+func DoubtfulDebtRate(ageMonths int) float64 {
+	switch {
+	case ageMonths >= 36:
+		return 1.0
+	case ageMonths >= 24:
+		return 0.70
+	case ageMonths >= 12:
+		return 0.50
+	case ageMonths >= 6:
+		return 0.30
+	default:
+		return 0
+	}
+}
+
+// ─── Regulatory Reports (Circular 99) ───────────────────────────────────
+
+type PurchaseLedgerRow struct {
+	Date         string  `json:"date"`
+	DocNumber    string  `json:"doc_number"`
+	Description  string  `json:"description"`
+	SupplierID   string  `json:"supplier_id"`
+	SupplierName string  `json:"supplier_name"`
+	Increase     float64 `json:"increase"`
+	Decrease     float64 `json:"decrease"`
+}
+
+type PurchaseLedgerReport struct {
+	CompanyID string              `json:"company_id"`
+	FromDate  string              `json:"from_date"`
+	ToDate    string              `json:"to_date"`
+	Opening   float64             `json:"opening"`
+	Increase  float64             `json:"increase"`
+	Decrease  float64             `json:"decrease"`
+	Closing   float64             `json:"closing"`
+	Rows      []PurchaseLedgerRow `json:"rows"`
+}
+
+type SupplierLedgerRow struct {
+	Date        string  `json:"date"`
+	DocNumber   string  `json:"doc_number"`
+	Description string  `json:"description"`
+	Debit       float64 `json:"debit"`
+	Credit      float64 `json:"credit"`
+	Balance     float64 `json:"balance"`
+}
+
+type SupplierLedgerReport struct {
+	SupplierID   string              `json:"supplier_id"`
+	SupplierName string              `json:"supplier_name"`
+	TaxCode      string              `json:"tax_code"`
+	FromDate     string              `json:"from_date"`
+	ToDate       string              `json:"to_date"`
+	Opening      float64             `json:"opening"`
+	Closing      float64             `json:"closing"`
+	Rows         []SupplierLedgerRow `json:"rows"`
+}
+
+type GoodsPurchaseRow struct {
+	ItemName  string  `json:"item_name"`
+	Unit      string  `json:"unit"`
+	Quantity  float64 `json:"quantity"`
+	UnitPrice float64 `json:"unit_price"`
+	LineTotal float64 `json:"line_total"`
+	VATRate   float64 `json:"vat_rate"`
+	VATAmount float64 `json:"vat_amount"`
+	AccountID string  `json:"account_id"`
+}
+
+type GoodsPurchaseReport struct {
+	CompanyID    string              `json:"company_id"`
+	FromDate     string              `json:"from_date"`
+	ToDate       string              `json:"to_date"`
+	TotalQuantity float64            `json:"total_quantity"`
+	TotalAmount  float64             `json:"total_amount"`
+	TotalVAT     float64             `json:"total_vat"`
+	Rows         []GoodsPurchaseRow  `json:"rows"`
+}
+
+type VATInputRow struct {
+	InvoiceNumber   string  `json:"invoice_number"`
+	InvoiceDate     string  `json:"invoice_date"`
+	SupplierName    string  `json:"supplier_name"`
+	SupplierTaxCode string  `json:"supplier_tax_code"`
+	VATRate         float64 `json:"vat_rate"`
+	Subtotal        float64 `json:"subtotal"`
+	VATAmount       float64 `json:"vat_amount"`
+	DeductionStatus string  `json:"deduction_status"`
+}
+
+type VATInputReport struct {
+	CompanyID    string        `json:"company_id"`
+	FromDate     string        `json:"from_date"`
+	ToDate       string        `json:"to_date"`
+	TotalSubtotal float64      `json:"total_subtotal"`
+	TotalVAT     float64       `json:"total_vat"`
+	Rows         []VATInputRow `json:"rows"`
+}
+
+type UninvoicedReceiptRow struct {
+	GRNNumber    string  `json:"grn_number"`
+	ReceiptDate  string  `json:"receipt_date"`
+	SupplierName string  `json:"supplier_name"`
+	POID         string  `json:"po_id"`
+	ItemName     string  `json:"item_name"`
+	Unit         string  `json:"unit"`
+	Quantity     float64 `json:"quantity"`
+	UnitPrice    float64 `json:"unit_price"`
+	LineTotal    float64 `json:"line_total"`
 }

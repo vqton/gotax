@@ -338,6 +338,11 @@ var (
 	ErrCostAllocTypeInvalid     = errors.New("invalid cost allocation type")
 	ErrCostAllocMethodInvalid   = errors.New("invalid cost allocation method")
 
+	ErrProvisionDateRequired   = errors.New("provision as-of date is required")
+	ErrProvisionNoLines        = errors.New("provision has no lines")
+	ErrProvisionNotFound       = errors.New("doubtful debt provision not found")
+	ErrProvisionNoPrepayments  = errors.New("no outstanding supplier prepayments to provision")
+
 	// Sale module errors
 	ErrCustomerNotFound       = errors.New("customer not found")
 	ErrCustomerCodeRequired   = errors.New("customer code is required")

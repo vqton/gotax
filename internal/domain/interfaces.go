@@ -435,6 +435,14 @@ type CostAllocationRepository interface {
 	ListCostAllocationsByInvoice(ctx context.Context, invoiceID string) ([]CostAllocation, error)
 }
 
+type DoubtfulDebtProvisionRepository interface {
+	CreateProvision(ctx context.Context, p *DoubtfulDebtProvision) error
+	CreateProvisionLines(ctx context.Context, lines []DoubtfulDebtProvisionLine) error
+	GetProvision(ctx context.Context, id string) (*DoubtfulDebtProvision, error)
+	GetProvisionLines(ctx context.Context, provisionID string) ([]DoubtfulDebtProvisionLine, error)
+	ListProvisions(ctx context.Context, companyID string, limit, offset int) ([]DoubtfulDebtProvision, int, error)
+}
+
 // ─── Sale Repository ────────────────────────────────────────────
 
 type CustomerRepository interface {

@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"gotax/internal/domain"
 	"gotax/internal/service"
@@ -63,6 +65,21 @@ func RegisterPurchaseRoutes(r *gin.Engine, h *PurchaseHandler, authMW gin.Handle
 		{
 			ap.GET("/aging", h.GetAPAgingReport)
 			ap.GET("/summary", h.GetAPSummary)
+		}
+		provisions := purchase.Group("/provisions")
+		{
+			provisions.GET("/calculate", h.CalculateDoubtfulDebtProvision)
+			provisions.POST("", h.CreateDoubtfulDebtProvision)
+			provisions.GET("", h.ListDoubtfulDebtProvisions)
+			provisions.GET("/:id", h.GetDoubtfulDebtProvision)
+		}
+		reports := purchase.Group("/reports")
+		{
+			reports.GET("/s01-dn", h.GetPurchaseLedger)
+			reports.GET("/s02-dn", h.GetSupplierLedger)
+			reports.GET("/s03-dn", h.GetGoodsPurchaseReport)
+			reports.GET("/vat-input", h.GetVATInputReport)
+			reports.GET("/uninvoiced-receipts", h.GetUninvoicedReceipts)
 		}
 	}
 }
@@ -425,4 +442,130 @@ func (h *PurchaseHandler) GetAPSummary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, summary)
+}
+
+// ─── Doubtful Debt Provision Handlers ───────────────────────────────────
+
+func (h *PurchaseHandler) CalculateDoubtfulDebtProvision(c *gin.Context) {
+	companyID := c.Query("company_id")
+	asOf := c.Query("as_of_date")
+	if asOf == "" {
+		asOf = time.Now().Format(time.DateOnly)
+	}
+	asOfDate, err := time.Parse(time.DateOnly, asOf)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": domain.ErrProvisionDateRequired.Error()})
+		return
+	}
+	lines, err := h.svc.CalculateDoubtfulDebtProvision(c.Request.Context(), companyID, asOfDate)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrProvisionNoPrepayments) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"as_of_date": asOf, "lines": lines})
+}
+
+func (h *PurchaseHandler) CreateDoubtfulDebtProvision(c *gin.Context) {
+	var prov domain.DoubtfulDebtProvision
+	if err := c.ShouldBindJSON(&prov); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	prov.CompanyID = c.Query("company_id")
+	prov.CreatedBy = c.GetString("user_id")
+	if err := h.svc.CreateDoubtfulDebtProvision(c.Request.Context(), &prov); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, domain.ErrProvisionNoLines) || errors.Is(err, domain.ErrProvisionDateRequired) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, prov)
+}
+
+func (h *PurchaseHandler) GetDoubtfulDebtProvision(c *gin.Context) {
+	prov, err := h.svc.GetDoubtfulDebtProvision(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrProvisionNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, prov)
+}
+
+func (h *PurchaseHandler) ListDoubtfulDebtProvisions(c *gin.Context) {
+	companyID := c.Query("company_id")
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	provisions, total, err := h.svc.ListDoubtfulDebtProvisions(c.Request.Context(), companyID, offset, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": provisions, "total": total})
+}
+
+// ─── Report Handlers ─────────────────────────────────────────────────────
+
+func (h *PurchaseHandler) GetPurchaseLedger(c *gin.Context) {
+	companyID := c.Query("company_id")
+	rpt, err := h.svc.GetPurchaseLedger(c.Request.Context(), companyID, c.Query("from_date"), c.Query("to_date"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *PurchaseHandler) GetSupplierLedger(c *gin.Context) {
+	companyID := c.Query("company_id")
+	supplierID := c.Query("supplier_id")
+	if supplierID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "supplier_id query param required"})
+		return
+	}
+	rpt, err := h.svc.GetSupplierLedger(c.Request.Context(), companyID, supplierID, c.Query("from_date"), c.Query("to_date"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *PurchaseHandler) GetGoodsPurchaseReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	rpt, err := h.svc.GetGoodsPurchaseReport(c.Request.Context(), companyID, c.Query("from_date"), c.Query("to_date"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *PurchaseHandler) GetVATInputReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	rpt, err := h.svc.GetVATInputReport(c.Request.Context(), companyID, c.Query("from_date"), c.Query("to_date"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *PurchaseHandler) GetUninvoicedReceipts(c *gin.Context) {
+	companyID := c.Query("company_id")
+	rows, err := h.svc.GetUninvoicedReceipts(c.Request.Context(), companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rows)
 }

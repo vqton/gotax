@@ -55,7 +55,7 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
 
-	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
+	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
 	purH := NewPurchaseHandler(purSvc)
 
 	r := gin.New()
@@ -299,6 +299,24 @@ func TestClosePOInvalidTransition(t *testing.T) {
 	assert.Equal(t, 400, w.Code)
 }
 
+func TestUpdatePO_AfterApprovedFails(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := makeTestSupplier(t, svc, ctx, "S006B")
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-UPD", SupplierID: sup.ID, OrderDate: time.Now(),
+		Lines: []domain.POItem{{ItemName: "Item", Unit: "pcs", Quantity: 1, UnitPrice: 1000, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	require.NoError(t, svc.ApprovePO(ctx, po.ID, "user"))
+
+	body := fmt.Sprintf(`{"po_number":"PO-UPD","supplier_id":"%s","order_date":"2026-07-15T00:00:00Z","lines":[{"item_name":"Item","unit":"pcs","quantity":5,"unit_price":2000,"account_id":"152","vat_account_id":"1331"}]}`, sup.ID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/purchase/orders/"+po.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
 // ─── GRN ─────────────────────────────────────────────────────────────────
 
 func TestCreateGRN(t *testing.T) {
@@ -337,6 +355,30 @@ func TestPostGRN(t *testing.T) {
 	req, _ := http.NewRequest("PATCH", "/api/v1/purchase/receipts/"+grn.ID+"/post", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
+
+	loaded, _ := svc.GetGRN(ctx, grn.ID)
+	assert.Equal(t, domain.GRNPosted, loaded.Status)
+}
+
+func TestCancelGRN_AfterPostedFails(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := makeTestSupplier(t, svc, ctx, "S011B")
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-GRN3", SupplierID: sup.ID, OrderDate: time.Now(),
+		Lines: []domain.POItem{{ItemName: "Item", Unit: "pcs", Quantity: 10, UnitPrice: 50000, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-002", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: po.Lines[0].ID, ItemName: "Item", Unit: "pcs", QuantityReceived: 10, UnitPrice: 50000, LineTotal: 500000}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/purchase/receipts/"+grn.ID+"/cancel", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
 
 	loaded, _ := svc.GetGRN(ctx, grn.ID)
 	assert.Equal(t, domain.GRNPosted, loaded.Status)
@@ -459,6 +501,25 @@ func TestPostInvoice(t *testing.T) {
 	assert.NotNil(t, loaded.GLPostedAt)
 }
 
+func TestPostInvoice_WithoutVerifyFails(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := makeTestSupplier(t, svc, ctx, "S021")
+	inv := &domain.SupplierInvoice{
+		CompanyID: "CMP001", InvoiceNumber: "INV-NOVFY", SupplierID: sup.ID,
+		SupplierName: "Test", SupplierTaxCode: "S021-TX", InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{ItemName: "Svc", Unit: "pcs", Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, AccountID: "642", VATAccountID: "1331", VATRate: 10}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/purchase/invoices/"+inv.ID+"/post", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+
+	loaded, _ := svc.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, domain.InvoiceDraft, loaded.Status)
+}
+
 // ─── AP Reports ──────────────────────────────────────────────────────────
 
 func TestAPAgingReport(t *testing.T) {
@@ -495,4 +556,197 @@ func TestAPSummary(t *testing.T) {
 	var summary []domain.APSummary
 	json.Unmarshal(w.Body.Bytes(), &summary)
 	assert.NotEmpty(t, summary)
+}
+
+// ─── Doubtful Debt Provisions ───────────────────────────────────────────
+
+func TestProvisionCalculateHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "SUP001", Name: "Test", TaxCode: "TX001"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	asOf := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, svc.CreateAPTransaction(ctx, &domain.APTransaction{
+		CompanyID: "CMP001", SupplierID: sup.ID, TransactionType: domain.APTransPrepayment,
+		TransactionDate: asOf.AddDate(0, -18, 0), Amount: 2000, Currency: "VND",
+	}))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/provisions/calculate?company_id=CMP001&as_of_date=2026-08-01", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var resp struct {
+		AsOfDate string                                   `json:"as_of_date"`
+		Lines    []domain.DoubtfulDebtProvisionLine       `json:"lines"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Lines, 1)
+	assert.Equal(t, 0.50, resp.Lines[0].RatePct)
+	assert.Equal(t, 1000.0, resp.Lines[0].ProvisionAmount)
+}
+
+func TestProvisionCalculateHandlerNone(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/provisions/calculate?company_id=CMP001&as_of_date=2026-08-01", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 404, w.Code)
+}
+
+func TestProvisionCalculateHandlerBadDate(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/provisions/calculate?company_id=CMP001&as_of_date=banana", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestCreateProvisionHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "SUP001", Name: "Test", TaxCode: "TX001"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+
+	body := fmt.Sprintf(`{
+		"as_of_date":"2026-08-01",
+		"lines":[{
+			"supplier_id":%q,"supplier_name":"Test","outstanding_amount":1000,
+			"age_months":18,"rate_pct":0.5
+		}]
+	}`, sup.ID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/provisions?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 201, w.Code)
+	var prov domain.DoubtfulDebtProvision
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &prov))
+	assert.NotEmpty(t, prov.ID)
+	assert.Equal(t, 500.0, prov.TotalProvision)
+
+	get := httptest.NewRecorder()
+	greq, _ := http.NewRequest("GET", "/api/v1/purchase/provisions/"+prov.ID, nil)
+	r.ServeHTTP(get, greq)
+	assert.Equal(t, 200, get.Code)
+	var got domain.DoubtfulDebtProvision
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &got))
+	assert.Len(t, got.Lines, 1)
+
+	list := httptest.NewRecorder()
+	lreq, _ := http.NewRequest("GET", "/api/v1/purchase/provisions?company_id=CMP001", nil)
+	r.ServeHTTP(list, lreq)
+	assert.Equal(t, 200, list.Code)
+}
+
+func TestCreateProvisionHandlerInvalid(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	body := `{"as_of_date":"2026-08-01","lines":[]}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/provisions?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+// ─── Regulatory Report Handlers ─────────────────────────────────────────
+
+func TestPurchaseLedgerHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "SUP001", Name: "Test", TaxCode: "TX001"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-1", SupplierID: sup.ID,
+		OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 10, UnitPrice: 100,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-1", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{
+			POLineID: po.Lines[0].ID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 10, UnitPrice: 100, LineTotal: 1000,
+		}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/reports/s01-dn?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var rpt domain.PurchaseLedgerReport
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+	require.Len(t, rpt.Rows, 1)
+	assert.Equal(t, 1000.0, rpt.Increase)
+}
+
+func TestVATInputReportHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "SUP001", Name: "Test", TaxCode: "TX001"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	inv := &domain.SupplierInvoice{
+		CompanyID: "CMP001", InvoiceNumber: "INV-1", SupplierID: sup.ID,
+		SupplierName: sup.Name, SupplierTaxCode: sup.TaxCode, InvoiceDate: time.Now(),
+		Currency: "VND", VATDeductionStatus: domain.VATPending,
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 2, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/reports/vat-input?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var rpt domain.VATInputReport
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+	require.Len(t, rpt.Rows, 1)
+	assert.Equal(t, 2000.0, rpt.Rows[0].Subtotal)
+	assert.Equal(t, 200.0, rpt.Rows[0].VATAmount)
+}
+
+func TestUninvoicedReceiptsHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "SUP001", Name: "Test", TaxCode: "TX001"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-1", SupplierID: sup.ID,
+		OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 5, UnitPrice: 100,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-1", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{
+			POLineID: po.Lines[0].ID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 5, UnitPrice: 100, LineTotal: 500,
+		}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/reports/uninvoiced-receipts?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var rows []domain.UninvoicedReceiptRow
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rows))
+	require.Len(t, rows, 1)
+	assert.Equal(t, grn.GRNNumber, rows[0].GRNNumber)
+}
+
+func TestSupplierLedgerHandlerRequiresSupplier(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/reports/s02-dn?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
 }

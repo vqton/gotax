@@ -193,3 +193,30 @@ type CostAllocationGORM struct {
 }
 
 func (CostAllocationGORM) TableName() string { return "cost_allocations" }
+
+type DoubtfulDebtProvisionGORM struct {
+	ID              string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID       string    `gorm:"column:company_id;not null;size:36;index:idx_ddp_company" json:"companyId"`
+	AsOfDate        time.Time `gorm:"column:as_of_date;not null;type:date;index:idx_ddp_date" json:"asOfDate"`
+	TotalOutstanding float64  `gorm:"column:total_outstanding;not null;default:0" json:"totalOutstanding"`
+	TotalProvision  float64   `gorm:"column:total_provision;not null;default:0" json:"totalProvision"`
+	Status          string    `gorm:"column:status;not null;size:20;default:DRAFT;index:idx_ddp_status" json:"status"`
+	CreatedBy       string    `gorm:"column:created_by;not null;size:36" json:"createdBy"`
+	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+}
+
+func (DoubtfulDebtProvisionGORM) TableName() string { return "doubtful_debt_provisions" }
+
+type DoubtfulDebtProvisionLineGORM struct {
+	ID               string  `gorm:"column:id;primaryKey;size:36" json:"id"`
+	ProvisionID      string  `gorm:"column:provision_id;not null;size:36;index:idx_ddpl_provision" json:"provisionId"`
+	SupplierID       string  `gorm:"column:supplier_id;not null;size:36;index:idx_ddpl_supplier" json:"supplierId"`
+	SupplierName     string  `gorm:"column:supplier_name;not null;size:255" json:"supplierName"`
+	TaxCode          string  `gorm:"column:tax_code;size:50;default:''" json:"taxCode"`
+	OutstandingAmount float64 `gorm:"column:outstanding_amount;not null;default:0" json:"outstandingAmount"`
+	AgeMonths        int     `gorm:"column:age_months;not null;default:0" json:"ageMonths"`
+	RatePct          float64 `gorm:"column:rate_pct;not null;default:0" json:"ratePct"`
+	ProvisionAmount  float64 `gorm:"column:provision_amount;not null;default:0" json:"provisionAmount"`
+}
+
+func (DoubtfulDebtProvisionLineGORM) TableName() string { return "doubtful_debt_provision_lines" }

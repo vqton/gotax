@@ -15,6 +15,14 @@ func init() {
 	v.RegisterValidation("fasource", faSourceValidator)
 	v.RegisterValidation("fatrtype", faTrxTypeValidator)
 	v.RegisterValidation("disposaltype", disposalTypeValidator)
+	v.RegisterValidation("suppstatus", supplierStatusValidator)
+	v.RegisterValidation("postatus", poStatusValidator)
+	v.RegisterValidation("grnstatus", grnStatusValidator)
+	v.RegisterValidation("invstatus", invStatusValidator)
+	v.RegisterValidation("vattype", vatTypeValidator)
+	v.RegisterValidation("apttype", apTypeValidator)
+	v.RegisterValidation("costtype", costTypeValidator)
+	v.RegisterValidation("allocmethod", allocMethodValidator)
 }
 
 func Validator() *validator.Validate {
@@ -70,6 +78,76 @@ func disposalTypeValidator(fl validator.FieldLevel) bool {
 	switch t {
 	case domain.DisposalSale, domain.DisposalLiquidation,
 		domain.DisposalDonation, domain.DisposalReturn:
+		return true
+	}
+	return false
+}
+
+// ─── Purchase validators ──────────────────────────────────────────────
+
+func supplierStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.SupplierStatus(fl.Field().String()) {
+	case domain.SupplierActive, domain.SupplierSuspended, domain.SupplierBlacklisted:
+		return true
+	}
+	return false
+}
+
+func poStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.POStatus(fl.Field().String()) {
+	case domain.POStatusDraft, domain.POStatusApproved, domain.POStatusSent,
+		domain.POStatusPartial, domain.POStatusReceived,
+		domain.POStatusCancelled, domain.POStatusClosed:
+		return true
+	}
+	return false
+}
+
+func grnStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.GRNStatus(fl.Field().String()) {
+	case domain.GRNDraft, domain.GRNPosted, domain.GRNCancelled:
+		return true
+	}
+	return false
+}
+
+func invStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.InvoiceStatus(fl.Field().String()) {
+	case domain.InvoiceDraft, domain.InvoiceVerified, domain.InvoicePosted,
+		domain.InvoicePaid, domain.InvoiceCancelled:
+		return true
+	}
+	return false
+}
+
+func vatTypeValidator(fl validator.FieldLevel) bool {
+	switch domain.VATType(fl.Field().String()) {
+	case domain.VAT0, domain.VAT5, domain.VAT8, domain.VAT10, domain.VATNonTaxable:
+		return true
+	}
+	return false
+}
+
+func apTypeValidator(fl validator.FieldLevel) bool {
+	switch domain.APTransactionType(fl.Field().String()) {
+	case domain.APTransInvoice, domain.APTransCreditNote, domain.APTransPayment,
+		domain.APTransPrepayment, domain.APTransOffset:
+		return true
+	}
+	return false
+}
+
+func costTypeValidator(fl validator.FieldLevel) bool {
+	switch domain.CostAllocationType(fl.Field().String()) {
+	case domain.CostTransport, domain.CostInsurance, domain.CostCustoms, domain.CostInspection:
+		return true
+	}
+	return false
+}
+
+func allocMethodValidator(fl validator.FieldLevel) bool {
+	switch domain.CostAllocationMethod(fl.Field().String()) {
+	case domain.CostAllocByQty, domain.CostAllocByValue, domain.CostAllocByWeight, domain.CostAllocByVolume:
 		return true
 	}
 	return false

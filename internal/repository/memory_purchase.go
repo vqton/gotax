@@ -31,6 +31,8 @@ type MemoryPurchaseRepo struct {
 	invLines      map[string][]domain.SupplierInvoiceLine
 	apTxns        map[string]*domain.APTransaction
 	costAllocs    map[string]*domain.CostAllocation
+	provisions    map[string]*domain.DoubtfulDebtProvision
+	provLines     map[string][]domain.DoubtfulDebtProvisionLine
 }
 
 func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
@@ -48,6 +50,8 @@ func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
 		invLines:    make(map[string][]domain.SupplierInvoiceLine),
 		apTxns:      make(map[string]*domain.APTransaction),
 		costAllocs:  make(map[string]*domain.CostAllocation),
+		provisions:  make(map[string]*domain.DoubtfulDebtProvision),
+		provLines:   make(map[string][]domain.DoubtfulDebtProvisionLine),
 	}
 }
 
@@ -852,6 +856,84 @@ func (r *MemoryPurchaseRepo) ListCostAllocationsByInvoice(_ context.Context, inv
 		}
 	}
 	return out, nil
+}
+
+// ─── Doubtful Debt Provisions ───────────────────────────────────────────
+
+func (r *MemoryPurchaseRepo) CreateProvision(_ context.Context, p *domain.DoubtfulDebtProvision) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *p
+	if cp.ID == "" {
+		cp.ID = purchaseID("PROV-")
+	}
+	cp.CreatedAt = time.Now()
+	r.provisions[cp.ID] = &cp
+	p.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) CreateProvisionLines(_ context.Context, lines []domain.DoubtfulDebtProvisionLine) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range lines {
+		cp := lines[i]
+		if cp.ID == "" {
+			cp.ID = purchaseID("PROVL-")
+		}
+		r.provLines[cp.ProvisionID] = append(r.provLines[cp.ProvisionID], cp)
+		lines[i].ID = cp.ID
+	}
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) GetProvision(_ context.Context, id string) (*domain.DoubtfulDebtProvision, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.provisions[id]
+	if !ok {
+		return nil, domain.ErrProvisionNotFound
+	}
+	cp := *p
+	if lines, ok := r.provLines[id]; ok {
+		cp.Lines = make([]domain.DoubtfulDebtProvisionLine, len(lines))
+		copy(cp.Lines, lines)
+	}
+	return &cp, nil
+}
+
+func (r *MemoryPurchaseRepo) GetProvisionLines(_ context.Context, provisionID string) ([]domain.DoubtfulDebtProvisionLine, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if lines, ok := r.provLines[provisionID]; ok {
+		out := make([]domain.DoubtfulDebtProvisionLine, len(lines))
+		copy(out, lines)
+		return out, nil
+	}
+	return []domain.DoubtfulDebtProvisionLine{}, nil
+}
+
+func (r *MemoryPurchaseRepo) ListProvisions(_ context.Context, companyID string, limit, offset int) ([]domain.DoubtfulDebtProvision, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var all []domain.DoubtfulDebtProvision
+	for _, p := range r.provisions {
+		if p.CompanyID == companyID {
+			all = append(all, *p)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.After(all[j].CreatedAt) })
+	if offset > len(all) {
+		offset = len(all)
+	}
+	if limit <= 0 {
+		return all, len(all), nil
+	}
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], len(all), nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────

@@ -1126,3 +1126,126 @@ func (r *PGCostAllocationRepo) ListCostAllocationsByInvoice(ctx context.Context,
 	}
 	return out, nil
 }
+
+// ─── Doubtful Debt Provisions ───────────────────────────────────────────
+
+type PGDoubtfulDebtProvisionRepo struct{ db *gorm.DB }
+
+func NewPGDoubtfulDebtProvisionRepo(db *gorm.DB) *PGDoubtfulDebtProvisionRepo {
+	return &PGDoubtfulDebtProvisionRepo{db: db}
+}
+
+func ddpToGORM(p *domain.DoubtfulDebtProvision) *domain.DoubtfulDebtProvisionGORM {
+	return &domain.DoubtfulDebtProvisionGORM{
+		ID:               p.ID,
+		CompanyID:        p.CompanyID,
+		AsOfDate:         parseDate(p.AsOfDate),
+		TotalOutstanding: p.TotalOutstanding,
+		TotalProvision:   p.TotalProvision,
+		Status:           string(p.Status),
+		CreatedBy:        p.CreatedBy,
+	}
+}
+
+func ddpFromGORM(g *domain.DoubtfulDebtProvisionGORM) *domain.DoubtfulDebtProvision {
+	return &domain.DoubtfulDebtProvision{
+		ID:               g.ID,
+		CompanyID:        g.CompanyID,
+		AsOfDate:         g.AsOfDate.Format(time.DateOnly),
+		TotalOutstanding: g.TotalOutstanding,
+		TotalProvision:   g.TotalProvision,
+		Status:           domain.ProvisionStatus(g.Status),
+		CreatedBy:        g.CreatedBy,
+		CreatedAt:        g.CreatedAt,
+	}
+}
+
+func ddplToGORM(l *domain.DoubtfulDebtProvisionLine) *domain.DoubtfulDebtProvisionLineGORM {
+	return &domain.DoubtfulDebtProvisionLineGORM{
+		ID:                l.ID,
+		ProvisionID:       l.ProvisionID,
+		SupplierID:        l.SupplierID,
+		SupplierName:      l.SupplierName,
+		TaxCode:           l.TaxCode,
+		OutstandingAmount: l.OutstandingAmount,
+		AgeMonths:         l.AgeMonths,
+		RatePct:           l.RatePct,
+		ProvisionAmount:   l.ProvisionAmount,
+	}
+}
+
+func ddplFromGORM(g *domain.DoubtfulDebtProvisionLineGORM) *domain.DoubtfulDebtProvisionLine {
+	return &domain.DoubtfulDebtProvisionLine{
+		ID:                g.ID,
+		ProvisionID:       g.ProvisionID,
+		SupplierID:        g.SupplierID,
+		SupplierName:      g.SupplierName,
+		TaxCode:           g.TaxCode,
+		OutstandingAmount: g.OutstandingAmount,
+		AgeMonths:         g.AgeMonths,
+		RatePct:           g.RatePct,
+		ProvisionAmount:   g.ProvisionAmount,
+	}
+}
+
+func (r *PGDoubtfulDebtProvisionRepo) CreateProvision(ctx context.Context, p *domain.DoubtfulDebtProvision) error {
+	g := ddpToGORM(p)
+	if err := r.db.WithContext(ctx).Create(g).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *PGDoubtfulDebtProvisionRepo) CreateProvisionLines(ctx context.Context, lines []domain.DoubtfulDebtProvisionLine) error {
+	gs := make([]domain.DoubtfulDebtProvisionLineGORM, len(lines))
+	for i := range lines {
+		gs[i] = *ddplToGORM(&lines[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGDoubtfulDebtProvisionRepo) GetProvision(ctx context.Context, id string) (*domain.DoubtfulDebtProvision, error) {
+	var g domain.DoubtfulDebtProvisionGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrProvisionNotFound
+		}
+		return nil, err
+	}
+	p := ddpFromGORM(&g)
+	lines, err := r.GetProvisionLines(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	p.Lines = lines
+	return p, nil
+}
+
+func (r *PGDoubtfulDebtProvisionRepo) GetProvisionLines(ctx context.Context, provisionID string) ([]domain.DoubtfulDebtProvisionLine, error) {
+	var gs []domain.DoubtfulDebtProvisionLineGORM
+	if err := r.db.WithContext(ctx).Where("provision_id = ?", provisionID).Order("supplier_name").Find(&gs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.DoubtfulDebtProvisionLine, len(gs))
+	for i := range gs {
+		out[i] = *ddplFromGORM(&gs[i])
+	}
+	return out, nil
+}
+
+func (r *PGDoubtfulDebtProvisionRepo) ListProvisions(ctx context.Context, companyID string, limit, offset int) ([]domain.DoubtfulDebtProvision, int, error) {
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.DoubtfulDebtProvisionGORM{}).Where("company_id = ?", companyID)
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var gs []domain.DoubtfulDebtProvisionGORM
+	if err := q.Order("as_of_date DESC, created_at DESC").Limit(limit).Offset(offset).Find(&gs).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]domain.DoubtfulDebtProvision, len(gs))
+	for i := range gs {
+		out[i] = *ddpFromGORM(&gs[i])
+	}
+	return out, int(total), nil
+}

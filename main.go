@@ -179,7 +179,8 @@ r.GET("/reset-password", func(c *gin.Context) {
 	supplierInvoiceRepo := repository.NewPGSupplierInvoiceRepo(gormDB)
 	apTxnRepo := repository.NewPGAPTransactionRepo(gormDB)
 	costAllocRepo := repository.NewPGCostAllocationRepo(gormDB)
-	purchaseSvc := service.NewPurchaseService(supplierRepo, purchaseOrderRepo, grnRepo, supplierInvoiceRepo, apTxnRepo, costAllocRepo, svc)
+	provisionRepo := repository.NewPGDoubtfulDebtProvisionRepo(gormDB)
+	purchaseSvc := service.NewPurchaseService(supplierRepo, purchaseOrderRepo, grnRepo, supplierInvoiceRepo, apTxnRepo, costAllocRepo, provisionRepo, svc)
 	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
 	customerRepo := repository.NewPGCustomerRepo(gormDB)
 	saleOrderRepo := repository.NewPGSaleOrderRepo(gormDB)
@@ -248,7 +249,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	bankH := handler.NewBankHandler(bankSvc, companySvc)
 
 	memPurchaseRepo := repository.NewMemoryPurchaseRepo()
-	purchaseSvc := service.NewPurchaseService(memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, svc)
+	purchaseSvc := service.NewPurchaseService(memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, memPurchaseRepo, svc)
 	purchaseH := handler.NewPurchaseHandler(purchaseSvc)
 	saleRepo := repository.NewMemorySaleRepo()
 	saleSvc := service.NewSaleService(saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, saleRepo, svc)
