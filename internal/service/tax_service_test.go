@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"regexp"
 	"testing"
 	"time"
 
@@ -9,12 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
+	"gotax/internal/gdt"
 	"gotax/internal/repository"
+	"gotax/internal/xmldsig"
 )
 
 func newTaxTestSvc() (*taxService, domain.TaxRepository) {
 	repo := repository.NewMemoryTaxRepo()
-	return NewTaxService(repo, repository.NewMemoryJournalRepo()).(*taxService), repo
+	return NewTaxService(repo, repository.NewMemoryJournalRepo(), nil, nil).(*taxService), repo
 }
 
 // ─── A1: Rate Resolver ──────────────────────────────────────────────────
@@ -351,7 +357,7 @@ func TestCalculatePIT_MultipleEmployees(t *testing.T) {
 func newTaxTestSvcWithGL() (*taxService, domain.JournalRepository) {
 	repo := repository.NewMemoryTaxRepo()
 	jeRepo := repository.NewMemoryJournalRepo()
-	return NewTaxService(repo, jeRepo).(*taxService), jeRepo
+	return NewTaxService(repo, jeRepo, nil, nil).(*taxService), jeRepo
 }
 
 func postedEntry(id string, date string, lines ...domain.JournalLine) domain.JournalEntry {
@@ -546,4 +552,193 @@ func TestAcknowledgeDeclaration_CITAnnualDueDate(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, payments, 1)
 	assert.Equal(t, "2027-03-31", payments[0].DueDate[:10])
+}
+
+// ─── B3: E-Invoice Issuance Pipeline ────────────────────────────────────
+
+type stubGDT struct {
+	submitResp   *gdt.SubmitResponse
+	statusResp   *gdt.StatusResponse
+	submitErr    error
+	statusErr    error
+	cancelErr    error
+	submittedXML string
+	cancelled    bool
+}
+
+func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*gdt.SubmitResponse, error) {
+	g.submittedXML = xml
+	if g.submitErr != nil {
+		return nil, g.submitErr
+	}
+	return g.submitResp, nil
+}
+func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*gdt.StatusResponse, error) {
+	if g.statusErr != nil {
+		return nil, g.statusErr
+	}
+	return g.statusResp, nil
+}
+func (g *stubGDT) CancelInvoice(_ context.Context, _, _ string) error {
+	g.cancelled = true
+	return g.cancelErr
+}
+
+type stubSigner struct{ err error }
+
+func (s *stubSigner) SignTXML(xmlBody, _ string) (string, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	return "signed:" + xmlBody, nil
+}
+
+func newTaxTestSvcIssuer(g *stubGDT, signer TXMLSigner) (*taxService, domain.TaxRepository, domain.JournalRepository) {
+	repo := repository.NewMemoryTaxRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
+	return NewTaxService(repo, jeRepo, g, signer).(*taxService), repo, jeRepo
+}
+
+func testEInvoice(status domain.EInvLifecycleStatus) *domain.EInvoice {
+	return &domain.EInvoice{
+		ID: "EINV-1", CompanyID: "c1", Pattern: "01GTKT0/001", Serial: "AA/26E",
+		InvoiceType: domain.EInvTypeORIGINAL, BuyerName: "Buyer", CurrencyCode: "VND",
+		IssueDate: "2026-04-15", Status: status,
+		Subtotal: 1000000, VATAmount: 100000, GrandTotal: 1100000,
+		Lines: []domain.EInvoiceLine{{LineNumber: 1, Description: "Svc", Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000}},
+	}
+}
+
+func TestIssueEInvoice_SubmitsToGDT(t *testing.T) {
+	g := &stubGDT{submitResp: &gdt.SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-1"}}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusDRAFT)
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	require.NoError(t, svc.IssueEInvoice(ctx, inv.ID))
+
+	updated, err := repo.GetEInvoiceByID(ctx, inv.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.EInvStatusSUBMITTED, updated.Status)
+	assert.Equal(t, "TXN-1", updated.GDTTransactionID)
+	assert.NotEmpty(t, updated.XMLBody)
+	assert.NotEmpty(t, updated.SignedXML)
+	assert.NotEmpty(t, updated.SigningDate)
+	// signer received the generated TXML, GDT received the signed XML
+	assert.Equal(t, "signed:"+updated.XMLBody, g.submittedXML)
+}
+
+func TestIssueEInvoice_WrongStatus(t *testing.T) {
+	g := &stubGDT{submitResp: &gdt.SubmitResponse{}}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusISSUED)
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	err := svc.IssueEInvoice(ctx, inv.ID)
+	assert.ErrorIs(t, err, domain.ErrInvoiceStatusInvalid)
+}
+
+func TestIssueEInvoice_NoGDTConfigured(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusDRAFT)
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	err := svc.IssueEInvoice(ctx, inv.ID)
+	assert.ErrorIs(t, err, domain.ErrGDTUnavailable)
+}
+
+func TestIssueEInvoice_GDTErrorMapped(t *testing.T) {
+	g := &stubGDT{submitErr: gdt.ErrUnauthorized}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusDRAFT)
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	err := svc.IssueEInvoice(ctx, inv.ID)
+	assert.ErrorIs(t, err, domain.ErrGDTUnauthorized)
+}
+
+func TestCheckInvoiceStatus_Acknowledged(t *testing.T) {
+	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "ACKNOWLEDGED"}}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusSUBMITTED)
+	inv.GDTTransactionID = "TXN-1"
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	require.NoError(t, svc.CheckInvoiceStatus(ctx, inv.ID))
+	updated, _ := repo.GetEInvoiceByID(ctx, inv.ID)
+	assert.Equal(t, domain.EInvStatusISSUED, updated.Status)
+}
+
+func TestCheckInvoiceStatus_Rejected(t *testing.T) {
+	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "REJECTED"}}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusSUBMITTED)
+	inv.GDTTransactionID = "TXN-1"
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	require.NoError(t, svc.CheckInvoiceStatus(ctx, inv.ID))
+	updated, _ := repo.GetEInvoiceByID(ctx, inv.ID)
+	assert.Equal(t, domain.EInvStatusVALIDATED, updated.Status)
+}
+
+func TestCheckInvoiceStatus_NotSubmitted(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusDRAFT)
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	err := svc.CheckInvoiceStatus(ctx, inv.ID)
+	assert.ErrorIs(t, err, domain.ErrInvoiceStatusInvalid)
+}
+
+func TestCancelEInvoice_NotifiesGDT(t *testing.T) {
+	g := &stubGDT{}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	inv := testEInvoice(domain.EInvStatusISSUED)
+	inv.GDTTransactionID = "TXN-1"
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	require.NoError(t, svc.CancelEInvoice(ctx, inv.ID, "buyer request"))
+	assert.True(t, g.cancelled)
+	updated, _ := repo.GetEInvoiceByID(ctx, inv.ID)
+	assert.Equal(t, domain.EInvStatusCANCELLED, updated.Status)
+	assert.Equal(t, "buyer request", updated.CancelReason)
+}
+
+func TestPEMSigner_SignsAndVerifies(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer := NewPEMSigner(key, "CERT-123", func() time.Time {
+		return time.Date(2026, 4, 15, 14, 30, 5, 0, time.FixedZone("+07", 7*3600))
+	})
+	body, err := einvoice.GenerateTXML(testEInvoice(domain.EInvStatusDRAFT))
+	require.NoError(t, err)
+
+	signed, err := signer.SignTXML(string(body), "sig-1")
+	require.NoError(t, err)
+	assert.Contains(t, signed, "<BK:ChuKySo>")
+	assert.Contains(t, signed, "<BK:SerialNumber>CERT-123</BK:SerialNumber>")
+	assert.Contains(t, signed, "<BK:ThoiDiemKy>2026-04-15T14:30:05+07:00</BK:ThoiDiemKy>")
+
+	// signature covers the canonical body; verify against it
+	canon, err := xmldsig.Canonicalize(body)
+	require.NoError(t, err)
+	m := regexp.MustCompile(`<BK:DuLieuKy>([^<]+)</BK:DuLieuKy>`).FindStringSubmatch(signed)
+	require.Len(t, m, 2)
+	require.NoError(t, xmldsig.VerifyBase64(&key.PublicKey, canon, m[1]))
+}
+
+func TestPEMSigner_MissingKyThuat(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer := NewPEMSigner(key, "CERT-123", time.Now)
+	_, err = signer.SignTXML("<Invoice/>", "sig-1")
+	assert.Error(t, err)
 }

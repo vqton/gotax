@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rsa"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -9,6 +11,9 @@ import (
 	"time"
 
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
+	"gotax/internal/gdt"
+	"gotax/internal/xmldsig"
 )
 
 // defaultRateValues holds statutory fallback rates used when the rate table
@@ -138,18 +143,37 @@ type TaxServiceInterface interface {
 
 	// Declaration Engine
 	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error)
+
+	// E-Invoice Issuance
+	CheckInvoiceStatus(ctx context.Context, id string) error
+}
+
+// GDTClient is the GDT e-invoice API surface used by the service.
+type GDTClient interface {
+	SubmitInvoice(ctx context.Context, invoiceXML, certID string) (*gdt.SubmitResponse, error)
+	GetInvoiceStatus(ctx context.Context, transactionID string) (*gdt.StatusResponse, error)
+	CancelInvoice(ctx context.Context, transactionID, reason string) error
+}
+
+// TXMLSigner signs canonicalized GDT TXML (BK:ChuKySo/DuLieuKy).
+type TXMLSigner interface {
+	SignTXML(xmlBody, signatureID string) (string, error)
 }
 
 type taxService struct {
 	repo   domain.TaxRepository
 	jeRepo domain.JournalRepository
+	gdt    GDTClient
+	signer TXMLSigner
 	now    func() time.Time
 }
 
-func NewTaxService(repo domain.TaxRepository, jeRepo domain.JournalRepository) TaxServiceInterface {
+func NewTaxService(repo domain.TaxRepository, jeRepo domain.JournalRepository, gdt GDTClient, signer TXMLSigner) TaxServiceInterface {
 	return &taxService{
 		repo:   repo,
 		jeRepo: jeRepo,
+		gdt:    gdt,
+		signer: signer,
 		now:    time.Now,
 	}
 }
@@ -332,6 +356,10 @@ func (s *taxService) ListEInvoices(ctx context.Context, filter domain.EInvoiceFi
 	return s.repo.GetEInvoices(ctx, filter)
 }
 
+// IssueEInvoice runs the issuance pipeline: generate TXML from the invoice,
+// sign it (xmldsig), submit to GDT, record the transaction. Transitions
+// DRAFT/VALIDATED → SIGNED → SUBMITTED. Requires a wired signer + GDT
+// client, else ErrGDTUnavailable.
 func (s *taxService) IssueEInvoice(ctx context.Context, id string) error {
 	inv, err := s.repo.GetEInvoiceByID(ctx, id)
 	if err != nil {
@@ -340,9 +368,108 @@ func (s *taxService) IssueEInvoice(ctx context.Context, id string) error {
 	if inv.Status != domain.EInvStatusDRAFT && inv.Status != domain.EInvStatusVALIDATED {
 		return domain.ErrInvoiceStatusInvalid
 	}
-	inv.Status = domain.EInvStatusISSUED
-	inv.IssueDate = s.now().Format("2006-01-02")
+	if s.signer == nil || s.gdt == nil {
+		return domain.ErrGDTUnavailable
+	}
+	body, err := einvoice.GenerateTXML(inv)
+	if err != nil {
+		return fmt.Errorf("issue e-invoice: %w", err)
+	}
+	inv.XMLBody = string(body)
+	signed, err := s.signer.SignTXML(inv.XMLBody, inv.DigitalSignatureID)
+	if err != nil {
+		return err
+	}
+	inv.SignedXML = signed
+	inv.SigningDate = s.now().Format(time.RFC3339)
+	inv.Status = domain.EInvStatusSIGNED
+	if err := s.repo.UpdateEInvoice(ctx, inv); err != nil {
+		return err
+	}
+	resp, err := s.gdt.SubmitInvoice(ctx, signed, inv.DigitalSignatureID)
+	if err != nil {
+		return mapGDTErr(err)
+	}
+	inv.GDTTransactionID = resp.TransactionID
+	inv.Status = domain.EInvStatusSUBMITTED
 	return s.repo.UpdateEInvoice(ctx, inv)
+}
+
+// CheckInvoiceStatus polls GDT for the invoice's current status and
+// advances the local lifecycle: ACKNOWLEDGED → ISSUED, REJECTED → VALIDATED
+// (editable, re-issuable).
+func (s *taxService) CheckInvoiceStatus(ctx context.Context, id string) error {
+	inv, err := s.repo.GetEInvoiceByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if inv.Status != domain.EInvStatusSUBMITTED {
+		return domain.ErrInvoiceStatusInvalid
+	}
+	if s.gdt == nil {
+		return domain.ErrGDTUnavailable
+	}
+	st, err := s.gdt.GetInvoiceStatus(ctx, inv.GDTTransactionID)
+	if err != nil {
+		return mapGDTErr(err)
+	}
+	switch st.Status {
+	case "ACKNOWLEDGED":
+		inv.Status = domain.EInvStatusISSUED
+	case "REJECTED", "INVALID":
+		inv.Status = domain.EInvStatusVALIDATED
+	default:
+		return nil // still processing — stay SUBMITTED
+	}
+	return s.repo.UpdateEInvoice(ctx, inv)
+}
+
+func mapGDTErr(err error) error {
+	switch {
+	case errors.Is(err, gdt.ErrUpstream), errors.Is(err, gdt.ErrNotFound):
+		return domain.ErrGDTUnavailable
+	case errors.Is(err, gdt.ErrUnauthorized):
+		return domain.ErrGDTUnauthorized
+	case errors.Is(err, gdt.ErrInvalidRequest):
+		return domain.ErrGDTRejected
+	default:
+		return err
+	}
+}
+
+// pemSigner signs canonicalized TXML with an RSA private key, embedding the
+// signature into BK:ChuKySo before BK:KyThuat closes (TAX_TEMPLATES §5).
+type pemSigner struct {
+	key    *rsa.PrivateKey
+	serial string
+	now    func() time.Time
+}
+
+// NewPEMSigner builds a TXMLSigner from an RSA private key. serial is the
+// digital certificate serial placed in BK:SerialNumber.
+func NewPEMSigner(key *rsa.PrivateKey, serial string, now func() time.Time) TXMLSigner {
+	return &pemSigner{key: key, serial: serial, now: now}
+}
+
+func (p *pemSigner) SignTXML(xmlBody, signatureID string) (string, error) {
+	canon, err := xmldsig.Canonicalize([]byte(xmlBody))
+	if err != nil {
+		return "", fmt.Errorf("sign TXML: %w", err)
+	}
+	sig, err := xmldsig.SignBase64(p.key, canon)
+	if err != nil {
+		return "", fmt.Errorf("sign TXML: %w", err)
+	}
+	stamp := p.now().Format("2006-01-02T15:04:05-07:00")
+	chuku := "<BK:ChuKySo><BK:SerialNumber>" + p.serial +
+		"</BK:SerialNumber><BK:ThoiDiemKy>" + stamp +
+		"</BK:ThoiDiemKy><BK:DuLieuKy>" + sig +
+		"</BK:DuLieuKy></BK:ChuKySo>"
+	signed := strings.Replace(string(canon), "</BK:KyThuat>", chuku+"</BK:KyThuat>", 1)
+	if signed == string(canon) {
+		return "", fmt.Errorf("sign TXML: BK:KyThuat not found")
+	}
+	return signed, nil
 }
 
 func (s *taxService) CancelEInvoice(ctx context.Context, id, reason string) error {
@@ -352,6 +479,11 @@ func (s *taxService) CancelEInvoice(ctx context.Context, id, reason string) erro
 	}
 	if !inv.Status.CanCancel() {
 		return domain.ErrInvoiceStatusInvalid
+	}
+	if inv.GDTTransactionID != "" && s.gdt != nil {
+		if err := s.gdt.CancelInvoice(ctx, inv.GDTTransactionID, reason); err != nil {
+			return mapGDTErr(err)
+		}
 	}
 	inv.Status = domain.EInvStatusCANCELLED
 	inv.CancelledAt = s.now().Format(time.RFC3339)

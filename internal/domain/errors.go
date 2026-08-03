@@ -437,6 +437,9 @@ var (
 	ErrInvAlreadySigned        = errors.New("invoice already signed")
 	ErrInvNotSigned            = errors.New("invoice not yet signed")
 	ErrInvAlreadySubmitted     = errors.New("invoice already submitted to GDT")
+	ErrGDTUnavailable          = errors.New("GDT service unavailable")
+	ErrGDTUnauthorized         = errors.New("GDT rejected credentials")
+	ErrGDTRejected             = errors.New("GDT rejected the request")
 
 	ErrInvItemNameRequired    = errors.New("item name is required")
 	ErrInvItemQtyRequired     = errors.New("quantity must be positive")

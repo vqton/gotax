@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
+	"gotax/internal/gdt"
 	"gotax/internal/repository"
 	"gotax/internal/service"
 )
@@ -23,7 +24,34 @@ type taxTestSetup struct {
 	svc     service.TaxServiceInterface
 	taxRepo domain.TaxRepository
 	jeRepo  domain.JournalRepository
+	gdt     *stubGDT
 	compID  string
+}
+
+type stubGDT struct {
+	submitResp *gdt.SubmitResponse
+	submitErr  error
+	submitted  bool
+}
+
+func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*gdt.SubmitResponse, error) {
+	g.submitted = true
+	if g.submitErr != nil {
+		return nil, g.submitErr
+	}
+	return g.submitResp, nil
+}
+func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*gdt.StatusResponse, error) {
+	return &gdt.StatusResponse{Status: "ACKNOWLEDGED"}, nil
+}
+func (g *stubGDT) CancelInvoice(_ context.Context, _, _ string) error { return nil }
+
+type stubSigner struct{}
+
+func (s *stubSigner) SignTXML(xmlBody, _ string) (string, error) { return "signed:" + xmlBody, nil }
+
+func newTaxTestSvcIssuerH() (*stubGDT, service.TXMLSigner) {
+	return &stubGDT{submitResp: &gdt.SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED"}}, &stubSigner{}
 }
 
 func setupTaxTest(t *testing.T) *taxTestSetup {
@@ -32,7 +60,8 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 
 	taxRepo := repository.NewMemoryTaxRepo()
 	jeRepo := repository.NewMemoryJournalRepo()
-	taxSvc := service.NewTaxService(taxRepo, jeRepo)
+	gdtStub, signerStub := newTaxTestSvcIssuerH()
+	taxSvc := service.NewTaxService(taxRepo, jeRepo, gdtStub, signerStub)
 	th := NewTaxHandler(taxSvc)
 
 	r := gin.New()
@@ -49,6 +78,7 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 		svc:     taxSvc,
 		taxRepo: taxRepo,
 		jeRepo:  jeRepo,
+		gdt:     gdtStub,
 		compID:  "company-1",
 	}
 }
@@ -438,7 +468,66 @@ func TestIssueEInvoice(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	updated, _ := ts.svc.GetEInvoice(nil, inv.ID)
+	assert.Equal(t, domain.EInvStatusSUBMITTED, updated.Status)
+	assert.Equal(t, "TXN-1", updated.GDTTransactionID)
+	assert.True(t, ts.gdt.submitted)
+}
+
+func TestCheckEInvoiceStatus(t *testing.T) {
+	ts := setupTaxTest(t)
+	inv := &domain.EInvoice{
+		CompanyID:   ts.compID,
+		Pattern:     "01GTKT0/001",
+		Serial:      "AA/25E",
+		InvoiceType: domain.EInvTypeORIGINAL,
+		BuyerName:   "Test Buyer",
+		CurrencyCode: "VND",
+		IssueDate:   "2026-03-15",
+		Status:      domain.EInvStatusSUBMITTED,
+		GDTTransactionID: "TXN-1",
+		Subtotal:    1000000,
+		VATAmount:   100000,
+		GrandTotal:  1100000,
+		Lines:       []domain.EInvoiceLine{{LineNumber: 1, Description: "Service", Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000}},
+	}
+	require.NoError(t, ts.svc.CreateEInvoice(nil, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/e-invoices/"+inv.ID+"/status", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	updated, _ := ts.svc.GetEInvoice(nil, inv.ID)
 	assert.Equal(t, domain.EInvStatusISSUED, updated.Status)
+}
+
+func TestIssueEInvoice_GDTDown(t *testing.T) {
+	ts := setupTaxTest(t)
+	ts.gdt.submitErr = gdt.ErrUpstream
+	inv := &domain.EInvoice{
+		CompanyID:   ts.compID,
+		Pattern:     "01GTKT0/001",
+		Serial:      "AA/25E",
+		InvoiceType: domain.EInvTypeORIGINAL,
+		BuyerName:   "Test Buyer",
+		CurrencyCode: "VND",
+		IssueDate:   "2026-03-15",
+		Status:      domain.EInvStatusDRAFT,
+		Subtotal:    1000000,
+		VATAmount:   100000,
+		GrandTotal:  1100000,
+		Lines:       []domain.EInvoiceLine{{LineNumber: 1, Description: "Service", Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000}},
+	}
+	require.NoError(t, ts.svc.CreateEInvoice(nil, inv))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/e-invoices/"+inv.ID+"/issue", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+
+	updated, _ := ts.svc.GetEInvoice(nil, inv.ID)
+	assert.Equal(t, domain.EInvStatusSIGNED, updated.Status)
+	assert.Empty(t, updated.GDTTransactionID)
 }
 
 func TestCancelEInvoice(t *testing.T) {

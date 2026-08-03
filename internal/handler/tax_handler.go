@@ -56,6 +56,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			invoices.GET("", h.ListEInvoices)
 			invoices.GET("/:id", h.GetEInvoice)
 			invoices.POST("/:id/issue", h.IssueEInvoice)
+			invoices.POST("/:id/status", h.CheckInvoiceStatus)
 			invoices.POST("/:id/cancel", h.CancelEInvoice)
 		}
 		calendar := tax.Group("/calendar")
@@ -102,6 +103,11 @@ func (h *TaxHandler) taxError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrInvoiceStatusInvalid),
 		errors.Is(err, domain.ErrDuplicateDeclaration):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrGDTRejected):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrGDTUnauthorized),
+		errors.Is(err, domain.ErrGDTUnavailable):
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
@@ -427,7 +433,15 @@ func (h *TaxHandler) IssueEInvoice(c *gin.Context) {
 		h.taxError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "invoice issued"})
+	c.JSON(http.StatusOK, gin.H{"message": "invoice submitted to GDT"})
+}
+
+func (h *TaxHandler) CheckInvoiceStatus(c *gin.Context) {
+	if err := h.svc.CheckInvoiceStatus(c.Request.Context(), c.Param("id")); err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "invoice status updated"})
 }
 
 func (h *TaxHandler) CancelEInvoice(c *gin.Context) {

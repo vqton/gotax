@@ -23,8 +23,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,11 +40,13 @@ import (
 	"gotax/internal/config"
 	"gotax/internal/db"
 	"gotax/internal/domain"
+	"gotax/internal/gdt"
 	"gotax/internal/handler"
 	gotaxi18n "gotax/internal/i18n"
 	"gotax/internal/logger"
 	"gotax/internal/repository"
 	"gotax/internal/service"
+	"gotax/internal/xmldsig"
 )
 
 // @title           GoTax GL API
@@ -166,7 +171,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 		adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
 
 		taxRepo := repository.NewPGTaxRepo(gormDB)
-		taxSvc := service.NewTaxService(taxRepo, jeRepo)
+		taxSvc := service.NewTaxService(taxRepo, jeRepo, newGDTClient(), newEInvoiceSigner())
 		taxH := handler.NewTaxHandler(taxSvc)
 		cashH := handler.NewCashHandler(svc)
 		bankRepo := repository.NewPGBankRepo(gormDB)
@@ -243,7 +248,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
 
 	taxRepo := repository.NewMemoryTaxRepo()
-	taxSvc := service.NewTaxService(taxRepo, jeRepo)
+	taxSvc := service.NewTaxService(taxRepo, jeRepo, newGDTClient(), newEInvoiceSigner())
 	taxH := handler.NewTaxHandler(taxSvc)
 	cashH := handler.NewCashHandler(svc)
 	bankRepo := repository.NewMemoryBankRepo()
@@ -273,4 +278,47 @@ r.GET("/reset-password", func(c *gin.Context) {
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, authMW, adminMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
 	r.Run(cfg.ServerPort)
+}
+
+// newGDTClient returns a GDT API client when GDT_BASE_URL is set, else nil
+// (e-invoice issue/status calls then return ErrGDTUnavailable).
+func newGDTClient() service.GDTClient {
+	base := os.Getenv("GDT_BASE_URL")
+	if base == "" {
+		return nil
+	}
+	c, err := gdt.New(base, gdt.WithToken(os.Getenv("GDT_TOKEN")))
+	if err != nil {
+		zap.L().Fatal("invalid GDT_BASE_URL", zap.Error(err))
+	}
+	return c
+}
+
+// newEInvoiceSigner builds the TXML signer. Requires EINVOICE_SIGNING_KEY
+// (RSA private key PEM). Without it, an ephemeral key is generated at
+// startup — signatures then cannot be verified after a restart, so set it
+// in production.
+func newEInvoiceSigner() service.TXMLSigner {
+	var (
+		key *rsa.PrivateKey
+		err error
+	)
+	pemBytes := []byte(os.Getenv("EINVOICE_SIGNING_KEY"))
+	if len(pemBytes) > 0 {
+		key, err = xmldsig.ParsePrivateKeyPEM(pemBytes)
+		if err != nil {
+			zap.L().Fatal("EINVOICE_SIGNING_KEY is not a valid RSA private key", zap.Error(err))
+		}
+	} else {
+		key, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			zap.L().Fatal("generate ephemeral e-invoice signing key", zap.Error(err))
+		}
+		zap.L().Warn("EINVOICE_SIGNING_KEY unset — using ephemeral signing key; signatures invalid after restart")
+	}
+	serial := os.Getenv("EINVOICE_CERT_SERIAL")
+	if serial == "" {
+		serial = "GOTAX-DEV"
+	}
+	return service.NewPEMSigner(key, serial, time.Now)
 }

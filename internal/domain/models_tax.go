@@ -106,7 +106,7 @@ func (s EInvLifecycleStatus) Valid() bool {
 	return false
 }
 func (s EInvLifecycleStatus) CanCancel() bool {
-	return s == EInvStatusISSUED
+	return s == EInvStatusISSUED || s == EInvStatusSUBMITTED
 }
 
 type CalendarStatus string
