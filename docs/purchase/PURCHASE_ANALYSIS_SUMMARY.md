@@ -1,7 +1,7 @@
 # AP Module — Comprehensive Analysis Summary
 
-**Version:** 2.0
-**Date:** July 2026
+**Version:** 2.1
+**Date:** August 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
 **Regulatory Basis:** Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP (amended by 70/2025), Decree 254/2026/ND-CP
 
@@ -9,15 +9,18 @@
 
 ## Executive Summary
 
-Purchase/AP module assessed at **~70% complete**. AGENTS.md previously reported ~0% — incorrect, codebase substantially built.
+Purchase/AP module assessed at **~95% complete** (v2.1). v2.0 gaps closed: 3-way matching, GL auto-posting, service tests.
 
-### Can it operate in PROD ENV? NO.
+### Can it operate in PROD ENV? CLOSE — 1 critical item + 3-month items remain.
 
-**Critical blockers (cannot go PROD without):**
-1. 3-way matching (PO × GRN × Invoice) — not implemented
-2. GL auto-posting — no journal entries created
-3. Service tests — zero coverage for business logic
-4. Handful of edge cases in state machine transitions
+**v2.0 critical blockers — ALL DONE (v2.1):**
+1. 3-way matching (PO × GRN × Invoice) — `verifyThreeWayMatch` + 5% tolerance + tests
+2. GL auto-posting — Dr expense/VAT, Cr 331 via `APGLService.CreatePostedEntry` + tests
+3. Service tests — 25 tests, full business-logic coverage
+4. Edge cases in state machine transitions — covered in tests
+
+**Still critical:**
+1. Circular 99 doubtful-debt provisioning (G-5) — tiered rules from research ready, not implemented
 
 **Non-blocking but needed within 3 months:**
 - E-invoice GDT XML integration
@@ -53,6 +56,9 @@ Purchase/AP module assessed at **~70% complete**. AGENTS.md previously reported 
 | InvoiceLine PK type wrong | **HIGH** | `uint autoIncrement` (migration: `TEXT PK`) | Changed to `string` UUID |
 | PostInvoice column wrong | **MEDIUM** | Used `posted_at` (column doesn't exist) | Changed to `gl_posted_at` |
 | Legacy migration not cleaned | **LOW** | `005_purchase_schema.sql` (unversioned, unused) | Removed |
+| **GRN + Invoice lines never persisted** | **CRITICAL** | Service never called CreateGRNLines/CreateInvoiceLines; PG Create* dropped line slices | CreateGRN/CreateInvoice/ReceiveEInvoice persist lines with header ID |
+| **Memory PO line IDs empty** | **HIGH** | Memory CreatePO stored lines under key of empty ID → no POID on lines → 3-way match impossible | Service sets `POItem.POID` before CreatePOLines; memory CreatePO no longer pre-stores lines |
+| **PostInvoice set gl_posted without JE** | **HIGH** | JE never created, flag set anyway → phantom posted state | GL entry created first, flag set only on success |
 
 ### Documentation Updates
 
@@ -61,46 +67,29 @@ Purchase/AP module assessed at **~70% complete**. AGENTS.md previously reported 
 - AGENTS.md: legacy migration reference cleaned
 - All 9 purchase docs: version bumped to v2.0 with implementation notes
 - ADR-001: architecture decisions documented
+- **v2.1 (Aug 2026):** readiness + analysis updated — 3-way matching, GL auto-posting, service tests all DONE
 
 ---
 
 ## Remaining Gaps to PROD
 
-### G-1: 3-Way Matching (Critical, 2-3 days)
+### G-1: 3-Way Matching (Critical, 2-3 days) — **DONE (v2.1)**
 
 **What:** Match PO quantity × GRN quantity × Invoice quantity per line before allowing invoice post.
 
-**Hook:** `ErrInvoice3WayMismatch` defined at `domain/errors.go:322`.
+**Implemented:** `verifyThreeWayMatch` (purchase_service.go). Loads PO + PO lines, GRN lines (indexed by POLineID), then per invoice line with a POLineID checks qty vs PO qty and vs GRN received qty, and price variance — all within 5% tolerance. Mismatch → `ErrInvoice3WayMismatch`. Called from `PostInvoice` before status update.
 
-**Implementation:**
-```go
-func (s *PurchaseService) threeWayMatch(poID, grnID, invID string) error {
-    po, _ := s.poRepo.GetPO(ctx, poID)
-    grn, _ := s.grnRepo.GetGRN(ctx, grnID)
-    inv, _ := s.invRepo.GetInvoice(ctx, invID)
-    for _, invLine := range inv.Lines {
-        // Match invLine.Quantity vs grn line vs po line
-        // Tolerance: configurable per company (default 5%)
-    }
-}
-```
-
-**Add to:** `PostInvoice` — check match before allowing status change.
-
-### G-2: GL Auto-Posting (Critical, 3-5 days)
+### G-2: GL Auto-Posting (Critical, 3-5 days) — **DONE (v2.1)**
 
 **What:** When invoice posted → create journal entry:
-- Dr 152/156/642 (inventory/expense account per line)
-- Dr 1331 (input VAT)
+- Dr 152/156/642 (expense account per line) + VAT account
 - Cr 331 (AP)
 
-**Hook:** `Invoice.PostInvoice` sets `gl_posted=true` but creates no JE.
+**Implemented:** `buildInvoiceGLEntry` groups line expense + VAT by account, credits AP 331, creates posted JE via `APGLService.CreatePostedEntry` (reuses existing GL service). Order: JE created → `SetInvoiceGLPosted` → status → AP transaction. Any failure leaves invoice VERIFIED, no phantom posted state.
 
-**Reuse:** Existing `JournalEntry` service at `internal/service/service.go`.
+### G-3: Service Tests (Critical, 3-5 days) — **DONE (v2.1)**
 
-### G-3: Service Tests (Critical, 3-5 days)
-
-**Why:** 0 tests for business logic. All handler tests use memory repos but bypass service layer directly for setup. Need tests for:
+**Why:** 0 tests for business logic. Now 25 tests in `internal/service/purchase_service_test.go`:
 
 | Scenario | Expected |
 |----------|----------|
@@ -112,11 +101,15 @@ func (s *PurchaseService) threeWayMatch(poID, grnID, invID string) error {
 | Claim VAT on rejected invoice | Error |
 | AP aging with multiple suppliers | Correct bucket allocation |
 | Cost allocation validation | `ErrCostAllocTypeInvalid` with wrong type |
+| 3-way match qty over 5% | `ErrInvoice3WayMismatch` |
+| GL auto-posting | Posted JE + gl_posted=true + AP txn |
+| Line persistence | GRN/Invoice lines returned by Get* |
 
-**Pattern:** (from existing tests)
+**Pattern:**
 ```go
 purRepo := repository.NewMemoryPurchaseRepo()
-purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo)
+glSvc := service.NewService(glRepo, ..., supRepo, ...) // GL repos
+purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, glSvc)
 ```
 
 ### H-1: Validate Package Integration (High, 1 day)
@@ -140,12 +133,13 @@ purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo
 | Domain models complete | 100% | 100% | P0 |
 | PG repos working | 100% | 100% | P0 |
 | Memory repos working | 100% | 100% | P0 |
-| Service CRUD complete | 95% | 100% | P0 |
+| Service CRUD complete | 100% | 100% | P0 |
 | Handler endpoints | 100% | 100% | P0 |
 | DB migration matching GORM | 100% | 100% | P0 |
-| **3-way matching** | 0% | 100% | **P0** |
-| **GL auto-posting** | 0% | 100% | **P0** |
-| **Service tests** | 0% | >80% | **P0** |
+| **3-way matching** | 100% | 100% | **P0** |
+| **GL auto-posting** | 100% | 100% | **P0** |
+| **Service tests** | 100% | >80% | **P0** |
+| Doubtful-debt provisioning (Circular 99) | 0% | 100% | **P0** |
 | Handler tests | 60% | >80% | P1 |
 | Negative-path tests | 20% | >80% | P1 |
 | Validate package integration | 0% | 100% | P1 |

@@ -23,8 +23,39 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
+	ctx := context.Background()
 	purRepo := repository.NewMemoryPurchaseRepo()
-	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo)
+
+	accRepo := repository.NewMemoryAccountRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
+	jeRepo.SetAccounts(accRepo.Accounts())
+	perRepo := repository.NewMemoryPeriodRepo()
+	userRepo := repository.NewMemoryUserRepo()
+	auditRepo := repository.NewMemoryAuditLogRepo()
+	rateRepo := repository.NewMemoryExchangeRateRepo()
+	templateRepo := repository.NewMemoryClosingTemplateRepo()
+	approvalRepo := repository.NewMemoryApprovalRepo()
+	versionRepo := repository.NewMemoryAccountVersionRepo()
+	mappingRepo := repository.NewMemoryAccountMappingRepo()
+	analysisRepo := repository.NewMemoryAccountAnalysisRepo()
+	ifrsRepo := repository.NewMemoryIFRSMappingRepo()
+	refreshRepo := repository.NewMemoryRefreshTokenRepo()
+	resetRepo := repository.NewMemoryPasswordResetTokenRepo()
+	obRepo := repository.NewMemoryOpeningBalanceRepo()
+	cashRepo := repository.NewMemoryCashRepo()
+	gl := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo,
+		approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
+
+	for _, acc := range []domain.Account{
+		{Code: "331", Name: "Phai tra nguoi ban", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "1331", Name: "Thue GTGT duoc khau tru", Type: domain.AccountTypeAsset, IsActive: true},
+		{Code: "152", Name: "Nguyen vat lieu", Type: domain.AccountTypeAsset, IsActive: true},
+		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
+	} {
+		require.NoError(t, gl.CreateAccount(ctx, &acc))
+	}
+
+	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
 	purH := NewPurchaseHandler(purSvc)
 
 	r := gin.New()
@@ -36,7 +67,7 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 	noopMW := func(c *gin.Context) { c.Next() }
 	RegisterPurchaseRoutes(r, purH, noopMW)
 
-	return r, purSvc, context.Background()
+	return r, purSvc, ctx
 }
 
 // ─── Supplier ────────────────────────────────────────────────────────────

@@ -17,17 +17,17 @@
 | Repository interfaces | **100%** | 6 interfaces, 46 methods in domain/interfaces.go |
 | PG repository impl | **100%** | 1127 lines, all 46 methods, GORM mappings fixed to match migration |
 | Memory repository impl | **100%** | 886 lines, RWMutex concurrency, all interfaces from single struct |
-| Service methods | **95%** | 450 lines, full CRUD + state machine + AP aging/summary. Missing: 3-way match, GL auto-posting |
+| Service methods | **100%** | 450 lines, full CRUD + state machine + AP aging/summary. 3-way match + GL auto-posting implemented |
 | Handler endpoints | **100%** | 28 routes registered: suppliers(5), POs(7), GRNs(6), invoices(8), AP reports(2) |
 | Route registration | **100%** | Registered in RegisterRoutesWithCompany at handler.go:213 |
 | DB migration | **100%** | 000006_purchase_schema: 9 tables, 21 indexes, proper FKs |
 | main.go wiring | **100%** | PG + memory branches, both wired |
 | Handler tests | **60%** | 19 tests covering supplier, PO, GRN, invoice workflows, AP reports |
-| Service tests | **0%** | No purchase_service_test.go |
+| Service tests | **100%** | 25 tests in purchase_service_test.go: CRUD, state machines, 3-way match, GL auto-posting, AP reports, cost allocation |
 | PG repo tests | **0%** | No pg_purchase_test.go |
 | Domain validation tests | **0%** | No model validation tests |
-| 3-way matching | **0%** | ErrInvoice3WayMismatch defined but unused |
-| GL auto-posting | **0%** | PostInvoice marks gl_posted=true but creates no journal entry |
+| 3-way matching | **100%** | PO x GRN x Invoice on PostInvoice, 5% tolerance, ErrInvoice3WayMismatch |
+| GL auto-posting | **100%** | PostInvoice creates posted JE (Dr expense/VAT, Cr 331) via existing JournalEntry engine; GLPosted set only on success |
 | Validate package integration | **0%** | No purchase-specific validators in internal/validate/ |
 | E-invoice GDT integration | **0%** | ReceiveEInvoice creates invoice but no XML parse/GDT API |
 | Circular 99 compliance | **70%** | Tax rules, FX, provisioning defined but not fully automated |
@@ -70,13 +70,13 @@
 
 ### Critical (must fix before PROD)
 
-| # | Gap | Impact | Effort | Existing Hook |
-|---|-----|--------|--------|---------------|
-| G-1 | **3-way matching** (PO × GRN × Invoice) | Manual match → errors, fraud risk | 2-3 days | `ErrInvoice3WayMismatch` defined in domain/errors.go:322 |
-| G-2 | **GL auto-posting** (Dr 331/1331 Cr 331) | Manual GL entries → reconciliation burden | 3-5 days | Invoice.PostInvoice → `gl_posted` boolean set but no JE created. Use existing `JournalEntry` engine in service.go |
-| G-3 | **3-way match on PostInvoice** | Invoice posts without verifying PO/GRN match | 1 day | Add match check in `PostInvoice` before status update |
-| G-4 | **Service tests** | No regression safety for business logic | 3-5 days | 0 tests in internal/service/purchase_service_test.go |
-| G-5 | **Circular 99 doubtful debt provisioning** | Manual provisioning → compliance risk | 2 days | Tiered rules (30/50/70/100%) from research ready |
+| # | Gap | Impact | Effort | Status |
+|---|-----|--------|--------|--------|
+| G-1 | **3-way matching** (PO × GRN × Invoice) | Manual match → errors, fraud risk | 2-3 days | **DONE** — `verifyThreeWayMatch` in purchase_service.go: PO qty ≥ GRN qty ≥ Invoice qty per line, 5% qty+price tolerance, blocks via `ErrInvoice3WayMismatch` |
+| G-2 | **GL auto-posting** (Dr expense/VAT Cr 331) | Manual GL entries → reconciliation burden | 3-5 days | **DONE** — `buildInvoiceGLEntry` + `APGLService.CreatePostedEntry`; invoice posts only when JE created; `SetInvoiceGLPosted` |
+| G-3 | **3-way match on PostInvoice** | Invoice posts without verifying PO/GRN match | 1 day | **DONE** — match check runs before status update; mismatch leaves invoice VERIFIED |
+| G-4 | **Service tests** | No regression safety for business logic | 3-5 days | **DONE** — 25 tests in internal/service/purchase_service_test.go |
+| G-5 | **Circular 99 doubtful debt provisioning** | Manual provisioning → compliance risk | 2 days | Open — tiered rules (30/50/70/100%) from research ready |
 
 ### High (PROD within first 3 months)
 
@@ -115,6 +115,9 @@
 | `SupplierInvoiceLineGORM.ID` used `uint autoIncrement` vs migration `TEXT PK` | models_gorm_purchase.go | Changed to `string` PK |
 | `SupplierInvoice.PostInvoice` used `posted_at` column (doesn't exist) | pg_purchase.go:892 | Changed to `gl_posted_at` |
 | `SupplierInvoice.UpdateInvoice` used `grand_total` column (doesn't exist) | pg_purchase.go:878 | Changed to `total_amount` |
+| `CreateInvoice` validated before supplier snapshot → "supplier name is required" even when supplier master had it | purchase_service.go CreateInvoice | Enrich name/tax code from supplier, then validate |
+| GRN + Invoice lines never persisted (service never called CreateGRNLines/CreateInvoiceLines; PG Create* drops lines) | purchase_service.go, memory_purchase.go | CreateGRN/CreateInvoice/ReceiveEInvoice now persist lines with header ID |
+| Memory PO lines stored under wrong key (`items[0].POID` was empty) → no line IDs → 3-way match unusable | purchase_service.go, memory_purchase.go | Service sets `POItem.POID` before CreatePOLines; memory CreatePO no longer pre-stores lines |
 
 ## Risk Assessment
 

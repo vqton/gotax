@@ -416,6 +416,7 @@ type SupplierInvoiceRepository interface {
 	UpdateInvoice(ctx context.Context, inv *SupplierInvoice) error
 	UpdateInvoiceStatus(ctx context.Context, id string, status InvoiceStatus) error
 	PostInvoice(ctx context.Context, id string, postedAt time.Time) error
+	SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error
 	GetInvoiceLines(ctx context.Context, invoiceID string) ([]SupplierInvoiceLine, error)
 	CreateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error
 	UpdateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error

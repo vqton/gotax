@@ -273,6 +273,21 @@ func (inv *SupplierInvoice) Validate() error {
 	return nil
 }
 
+func (inv *SupplierInvoice) CalculateTotals() {
+	subtotal, tax := 0.0, 0.0
+	for i := range inv.Lines {
+		l := &inv.Lines[i]
+		raw := l.Quantity * l.UnitPrice
+		l.LineTotal = raw
+		l.LineVATAmount = raw * l.VATRate / 100
+		subtotal += l.LineTotal
+		tax += l.LineVATAmount
+	}
+	inv.Subtotal = subtotal
+	inv.TaxAmount = tax
+	inv.TotalAmount = subtotal + tax
+}
+
 type SupplierInvoiceLine struct {
 	ID           string  `json:"id"`
 	InvoiceID    string  `json:"invoice_id"`

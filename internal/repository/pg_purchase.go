@@ -868,8 +868,11 @@ func (r *PGSupplierInvoiceRepo) UpdateInvoiceStatus(ctx context.Context, id stri
 }
 
 func (r *PGSupplierInvoiceRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).Update("status", string(domain.InvoicePosted)).Error
+}
+
+func (r *PGSupplierInvoiceRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error {
 	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":       string(domain.InvoicePosted),
 		"gl_posted":    true,
 		"gl_posted_at": postedAt.Format(time.RFC3339),
 	}).Error

@@ -193,10 +193,6 @@ func (r *MemoryPurchaseRepo) CreatePO(_ context.Context, po *domain.PurchaseOrde
 	}
 	r.pos[cp.ID] = &cp
 	r.poByNumber[cp.CompanyID][cp.PONumber] = r.pos[cp.ID]
-	if len(cp.Lines) > 0 {
-		r.poLines[cp.ID] = make([]domain.POItem, len(cp.Lines))
-		copy(r.poLines[cp.ID], cp.Lines)
-	}
 	po.ID = cp.ID
 	return nil
 }
@@ -410,10 +406,6 @@ func (r *MemoryPurchaseRepo) CreateGRN(_ context.Context, g *domain.GRN) error {
 	}
 	r.grns[cp.ID] = &cp
 	r.grnByNumber[cp.CompanyID][cp.GRNNumber] = r.grns[cp.ID]
-	if len(cp.Lines) > 0 {
-		r.grnLines[cp.ID] = make([]domain.GRNItem, len(cp.Lines))
-		copy(r.grnLines[cp.ID], cp.Lines)
-	}
 	g.ID = cp.ID
 	return nil
 }
@@ -590,10 +582,6 @@ func (r *MemoryPurchaseRepo) CreateInvoice(_ context.Context, inv *domain.Suppli
 	}
 	r.invoices[cp.ID] = &cp
 	r.invByNumber[cp.CompanyID][cp.InvoiceNumber] = r.invoices[cp.ID]
-	if len(cp.Lines) > 0 {
-		r.invLines[cp.ID] = make([]domain.SupplierInvoiceLine, len(cp.Lines))
-		copy(r.invLines[cp.ID], cp.Lines)
-	}
 	inv.ID = cp.ID
 	return nil
 }
@@ -695,6 +683,16 @@ func (r *MemoryPurchaseRepo) PostInvoice(_ context.Context, id string, postedAt 
 		return domain.ErrSupplierInvoiceNotFound
 	}
 	inv.Status = domain.InvoicePosted
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) SetInvoiceGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inv, ok := r.invoices[id]
+	if !ok {
+		return domain.ErrSupplierInvoiceNotFound
+	}
 	inv.GLPosted = true
 	inv.GLPostedAt = &postedAt
 	return nil

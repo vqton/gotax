@@ -3,9 +3,18 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"gotax/internal/domain"
 	"time"
 )
+
+// APGLService posts purchase documents to the GL journal.
+// Satisfied by service.Service (CreatePostedEntry).
+type APGLService interface {
+	CreatePostedEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error
+}
+
+const apPayableAccount = "331"
 
 type PurchaseService struct {
 	supRepo  domain.SupplierRepository
@@ -14,6 +23,7 @@ type PurchaseService struct {
 	invRepo  domain.SupplierInvoiceRepository
 	aptRepo  domain.APTransactionRepository
 	costRepo domain.CostAllocationRepository
+	gl       APGLService
 	now      func() time.Time
 }
 
@@ -24,10 +34,12 @@ func NewPurchaseService(
 	invRepo domain.SupplierInvoiceRepository,
 	aptRepo domain.APTransactionRepository,
 	costRepo domain.CostAllocationRepository,
+	gl APGLService,
 ) *PurchaseService {
 	return &PurchaseService{
 		supRepo: supRepo, poRepo: poRepo, grnRepo: grnRepo,
 		invRepo: invRepo, aptRepo: aptRepo, costRepo: costRepo,
+		gl:  gl,
 		now: time.Now,
 	}
 }
@@ -97,6 +109,9 @@ func (s *PurchaseService) CreatePO(ctx context.Context, po *domain.PurchaseOrder
 	po.UpdatedAt = po.CreatedAt
 	if err := s.poRepo.CreatePO(ctx, po); err != nil {
 		return err
+	}
+	for i := range po.Lines {
+		po.Lines[i].POID = po.ID
 	}
 	return s.poRepo.CreatePOLines(ctx, po.Lines)
 }
@@ -174,7 +189,13 @@ func (s *PurchaseService) CreateGRN(ctx context.Context, grn *domain.GRN) error 
 		grn.Status = domain.GRNDraft
 	}
 	grn.CreatedAt = s.now()
-	return s.grnRepo.CreateGRN(ctx, grn)
+	if err := s.grnRepo.CreateGRN(ctx, grn); err != nil {
+		return err
+	}
+	for i := range grn.Lines {
+		grn.Lines[i].GRNID = grn.ID
+	}
+	return s.grnRepo.CreateGRNLines(ctx, grn.Lines)
 }
 
 func (s *PurchaseService) GetGRN(ctx context.Context, id string) (*domain.GRN, error) {
@@ -221,15 +242,15 @@ func (s *PurchaseService) CancelGRN(ctx context.Context, id string) error {
 // ─── Supplier Invoice ───────────────────────────────────────────────────
 
 func (s *PurchaseService) CreateInvoice(ctx context.Context, inv *domain.SupplierInvoice) error {
-	if err := inv.Validate(); err != nil {
-		return err
-	}
 	sup, err := s.supRepo.GetSupplier(ctx, inv.SupplierID)
 	if err != nil {
 		return domain.ErrInvoiceSupplierRequired
 	}
 	inv.SupplierName = sup.Name
 	inv.SupplierTaxCode = sup.TaxCode
+	if err := inv.Validate(); err != nil {
+		return err
+	}
 	if inv.Currency == "" {
 		inv.Currency = "VND"
 	}
@@ -239,8 +260,15 @@ func (s *PurchaseService) CreateInvoice(ctx context.Context, inv *domain.Supplie
 	if inv.VATDeductionStatus == "" {
 		inv.VATDeductionStatus = domain.VATPending
 	}
+	inv.CalculateTotals()
 	inv.CreatedAt = s.now()
-	return s.invRepo.CreateInvoice(ctx, inv)
+	if err := s.invRepo.CreateInvoice(ctx, inv); err != nil {
+		return err
+	}
+	for i := range inv.Lines {
+		inv.Lines[i].InvoiceID = inv.ID
+	}
+	return s.invRepo.CreateInvoiceLines(ctx, inv.Lines)
 }
 
 func (s *PurchaseService) GetInvoice(ctx context.Context, id string) (*domain.SupplierInvoice, error) {
@@ -259,6 +287,7 @@ func (s *PurchaseService) UpdateInvoice(ctx context.Context, inv *domain.Supplie
 	if existing.Status != domain.InvoiceDraft {
 		return domain.ErrInvoiceCannotUpdate
 	}
+	inv.CalculateTotals()
 	return s.invRepo.UpdateInvoice(ctx, inv)
 }
 
@@ -281,7 +310,101 @@ func (s *PurchaseService) PostInvoice(ctx context.Context, id string) error {
 	if inv.Status != domain.InvoiceVerified {
 		return domain.ErrInvoiceInvalidTransition
 	}
-	return s.invRepo.PostInvoice(ctx, id, s.now().UTC())
+	if err := s.verifyThreeWayMatch(ctx, inv); err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	if s.gl != nil {
+		entry := s.buildInvoiceGLEntry(inv)
+		if err := s.gl.CreatePostedEntry(ctx, entry, inv.CreatedBy); err != nil {
+			return err
+		}
+		if err := s.invRepo.SetInvoiceGLPosted(ctx, id, now); err != nil {
+			return err
+		}
+	}
+	return s.invRepo.PostInvoice(ctx, id, now)
+}
+
+// verifyThreeWayMatch enforces PO qty >= GRN qty >= Invoice qty per line and a
+// price variance within tolerance. When the invoice is not linked to a PO the
+// match is skipped.
+func (s *PurchaseService) verifyThreeWayMatch(ctx context.Context, inv *domain.SupplierInvoice) error {
+	if inv.POID == "" {
+		return nil
+	}
+	poLines, err := s.poRepo.GetPOLines(ctx, inv.POID)
+	if err != nil {
+		return err
+	}
+	poByID := make(map[string]domain.POItem, len(poLines))
+	for _, l := range poLines {
+		poByID[l.ID] = l
+	}
+	grnByPOLine := make(map[string]domain.GRNItem)
+	if inv.GRNID != "" {
+		grnLines, err := s.grnRepo.GetGRNLines(ctx, inv.GRNID)
+		if err != nil {
+			return err
+		}
+		for _, l := range grnLines {
+			grnByPOLine[l.POLineID] = l
+		}
+	}
+	const tolerancePct = 5.0
+	for _, il := range inv.Lines {
+		if il.POLineID == "" {
+			continue
+		}
+		pol, ok := poByID[il.POLineID]
+		if !ok {
+			return domain.ErrInvoice3WayMismatch
+		}
+		if il.Quantity > pol.Quantity*(1+tolerancePct/100) {
+			return domain.ErrInvoice3WayMismatch
+		}
+		if g, ok := grnByPOLine[il.POLineID]; ok && il.Quantity > g.QuantityReceived*(1+tolerancePct/100) {
+			return domain.ErrInvoice3WayMismatch
+		}
+		if pol.UnitPrice > 0 {
+			variance := math.Abs(il.UnitPrice-pol.UnitPrice) / pol.UnitPrice
+			if variance > tolerancePct/100 {
+				return domain.ErrInvoice3WayMismatch
+			}
+		}
+	}
+	return nil
+}
+
+func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *domain.JournalEntry {
+	expense := make(map[string]float64)
+	vat := make(map[string]float64)
+	for _, l := range inv.Lines {
+		expense[l.AccountID] += l.LineTotal
+		vat[l.VATAccountID] += l.LineVATAmount
+	}
+	lines := make([]domain.JournalLine, 0, len(expense)+len(vat)+1)
+	for acc, amt := range expense {
+		lines = append(lines, domain.JournalLine{
+			AccountCode: acc, DebitAmount: amt, Description: "Purchase: " + inv.InvoiceNumber,
+		})
+	}
+	for acc, amt := range vat {
+		lines = append(lines, domain.JournalLine{
+			AccountCode: acc, DebitAmount: amt, Description: "VAT input: " + inv.InvoiceNumber,
+		})
+	}
+	lines = append(lines, domain.JournalLine{
+		AccountCode: apPayableAccount, CreditAmount: inv.TotalAmount, Description: "AP: " + inv.InvoiceNumber,
+	})
+	return &domain.JournalEntry{
+		CompanyID:   inv.CompanyID,
+		EntryNumber: inv.InvoiceNumber,
+		VoucherType: domain.VoucherTypePurchase,
+		EntryDate:   inv.InvoiceDate,
+		Description: "AP invoice " + inv.InvoiceNumber,
+		Lines:       lines,
+	}
 }
 
 func (s *PurchaseService) CancelInvoice(ctx context.Context, id string) error {
@@ -334,7 +457,10 @@ func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.Suppl
 	if err := s.invRepo.CreateInvoice(ctx, inv); err != nil {
 		return err
 	}
-	return nil
+	for i := range inv.Lines {
+		inv.Lines[i].InvoiceID = inv.ID
+	}
+	return s.invRepo.CreateInvoiceLines(ctx, inv.Lines)
 }
 
 // ─── AP Transactions ────────────────────────────────────────────────────
