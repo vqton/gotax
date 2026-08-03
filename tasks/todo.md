@@ -79,6 +79,18 @@
 
 ---
 
+## ✅ Round C: Declaration XML + GDT Submission (DONE — ea52abe, f8c4408, eb04690)
+
+HTKK form XML per TAX_SPECS §3.1, declaration→GDT submit pipeline.
+
+- [x] C1: `internal/htkk` — BK:BoKe envelope, TTChung header (MST/form/period/LanDau), DuLieu indicators, money type
+- [x] C2: gdt declaration endpoints — `POST /api/submission/declare`, `GET /api/submission/status?id=`
+- [x] C3: SubmitDeclaration (XML→sign→GDT submit, store DeclarationXML/GDTSubmissionID/signature), CheckDeclarationStatus (ack→TaxPayment, reject→resubmit), migration 000016, `POST /:id/check-status`
+- [ ] GDT real endpoint + certificate auth (deferred)
+- [ ] Declaration form PDFs (deferred)
+
+---
+
 ## ✅ Phase 2: E-Invoice Pipeline (DONE — B1/B2/B3: ce92489, de729c6, 4528214)
 
 Tax-module e-invoice pipeline built under Round B (see `docs/tax/`). TXML generation for the sale/tax side (Task 6), digital signer (Task 7), GDT client (Task 8) complete. Task 9 (auto-pipeline hook) deferred — issue is manual `POST /:id/issue`.
