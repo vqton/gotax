@@ -55,9 +55,16 @@ func (r *PGFARepo) ListCategories(ctx context.Context, filter domain.FACategoryF
 	return out, nil
 }
 
+var faCategoryUpdateCols = []string{
+	"company_id", "code", "name", "parent_id", "level",
+	"default_useful_life_months", "default_depreciation_method",
+	"asset_account_id", "depreciation_account_id", "expense_account_id",
+}
+
 func (r *PGFARepo) UpdateCategory(ctx context.Context, c *domain.FixedAssetCategory) error {
 	m := gormFACategoryToGORM(c)
-	return r.db.WithContext(ctx).Model(&domain.FixedAssetCategoryGORM{}).Where("id = ?", c.ID).Updates(m).Error
+	return r.db.WithContext(ctx).Model(&domain.FixedAssetCategoryGORM{}).
+		Select(faCategoryUpdateCols).Where("id = ?", c.ID).Updates(m).Error
 }
 
 func (r *PGFARepo) DeleteCategory(ctx context.Context, id string) error {
@@ -114,9 +121,20 @@ func (r *PGFARepo) ListAssets(ctx context.Context, filter domain.FAListFilter) (
 	return out, int(total), nil
 }
 
+var faAssetUpdateCols = []string{
+	"company_id", "code", "name", "category_id", "status", "acquisition_date",
+	"original_cost", "accumulated_depreciation", "residual_value", "carrying_amount",
+	"useful_life_months", "depreciation_method", "depreciation_start_date",
+	"depreciation_end_date", "department_id", "location", "user_id", "supplier_id",
+	"contract_no", "invoice_id", "serial_no", "manufacturer", "manufacture_year",
+	"country_of_origin", "technical_specs", "notes", "source", "cip_account_id",
+	"asset_account_id", "depreciation_account_id", "expense_account_id", "updated_by",
+}
+
 func (r *PGFARepo) UpdateAsset(ctx context.Context, a *domain.FixedAsset) error {
 	m := gormFAssetToGORM(a)
-	return r.db.WithContext(ctx).Model(&domain.FixedAssetGORM{}).Where("id = ?", a.ID).Updates(m).Error
+	return r.db.WithContext(ctx).Model(&domain.FixedAssetGORM{}).
+		Select(faAssetUpdateCols).Where("id = ?", a.ID).Updates(m).Error
 }
 
 func (r *PGFARepo) DeleteAsset(ctx context.Context, id string) error {
@@ -251,7 +269,8 @@ func (r *PGFARepo) ListInventoryPlans(ctx context.Context, companyID string) ([]
 
 func (r *PGFARepo) UpdateInventoryPlan(ctx context.Context, p *domain.FixedAssetInventoryPlan) error {
 	m := gormFAIPlanToGORM(p)
-	return r.db.WithContext(ctx).Model(&domain.FixedAssetInventoryPlanGORM{}).Where("id = ?", p.ID).Updates(m).Error
+	return r.db.WithContext(ctx).Model(&domain.FixedAssetInventoryPlanGORM{}).
+		Select("company_id", "plan_date", "status", "notes").Where("id = ?", p.ID).Updates(m).Error
 }
 
 // ─── Inventory Results ───────────────────────────────────────────────
