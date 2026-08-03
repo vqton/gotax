@@ -35,6 +35,8 @@ type MemoryPurchaseRepo struct {
 	provLines     map[string][]domain.DoubtfulDebtProvisionLine
 	reqs          map[string]*domain.PurchaseRequisition
 	reqLines      map[string][]domain.RequisitionItem
+	fxRevals      map[string]*domain.FXRevaluation
+	fxRevalLines  map[string][]domain.FXRevaluationLine
 }
 
 func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
@@ -56,6 +58,8 @@ func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
 		provLines:   make(map[string][]domain.DoubtfulDebtProvisionLine),
 		reqs:        make(map[string]*domain.PurchaseRequisition),
 		reqLines:    make(map[string][]domain.RequisitionItem),
+		fxRevals:    make(map[string]*domain.FXRevaluation),
+		fxRevalLines: make(map[string][]domain.FXRevaluationLine),
 	}
 }
 
@@ -1154,4 +1158,108 @@ func (r *MemoryPurchaseRepo) loadInvoice(inv *domain.SupplierInvoice) (*domain.S
 		copy(cp.Lines, lines)
 	}
 	return &cp, nil
+}
+
+// ─── FX Revaluation ──────────────────────────────────────────────────────
+
+func (r *MemoryPurchaseRepo) loadFXRevaluation(reval domain.FXRevaluation) *domain.FXRevaluation {
+	cp := reval
+	if lines, ok := r.fxRevalLines[reval.ID]; ok {
+		cp.Lines = make([]domain.FXRevaluationLine, len(lines))
+		copy(cp.Lines, lines)
+	}
+	return &cp
+}
+
+func (r *MemoryPurchaseRepo) CreateRevaluation(_ context.Context, reval *domain.FXRevaluation) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *reval
+	if cp.ID == "" {
+		cp.ID = purchaseID("FXR-")
+	}
+	r.fxRevals[cp.ID] = &cp
+	reval.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) CreateRevaluationLines(_ context.Context, lines []domain.FXRevaluationLine) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]domain.FXRevaluationLine, len(lines))
+	for i, l := range lines {
+		cp := l
+		if cp.ID == "" {
+			cp.ID = purchaseID("FXRL-")
+		}
+		out[i] = cp
+	}
+	r.fxRevalLines[out[0].RevaluationID] = out
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) GetRevaluation(_ context.Context, id string) (*domain.FXRevaluation, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	reval, ok := r.fxRevals[id]
+	if !ok {
+		return nil, domain.ErrFXRevaluationNotFound
+	}
+	return r.loadFXRevaluation(*reval), nil
+}
+
+func (r *MemoryPurchaseRepo) GetRevaluationLines(_ context.Context, revaluationID string) ([]domain.FXRevaluationLine, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	lines, ok := r.fxRevalLines[revaluationID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]domain.FXRevaluationLine, len(lines))
+	copy(out, lines)
+	return out, nil
+}
+
+func (r *MemoryPurchaseRepo) ListRevaluations(_ context.Context, companyID string, limit, offset int) ([]domain.FXRevaluation, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.FXRevaluation
+	for _, reval := range r.fxRevals {
+		if reval.CompanyID != companyID {
+			continue
+		}
+		out = append(out, *r.loadFXRevaluation(*reval))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RevaluationDate.After(out[j].RevaluationDate) })
+	total := len(out)
+	if offset > 0 && offset < total {
+		out = out[offset:]
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, total, nil
+}
+
+func (r *MemoryPurchaseRepo) UpdateRevaluationStatus(_ context.Context, id string, status domain.FXRevaluationStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reval, ok := r.fxRevals[id]
+	if !ok {
+		return domain.ErrFXRevaluationNotFound
+	}
+	reval.Status = status
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) SetRevaluationGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reval, ok := r.fxRevals[id]
+	if !ok {
+		return domain.ErrFXRevaluationNotFound
+	}
+	reval.GLPosted = true
+	reval.GLPostedAt = &postedAt
+	return nil
 }

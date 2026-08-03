@@ -251,3 +251,31 @@ func mapRequisitionError(err error) error {
 	}
 	return err
 }
+
+func FXRevaluation(r *domain.FXRevaluation) error {
+	if r.Status == "" {
+		r.Status = domain.FXRevalDraft
+	}
+	if err := v.Struct(r); err != nil {
+		return mapFXRevaluationError(err)
+	}
+	return nil
+}
+
+func mapFXRevaluationError(err error) error {
+	var verrs validator.ValidationErrors
+	if !errors.As(err, &verrs) {
+		return err
+	}
+	for _, fe := range verrs {
+		switch fe.Field() {
+		case "RevaluationDate":
+			return domain.ErrFXRevaluationDateRequired
+		case "Status":
+			return domain.ErrFXRevaluationStatusInvalid
+		case "Lines":
+			return domain.ErrFXRevaluationLinesRequired
+		}
+	}
+	return err
+}

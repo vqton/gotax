@@ -682,3 +682,48 @@ type RequisitionFilter struct {
 	Limit       int
 	Offset      int
 }
+
+// ─── FX Revaluation (P2-4) ───────────────────────────────────────────────
+
+type FXRevaluationStatus string
+const (FXRevalDraft FXRevaluationStatus="DRAFT"; FXRevalPosted FXRevaluationStatus="POSTED")
+
+type FXRevaluation struct {
+	ID              string               `json:"id"`
+	CompanyID       string               `json:"company_id"`
+	RevaluationDate time.Time            `json:"revaluation_date" validate:"required"`
+	Status          FXRevaluationStatus  `json:"status" validate:"fxrstatus"`
+	TotalGain       float64              `json:"total_gain"`
+	TotalLoss       float64              `json:"total_loss"`
+	GLPosted        bool                 `json:"gl_posted"`
+	GLPostedAt      *time.Time           `json:"gl_posted_at,omitempty"`
+	CreatedBy       string               `json:"created_by"`
+	CreatedAt       time.Time            `json:"created_at,omitempty"`
+	Lines           []FXRevaluationLine  `json:"lines" validate:"min=1"`
+}
+
+func (r *FXRevaluation) Validate() error {
+	if r.RevaluationDate.IsZero() { return ErrFXRevaluationDateRequired }
+	if r.Status == "" { r.Status = FXRevalDraft }
+	switch r.Status {
+	case FXRevalDraft, FXRevalPosted:
+	default: return ErrFXRevaluationStatusInvalid
+	}
+	if len(r.Lines) == 0 { return ErrFXRevaluationLinesRequired }
+	return nil
+}
+
+type FXRevaluationLine struct {
+	ID              string  `json:"id"`
+	RevaluationID   string  `json:"revaluation_id"`
+	InvoiceID       string  `json:"invoice_id" validate:"required"`
+	InvoiceNumber   string  `json:"invoice_number" validate:"required"`
+	SupplierID      string  `json:"supplier_id"`
+	SupplierName    string  `json:"supplier_name"`
+	Currency        string  `json:"currency"`
+	BalanceDue      float64 `json:"balance_due"`
+	OriginalRate    float64 `json:"original_rate"`
+	RevaluationRate float64 `json:"revaluation_rate"`
+	FxGain          float64 `json:"fx_gain"`
+	FxLoss          float64 `json:"fx_loss"`
+}

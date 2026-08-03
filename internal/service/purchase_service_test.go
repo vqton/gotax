@@ -14,7 +14,7 @@ import (
 
 func newPurchaseTestSvc() (*PurchaseService, context.Context) {
 	repo := repository.NewMemoryPurchaseRepo()
-	return NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, nil), context.Background()
+	return NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, repo, nil), context.Background()
 }
 
 func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) {
@@ -47,12 +47,14 @@ func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) 
 		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
 		{Code: "3333", Name: "Thue nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
 		{Code: "33312", Name: "Thue GTGT hang nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "515", Name: "Lai ty gia", Type: domain.AccountTypeRevenue, IsActive: true},
+		{Code: "635", Name: "Lo ty gia", Type: domain.AccountTypeExpense, IsActive: true},
 	} {
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
 
 	repo := repository.NewMemoryPurchaseRepo()
-	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, gl)
+	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, repo, gl)
 	return svc, gl, ctx
 }
 
@@ -1052,4 +1054,106 @@ func TestPostImportInvoice(t *testing.T) {
 
 	loaded, _ := svc.GetInvoice(ctx, inv.ID)
 	assert.InDelta(t, 11000, loaded.BalanceDue, 0.001)
+}
+
+// ─── FX Revaluation (P2-4) ───────────────────────────────────────────────
+
+func makeFCPostedInvoice(t *testing.T, svc *PurchaseService, ctx context.Context, currency string, balance float64, rate float64) *domain.SupplierInvoice {
+	t.Helper()
+	sup := makeSupplier(t, svc, ctx, "FC-"+currency)
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "FC-" + currency, SupplierID: sup.ID,
+		InvoiceDate: time.Now(), Currency: currency, ExchangeRate: rate,
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 1, UnitPrice: balance,
+			VATRate: 0, VATType: domain.VAT0, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.VerifyInvoice(ctx, inv.ID))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+	return inv
+}
+
+func seedRate(t *testing.T, gl Service, ctx context.Context, currency string, date time.Time, rate float64) {
+	t.Helper()
+	require.NoError(t, gl.CreateExchangeRate(ctx, &domain.ExchangeRate{
+		CurrencyCode: currency, RateDate: date, AverageRate: rate, BuyRate: rate, SellRate: rate,
+	}))
+}
+
+func TestRevalueAP_Gain(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	asOf := time.Now().Truncate(24 * time.Hour)
+	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
+	seedRate(t, gl, ctx, "USD", asOf, 26000)
+
+	r, err := svc.RevalueAP(ctx, "c1", asOf)
+	require.NoError(t, err)
+	assert.Equal(t, domain.FXRevalDraft, r.Status)
+	require.Len(t, r.Lines, 1)
+	assert.InDelta(t, 1000000, r.Lines[0].FxGain, 0.001)
+	assert.InDelta(t, 1000000, r.TotalGain, 0.001)
+	assert.InDelta(t, 0, r.TotalLoss, 0.001)
+}
+
+func TestRevalueAP_Loss(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	asOf := time.Now().Truncate(24 * time.Hour)
+	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
+	seedRate(t, gl, ctx, "USD", asOf, 24000)
+
+	r, err := svc.RevalueAP(ctx, "c1", asOf)
+	require.NoError(t, err)
+	assert.InDelta(t, 1000000, r.Lines[0].FxLoss, 0.001)
+	assert.InDelta(t, 1000000, r.TotalLoss, 0.001)
+}
+
+func TestRevalueAP_NoRate(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	asOf := time.Now().Truncate(24 * time.Hour)
+	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
+	_, err := svc.RevalueAP(ctx, "c1", asOf)
+	assert.ErrorIs(t, err, domain.ErrFXRevaluationRateMissing)
+}
+
+func TestRevalueAP_NoFCInvoices(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	asOf := time.Now().Truncate(24 * time.Hour)
+	makePostedInvoice(t, svc, ctx)
+	seedRate(t, gl, ctx, "USD", asOf, 26000)
+	_, err := svc.RevalueAP(ctx, "c1", asOf)
+	assert.ErrorIs(t, err, domain.ErrFXRevaluationEmpty)
+}
+
+func TestPostFXRevaluation(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	asOf := time.Now().Truncate(24 * time.Hour)
+	makeFCPostedInvoice(t, svc, ctx, "USD", 1000, 25000)
+	seedRate(t, gl, ctx, "USD", asOf, 26000)
+	r, err := svc.RevalueAP(ctx, "c1", asOf)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.PostFXRevaluation(ctx, r.ID))
+	loaded, _ := svc.GetFXRevaluation(ctx, r.ID)
+	assert.Equal(t, domain.FXRevalPosted, loaded.Status)
+	assert.True(t, loaded.GLPosted)
+
+	entries, err := gl.GetEntriesByDateRange(ctx, asOf.Add(-time.Hour), asOf.Add(time.Hour))
+	require.NoError(t, err)
+	entry := findEntry(entries, "FXR-"+r.ID)
+	require.NotNil(t, entry)
+	var gainCredit, gainDebit float64
+	for _, l := range entry.Lines {
+		if l.AccountCode == "515" {
+			gainCredit += l.CreditAmount
+		}
+		if l.AccountCode == "331" {
+			gainDebit += l.DebitAmount
+		}
+	}
+	assert.InDelta(t, 1000000, gainCredit, 0.001)
+	assert.InDelta(t, 1000000, gainDebit, 0.001)
+
+	assert.ErrorIs(t, svc.PostFXRevaluation(ctx, r.ID), domain.ErrFXRevaluationAlreadyPosted)
 }

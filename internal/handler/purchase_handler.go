@@ -102,6 +102,13 @@ func RegisterPurchaseRoutes(r *gin.Engine, h *PurchaseHandler, authMW gin.Handle
 			reports.GET("/vat-input", h.GetVATInputReport)
 			reports.GET("/uninvoiced-receipts", h.GetUninvoicedReceipts)
 		}
+		fx := purchase.Group("/fx-revaluations")
+		{
+			fx.POST("", h.CreateFXRevaluation)
+			fx.GET("", h.ListFXRevaluations)
+			fx.GET("/:id", h.GetFXRevaluation)
+			fx.PATCH("/:id/post", h.PostFXRevaluation)
+		}
 	}
 }
 
@@ -766,4 +773,60 @@ func (h *PurchaseHandler) CreateCreditNote(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, inv)
+}
+
+// ─── FX Revaluation Handlers (P2-4) ──────────────────────────────────────
+
+func (h *PurchaseHandler) CreateFXRevaluation(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
+		return
+	}
+	var body struct {
+		RevaluationDate time.Time `json:"revaluation_date"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if body.RevaluationDate.IsZero() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "revaluation_date is required"})
+		return
+	}
+	reval, err := h.svc.RevalueAP(c.Request.Context(), companyID, body.RevaluationDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, reval)
+}
+
+func (h *PurchaseHandler) GetFXRevaluation(c *gin.Context) {
+	reval, err := h.svc.GetFXRevaluation(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, reval)
+}
+
+func (h *PurchaseHandler) ListFXRevaluations(c *gin.Context) {
+	companyID := c.Query("company_id")
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	list, total, err := h.svc.ListFXRevaluations(c.Request.Context(), companyID, offset, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
+}
+
+func (h *PurchaseHandler) PostFXRevaluation(c *gin.Context) {
+	if err := h.svc.PostFXRevaluation(c.Request.Context(), c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "posted"})
 }

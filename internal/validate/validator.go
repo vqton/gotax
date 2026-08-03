@@ -24,6 +24,7 @@ func init() {
 	v.RegisterValidation("costtype", costTypeValidator)
 	v.RegisterValidation("allocmethod", allocMethodValidator)
 	v.RegisterValidation("reqstatus", reqStatusValidator)
+	v.RegisterValidation("fxrstatus", fxrStatusValidator)
 }
 
 func Validator() *validator.Validate {
@@ -149,6 +150,14 @@ func costTypeValidator(fl validator.FieldLevel) bool {
 func allocMethodValidator(fl validator.FieldLevel) bool {
 	switch domain.CostAllocationMethod(fl.Field().String()) {
 	case domain.CostAllocByQty, domain.CostAllocByValue, domain.CostAllocByWeight, domain.CostAllocByVolume:
+		return true
+	}
+	return false
+}
+
+func fxrStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.FXRevaluationStatus(fl.Field().String()) {
+	case domain.FXRevalDraft, domain.FXRevalPosted:
 		return true
 	}
 	return false

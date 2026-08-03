@@ -307,3 +307,28 @@ func TestSupplierInvoice_ImportValid(t *testing.T) {
 	assert.NoError(t, inv.Validate())
 	assert.Equal(t, "import", inv.InvoiceType)
 }
+
+// ─── FX Revaluation (P2-4) ───────────────────────────────────────────────
+
+func TestFXRevaluation_Validate(t *testing.T) {
+	r := &FXRevaluation{
+		CompanyID: "c1", RevaluationDate: time.Now(),
+		Lines: []FXRevaluationLine{{
+			InvoiceID: "INV-1", InvoiceNumber: "INV-1", SupplierID: "s1", SupplierName: "S",
+			Currency: "USD", BalanceDue: 1000, OriginalRate: 25000, RevaluationRate: 26000,
+			FxGain: 1000000,
+		}},
+	}
+	require.NoError(t, r.Validate())
+	assert.Equal(t, FXRevalDraft, r.Status)
+}
+
+func TestFXRevaluation_Validate_DateRequired(t *testing.T) {
+	r := &FXRevaluation{CompanyID: "c1", Lines: []FXRevaluationLine{{InvoiceID: "INV-1", SupplierName: "S", Currency: "USD"}}}
+	assert.ErrorIs(t, r.Validate(), ErrFXRevaluationDateRequired)
+}
+
+func TestFXRevaluation_Validate_LinesRequired(t *testing.T) {
+	r := &FXRevaluation{CompanyID: "c1", RevaluationDate: time.Now()}
+	assert.ErrorIs(t, r.Validate(), ErrFXRevaluationLinesRequired)
+}

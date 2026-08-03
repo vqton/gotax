@@ -10,14 +10,17 @@ import (
 )
 
 // APGLService posts purchase documents to the GL journal.
-// Satisfied by service.Service (CreatePostedEntry).
+// Satisfied by service.Service (CreatePostedEntry, GetExchangeRate).
 type APGLService interface {
 	CreatePostedEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error
+	GetExchangeRate(ctx context.Context, currencyCode string, rateDate time.Time) (*domain.ExchangeRate, error)
 }
 
 const apPayableAccount = "331"
 const importDutyAccount = "3333"
 const importVATAccount = "33312"
+const fxGainAccount = "515"
+const fxLossAccount = "635"
 
 type PurchaseService struct {
 	supRepo  domain.SupplierRepository
@@ -28,6 +31,7 @@ type PurchaseService struct {
 	costRepo domain.CostAllocationRepository
 	provRepo domain.DoubtfulDebtProvisionRepository
 	reqRepo  domain.RequisitionRepository
+	fxRepo   domain.FXRevaluationRepository
 	gl       APGLService
 	now      func() time.Time
 }
@@ -41,12 +45,13 @@ func NewPurchaseService(
 	costRepo domain.CostAllocationRepository,
 	provRepo domain.DoubtfulDebtProvisionRepository,
 	reqRepo domain.RequisitionRepository,
+	fxRepo domain.FXRevaluationRepository,
 	gl APGLService,
 ) *PurchaseService {
 	return &PurchaseService{
 		supRepo: supRepo, poRepo: poRepo, grnRepo: grnRepo,
 		invRepo: invRepo, aptRepo: aptRepo, costRepo: costRepo,
-		provRepo: provRepo, reqRepo: reqRepo,
+		provRepo: provRepo, reqRepo: reqRepo, fxRepo: fxRepo,
 		gl:  gl,
 		now: time.Now,
 	}
@@ -440,13 +445,20 @@ func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *doma
 	expense := make(map[string]float64)
 	vat := make(map[string]float64)
 	creditNote := inv.InvoiceType == domain.InvoiceTypeCreditNote
+	rate := 1.0
+	if inv.Currency != "" && inv.Currency != "VND" && inv.ExchangeRate > 0 {
+		rate = inv.ExchangeRate
+	}
 	for _, l := range inv.Lines {
-		expense[l.AccountID] += l.LineTotal
-		vat[l.VATAccountID] += l.LineVATAmount
+		expense[l.AccountID] += l.LineTotal * rate
+		vat[l.VATAccountID] += l.LineVATAmount * rate
 	}
 	lines := make([]domain.JournalLine, 0, len(expense)+len(vat)+1)
 	for acc, amt := range expense {
 		amt = math.Abs(amt)
+		if amt <= 0.001 {
+			continue
+		}
 		if creditNote {
 			lines = append(lines, domain.JournalLine{
 				AccountCode: acc, CreditAmount: amt, Description: "Credit note: " + inv.InvoiceNumber,
@@ -459,6 +471,9 @@ func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *doma
 	}
 	for acc, amt := range vat {
 		amt = math.Abs(amt)
+		if amt <= 0.001 {
+			continue
+		}
 		if creditNote {
 			lines = append(lines, domain.JournalLine{
 				AccountCode: acc, CreditAmount: amt, Description: "VAT input reversal: " + inv.InvoiceNumber,
@@ -469,7 +484,7 @@ func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *doma
 			})
 		}
 	}
-	total := math.Abs(inv.TotalAmount)
+	total := math.Abs(inv.TotalAmount) * rate
 	if creditNote {
 		lines = append(lines, domain.JournalLine{
 			AccountCode: apPayableAccount, DebitAmount: total, Description: "AP reversal: " + inv.InvoiceNumber,
@@ -1279,4 +1294,116 @@ func (s *PurchaseService) CreateCreditNote(ctx context.Context, inv *domain.Supp
 		inv.Lines[i].InvoiceID = inv.ID
 	}
 	return s.invRepo.CreateInvoiceLines(ctx, inv.Lines)
+}
+
+// ─── FX Revaluation (P2-4) ───────────────────────────────────────────────
+
+func (s *PurchaseService) RevalueAP(ctx context.Context, companyID string, asOfDate time.Time) (*domain.FXRevaluation, error) {
+	if s.gl == nil {
+		return nil, domain.ErrFXRevaluationRateMissing
+	}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.SupplierInvoiceFilter{CompanyID: companyID, Status: domain.InvoicePosted})
+	if err != nil {
+		return nil, err
+	}
+	reval := &domain.FXRevaluation{CompanyID: companyID, RevaluationDate: asOfDate, CreatedAt: s.now()}
+	for _, inv := range invoices {
+		if inv.Currency == "" || inv.Currency == "VND" || inv.BalanceDue <= 0.001 || inv.ExchangeRate <= 0 {
+			continue
+		}
+		rate, err := s.gl.GetExchangeRate(ctx, inv.Currency, asOfDate)
+		if err != nil {
+			return nil, domain.ErrFXRevaluationRateMissing
+		}
+		balanceVNDOld := inv.BalanceDue * inv.ExchangeRate
+		balanceVNDNow := inv.BalanceDue * rate.AverageRate
+		diff := balanceVNDNow - balanceVNDOld
+		line := domain.FXRevaluationLine{
+			InvoiceID:       inv.ID,
+			InvoiceNumber:   inv.InvoiceNumber,
+			SupplierID:      inv.SupplierID,
+			SupplierName:    inv.SupplierName,
+			Currency:        inv.Currency,
+			BalanceDue:      inv.BalanceDue,
+			OriginalRate:    inv.ExchangeRate,
+			RevaluationRate: rate.AverageRate,
+		}
+		if diff > 0 {
+			line.FxGain = diff
+			reval.TotalGain += diff
+		} else if diff < 0 {
+			line.FxLoss = -diff
+			reval.TotalLoss += -diff
+		} else {
+			continue
+		}
+		reval.Lines = append(reval.Lines, line)
+	}
+	if len(reval.Lines) == 0 {
+		return nil, domain.ErrFXRevaluationEmpty
+	}
+	if err := validate.FXRevaluation(reval); err != nil {
+		return nil, err
+	}
+	if err := s.fxRepo.CreateRevaluation(ctx, reval); err != nil {
+		return nil, err
+	}
+	for i := range reval.Lines {
+		reval.Lines[i].RevaluationID = reval.ID
+	}
+	if err := s.fxRepo.CreateRevaluationLines(ctx, reval.Lines); err != nil {
+		return nil, err
+	}
+	return reval, nil
+}
+
+func (s *PurchaseService) GetFXRevaluation(ctx context.Context, id string) (*domain.FXRevaluation, error) {
+	return s.fxRepo.GetRevaluation(ctx, id)
+}
+
+func (s *PurchaseService) ListFXRevaluations(ctx context.Context, companyID string, offset, limit int) ([]domain.FXRevaluation, int, error) {
+	return s.fxRepo.ListRevaluations(ctx, companyID, limit, offset)
+}
+
+func (s *PurchaseService) PostFXRevaluation(ctx context.Context, id string) error {
+	reval, err := s.fxRepo.GetRevaluation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if reval.Status != domain.FXRevalDraft {
+		return domain.ErrFXRevaluationAlreadyPosted
+	}
+	lines := make([]domain.JournalLine, 0, len(reval.Lines)*2)
+	for _, l := range reval.Lines {
+		if l.FxGain > 0 {
+			lines = append(lines,
+				domain.JournalLine{AccountCode: apPayableAccount, DebitAmount: l.FxGain, Description: "FX gain reval: " + l.InvoiceNumber},
+				domain.JournalLine{AccountCode: fxGainAccount, CreditAmount: l.FxGain, Description: "FX gain reval: " + l.InvoiceNumber},
+			)
+		}
+		if l.FxLoss > 0 {
+			lines = append(lines,
+				domain.JournalLine{AccountCode: fxLossAccount, DebitAmount: l.FxLoss, Description: "FX loss reval: " + l.InvoiceNumber},
+				domain.JournalLine{AccountCode: apPayableAccount, CreditAmount: l.FxLoss, Description: "FX loss reval: " + l.InvoiceNumber},
+			)
+		}
+	}
+	now := s.now().UTC()
+	entry := &domain.JournalEntry{
+		CompanyID:   reval.CompanyID,
+		EntryNumber: "FXR-" + reval.ID,
+		VoucherType: domain.VoucherTypePurchase,
+		EntryDate:   reval.RevaluationDate,
+		Description: "AP FX revaluation " + reval.RevaluationDate.Format("2006-01-02"),
+		Lines:       lines,
+	}
+	if s.gl != nil {
+		if err := s.gl.CreatePostedEntry(ctx, entry, reval.CreatedBy); err != nil {
+			return err
+		}
+		if err := s.fxRepo.SetRevaluationGLPosted(ctx, id, now); err != nil {
+			return err
+		}
+	}
+	return s.fxRepo.UpdateRevaluationStatus(ctx, id, domain.FXRevalPosted)
 }

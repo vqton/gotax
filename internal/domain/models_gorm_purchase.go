@@ -262,3 +262,35 @@ type RequisitionItemGORM struct {
 }
 
 func (RequisitionItemGORM) TableName() string { return "requisition_lines" }
+
+type FXRevaluationGORM struct {
+	ID              string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID       string    `gorm:"column:company_id;not null;size:36;index:idx_fxr_company" json:"companyId"`
+	RevaluationDate string    `gorm:"column:revaluation_date;not null;type:date" json:"revaluationDate"`
+	Status          string    `gorm:"column:status;not null;size:20;default:DRAFT;index:idx_fxr_status" json:"status"`
+	TotalGain       float64   `gorm:"column:total_gain;not null;default:0" json:"totalGain"`
+	TotalLoss       float64   `gorm:"column:total_loss;not null;default:0" json:"totalLoss"`
+	GLPosted        bool      `gorm:"column:gl_posted;not null;default:false" json:"glPosted"`
+	GLPostedAt      string    `gorm:"column:gl_posted_at;default:''" json:"glPostedAt"`
+	CreatedBy       string    `gorm:"column:created_by;not null;size:36" json:"createdBy"`
+	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+}
+
+func (FXRevaluationGORM) TableName() string { return "fx_revaluations" }
+
+type FXRevaluationLineGORM struct {
+	ID              string  `gorm:"column:id;primaryKey;size:36" json:"id"`
+	RevaluationID   string  `gorm:"column:revaluation_id;not null;size:36;index:idx_fxrl_revaluation" json:"revaluationId"`
+	InvoiceID       string  `gorm:"column:invoice_id;not null;size:36;index:idx_fxrl_invoice" json:"invoiceId"`
+	InvoiceNumber   string  `gorm:"column:invoice_number;not null;size:30" json:"invoiceNumber"`
+	SupplierID      string  `gorm:"column:supplier_id;not null;size:36" json:"supplierId"`
+	SupplierName    string  `gorm:"column:supplier_name;not null;size:255" json:"supplierName"`
+	Currency        string  `gorm:"column:currency;not null;size:3" json:"currency"`
+	BalanceDue      float64 `gorm:"column:balance_due;not null;default:0" json:"balanceDue"`
+	OriginalRate    float64 `gorm:"column:original_rate;not null;default:0" json:"originalRate"`
+	RevaluationRate float64 `gorm:"column:revaluation_rate;not null;default:0" json:"revaluationRate"`
+	FxGain          float64 `gorm:"column:fx_gain;not null;default:0" json:"fxGain"`
+	FxLoss          float64 `gorm:"column:fx_loss;not null;default:0" json:"fxLoss"`
+}
+
+func (FXRevaluationLineGORM) TableName() string { return "fx_revaluation_lines" }

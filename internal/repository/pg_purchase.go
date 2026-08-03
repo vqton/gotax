@@ -1458,3 +1458,156 @@ func (r *PGRequisitionRepo) RejectRequisition(ctx context.Context, id, reason st
 func (r *PGRequisitionRepo) DeleteRequisition(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.RequisitionGORM{}).Error
 }
+
+// ─── FX Revaluation ──────────────────────────────────────────────────────
+
+type PGFXRevaluationRepo struct{ db *gorm.DB }
+
+func NewPGFXRevaluationRepo(db *gorm.DB) *PGFXRevaluationRepo {
+	return &PGFXRevaluationRepo{db: db}
+}
+
+func fxrToGORM(r *domain.FXRevaluation) *domain.FXRevaluationGORM {
+	g := &domain.FXRevaluationGORM{
+		ID:              r.ID,
+		CompanyID:       r.CompanyID,
+		RevaluationDate: safeTimeStr(r.RevaluationDate),
+		Status:          string(r.Status),
+		TotalGain:       r.TotalGain,
+		TotalLoss:       r.TotalLoss,
+		GLPosted:        r.GLPosted,
+		CreatedBy:       r.CreatedBy,
+		CreatedAt:       r.CreatedAt,
+	}
+	if r.GLPostedAt != nil {
+		g.GLPostedAt = safeTimePtrRFC3339(r.GLPostedAt)
+	}
+	return g
+}
+
+func fxrFromGORM(g *domain.FXRevaluationGORM) *domain.FXRevaluation {
+	r := &domain.FXRevaluation{
+		ID:              g.ID,
+		CompanyID:       g.CompanyID,
+		RevaluationDate: parseDate(g.RevaluationDate),
+		Status:          domain.FXRevaluationStatus(g.Status),
+		TotalGain:       g.TotalGain,
+		TotalLoss:       g.TotalLoss,
+		GLPosted:        g.GLPosted,
+		CreatedBy:       g.CreatedBy,
+		CreatedAt:       g.CreatedAt,
+	}
+	if g.GLPostedAt != "" {
+		r.GLPostedAt = timePtr(parseDateTime(g.GLPostedAt))
+	}
+	return r
+}
+
+func fxrlToGORM(l *domain.FXRevaluationLine) *domain.FXRevaluationLineGORM {
+	return &domain.FXRevaluationLineGORM{
+		ID:              l.ID,
+		RevaluationID:   l.RevaluationID,
+		InvoiceID:       l.InvoiceID,
+		InvoiceNumber:   l.InvoiceNumber,
+		SupplierID:      l.SupplierID,
+		SupplierName:    l.SupplierName,
+		Currency:        l.Currency,
+		BalanceDue:      l.BalanceDue,
+		OriginalRate:    l.OriginalRate,
+		RevaluationRate: l.RevaluationRate,
+		FxGain:          l.FxGain,
+		FxLoss:          l.FxLoss,
+	}
+}
+
+func fxrlFromGORM(g *domain.FXRevaluationLineGORM) *domain.FXRevaluationLine {
+	return &domain.FXRevaluationLine{
+		ID:              g.ID,
+		RevaluationID:   g.RevaluationID,
+		InvoiceID:       g.InvoiceID,
+		InvoiceNumber:   g.InvoiceNumber,
+		SupplierID:      g.SupplierID,
+		SupplierName:    g.SupplierName,
+		Currency:        g.Currency,
+		BalanceDue:      g.BalanceDue,
+		OriginalRate:    g.OriginalRate,
+		RevaluationRate: g.RevaluationRate,
+		FxGain:          g.FxGain,
+		FxLoss:          g.FxLoss,
+	}
+}
+
+func (r *PGFXRevaluationRepo) CreateRevaluation(ctx context.Context, reval *domain.FXRevaluation) error {
+	return r.db.WithContext(ctx).Create(fxrToGORM(reval)).Error
+}
+
+func (r *PGFXRevaluationRepo) CreateRevaluationLines(ctx context.Context, lines []domain.FXRevaluationLine) error {
+	gs := make([]domain.FXRevaluationLineGORM, len(lines))
+	for i := range lines {
+		gs[i] = *fxrlToGORM(&lines[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGFXRevaluationRepo) GetRevaluation(ctx context.Context, id string) (*domain.FXRevaluation, error) {
+	var g domain.FXRevaluationGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrFXRevaluationNotFound
+		}
+		return nil, err
+	}
+	reval := fxrFromGORM(&g)
+	lines, err := r.GetRevaluationLines(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	reval.Lines = lines
+	return reval, nil
+}
+
+func (r *PGFXRevaluationRepo) GetRevaluationLines(ctx context.Context, revaluationID string) ([]domain.FXRevaluationLine, error) {
+	var gs []domain.FXRevaluationLineGORM
+	if err := r.db.WithContext(ctx).Where("revaluation_id = ?", revaluationID).Find(&gs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.FXRevaluationLine, len(gs))
+	for i := range gs {
+		out[i] = *fxrlFromGORM(&gs[i])
+	}
+	return out, nil
+}
+
+func (r *PGFXRevaluationRepo) ListRevaluations(ctx context.Context, companyID string, limit, offset int) ([]domain.FXRevaluation, int, error) {
+	var total int64
+	if err := r.db.WithContext(ctx).Model(&domain.FXRevaluationGORM{}).Where("company_id = ?", companyID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var gs []domain.FXRevaluationGORM
+	dq := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("revaluation_date DESC")
+	if limit > 0 {
+		dq = dq.Limit(limit)
+	}
+	if offset > 0 {
+		dq = dq.Offset(offset)
+	}
+	if err := dq.Find(&gs).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]domain.FXRevaluation, len(gs))
+	for i := range gs {
+		out[i] = *fxrFromGORM(&gs[i])
+	}
+	return out, int(total), nil
+}
+
+func (r *PGFXRevaluationRepo) UpdateRevaluationStatus(ctx context.Context, id string, status domain.FXRevaluationStatus) error {
+	return r.db.WithContext(ctx).Model(&domain.FXRevaluationGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func (r *PGFXRevaluationRepo) SetRevaluationGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.FXRevaluationGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"gl_posted":    true,
+		"gl_posted_at": postedAt.Format(time.RFC3339),
+	}).Error
+}

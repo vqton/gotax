@@ -363,6 +363,15 @@ var (
 	ErrCreditNoteSupplierMismatch = errors.New("credit note supplier must match original invoice")
 	ErrCreditNoteExceedsBalance = errors.New("credit note amount exceeds original invoice balance")
 
+	// FX revaluation (P2-4)
+	ErrFXRevaluationDateRequired  = errors.New("revaluation date is required")
+	ErrFXRevaluationStatusInvalid = errors.New("invalid FX revaluation status")
+	ErrFXRevaluationLinesRequired = errors.New("FX revaluation must have at least one line")
+	ErrFXRevaluationNotFound      = errors.New("FX revaluation not found")
+	ErrFXRevaluationRateMissing   = errors.New("exchange rate not found for currency on revaluation date")
+	ErrFXRevaluationEmpty         = errors.New("no open foreign-currency invoices to revalue")
+	ErrFXRevaluationAlreadyPosted = errors.New("FX revaluation already posted")
+
 	ErrProvisionDateRequired   = errors.New("provision as-of date is required")
 	ErrProvisionNoLines        = errors.New("provision has no lines")
 	ErrProvisionNotFound       = errors.New("doubtful debt provision not found")

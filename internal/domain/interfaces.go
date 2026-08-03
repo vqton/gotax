@@ -444,6 +444,16 @@ type DoubtfulDebtProvisionRepository interface {
 	ListProvisions(ctx context.Context, companyID string, limit, offset int) ([]DoubtfulDebtProvision, int, error)
 }
 
+type FXRevaluationRepository interface {
+	CreateRevaluation(ctx context.Context, r *FXRevaluation) error
+	CreateRevaluationLines(ctx context.Context, lines []FXRevaluationLine) error
+	GetRevaluation(ctx context.Context, id string) (*FXRevaluation, error)
+	GetRevaluationLines(ctx context.Context, revaluationID string) ([]FXRevaluationLine, error)
+	ListRevaluations(ctx context.Context, companyID string, limit, offset int) ([]FXRevaluation, int, error)
+	UpdateRevaluationStatus(ctx context.Context, id string, status FXRevaluationStatus) error
+	SetRevaluationGLPosted(ctx context.Context, id string, postedAt time.Time) error
+}
+
 type RequisitionRepository interface {
 	CreateRequisition(ctx context.Context, r *PurchaseRequisition) error
 	CreateRequisitionLines(ctx context.Context, lines []RequisitionItem) error

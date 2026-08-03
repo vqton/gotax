@@ -26,9 +26,9 @@ Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features
 
 - **Per-feature TDD**: domain validation tests RED first, then service tests, then handler tests. Memory repos used throughout (AGENTS.md convention — no DB).
 - **Single interface additions per feature**: new repository interface (Requisition, Return, etc.) added to `domain/interfaces.go`; MemoryPurchaseRepo + PGPurchaseRepo implement.
-- **Constructor grows**: `NewPurchaseService` gains one repo param per feature (9→13 args). All call sites updated: main.go ×2, purchase_service_test.go, purchase_handler_test.go.
+- **Constructor grows**: `NewPurchaseService` gains one repo param per feature that needs a new repo (9→10 args so far: requisition + FX). All call sites updated: main.go ×2, purchase_service_test.go ×2, purchase_handler_test.go ×1.
 - **Migrations sequential**: 000012_requisitions, 000013_returns, 000014_landed_cost, 000015_fx_revaluation. Each with .up + .down.
-- **Validate package**: register one custom validator per new enum (`reqstatus`, `retstatus`), add `validate.Requisition`/`validate.Return` mapper functions.
+- **Validate package**: register one custom validator per new enum (`reqstatus`, `fxrstatus`), add `validate.Requisition`/`validate.FXRevaluation` mapper functions.
 - **E-invoice XML**: pure-Go `encoding/xml`, no new deps. GDT invoice XML generation + parse, wired into ReceiveEInvoice + a generate endpoint.
 - **FX revaluation**: reuse existing ExchangeRate framework + GL CreatePostedEntry. Realized on payment, unrealized at period-end.
 
@@ -37,7 +37,7 @@ Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features
 - After P2-1: `go vet ./... && go test -count=1 ./...` green, commit — ✅ DONE (a9b5c85 + requisition commit)
 - After P2-2: same + commit — ✅ DONE (daa69a4 + returns commit)
 - After P2-3: same + commit — ✅ DONE (8a8274a + import commit)
-- After P2-4: same + commit
+- After P2-4: same + commit — ✅ DONE (e0d5cf8 + fx commit)
 - After P2-5: same + commit
 - Final: docs bumped (readiness 85% → P2 closed), AGENTS.md updated
 

@@ -21,6 +21,12 @@ import (
 
 func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, context.Context) {
 	t.Helper()
+	r, svc, _, ctx := setupPurchaseGLTest(t)
+	return r, svc, ctx
+}
+
+func setupPurchaseGLTest(t *testing.T) (*gin.Engine, *service.PurchaseService, service.Service, context.Context) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	ctx := context.Background()
@@ -53,11 +59,13 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
 		{Code: "3333", Name: "Thue nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
 		{Code: "33312", Name: "Thue GTGT hang nhap khau", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "515", Name: "Lai ty gia", Type: domain.AccountTypeRevenue, IsActive: true},
+		{Code: "635", Name: "Lo ty gia", Type: domain.AccountTypeExpense, IsActive: true},
 	} {
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
 
-	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
+	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
 	purH := NewPurchaseHandler(purSvc)
 
 	r := gin.New()
@@ -69,7 +77,7 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 	noopMW := func(c *gin.Context) { c.Next() }
 	RegisterPurchaseRoutes(r, purH, noopMW)
 
-	return r, purSvc, ctx
+	return r, purSvc, gl, ctx
 }
 
 // ─── Supplier ────────────────────────────────────────────────────────────
@@ -922,4 +930,76 @@ func TestCreateImportInvoiceHandler(t *testing.T) {
 		r.ServeHTTP(w, rq)
 		assert.Equal(t, 200, w.Code, path)
 	}
+}
+
+// ─── FX Revaluation (P2-4) ────────────────────────────────────────────────
+
+func seedFXInvoice(t *testing.T, svc *service.PurchaseService, gl service.Service, ctx context.Context) *domain.SupplierInvoice {
+	t.Helper()
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "FX-SUP", Name: "FX Sup", TaxCode: "FX-TX"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	inv := &domain.SupplierInvoice{
+		CompanyID: "CMP001", InvoiceNumber: "INV-FX1", SupplierID: sup.ID, InvoiceDate: time.Now(),
+		Currency: "USD", ExchangeRate: 25000,
+		Lines: []domain.SupplierInvoiceLine{{ItemName: "W", Unit: "pcs", Quantity: 1, UnitPrice: 1000, VATRate: 0, VATType: domain.VAT0, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.VerifyInvoice(ctx, inv.ID))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+	asOf := time.Now().Truncate(24 * time.Hour)
+	require.NoError(t, gl.CreateExchangeRate(ctx, &domain.ExchangeRate{
+		CurrencyCode: "USD", RateDate: asOf, AverageRate: 26000, BuyRate: 26000, SellRate: 26000,
+	}))
+	return inv
+}
+
+func TestCreateFXRevaluationHandler(t *testing.T) {
+	r, svc, gl, ctx := setupPurchaseGLTest(t)
+	seedFXInvoice(t, svc, gl, ctx)
+	asOf := time.Now().Truncate(24 * time.Hour)
+
+	body := fmt.Sprintf(`{"revaluation_date":"%s"}`, asOf.Format("2006-01-02T15:04:05Z07:00"))
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/fx-revaluations?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var out domain.FXRevaluation
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out.Lines, 1)
+	assert.InDelta(t, 1000000, out.Lines[0].FxGain, 0.001)
+}
+
+func TestPostFXRevaluationHandler(t *testing.T) {
+	r, svc, gl, ctx := setupPurchaseGLTest(t)
+	seedFXInvoice(t, svc, gl, ctx)
+	reval, err := svc.RevalueAP(ctx, "CMP001", time.Now().Truncate(24*time.Hour))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("PATCH", "/api/v1/purchase/fx-revaluations/"+reval.ID+"/post", nil)
+	r.ServeHTTP(w, rq)
+	assert.Equal(t, 200, w.Code)
+	loaded, _ := svc.GetFXRevaluation(ctx, reval.ID)
+	assert.Equal(t, domain.FXRevalPosted, loaded.Status)
+}
+
+func TestListFXRevaluationsHandler(t *testing.T) {
+	r, svc, gl, ctx := setupPurchaseGLTest(t)
+	seedFXInvoice(t, svc, gl, ctx)
+	_, err := svc.RevalueAP(ctx, "CMP001", time.Now().Truncate(24*time.Hour))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("GET", "/api/v1/purchase/fx-revaluations?company_id=CMP001", nil)
+	r.ServeHTTP(w, rq)
+	assert.Equal(t, 200, w.Code)
+}
+
+func TestGetFXRevaluationNotFound(t *testing.T) {
+	r, _, _, _ := setupPurchaseGLTest(t)
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("GET", "/api/v1/purchase/fx-revaluations/nope", nil)
+	r.ServeHTTP(w, rq)
+	assert.Equal(t, 404, w.Code)
 }
