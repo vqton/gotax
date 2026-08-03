@@ -561,3 +561,52 @@ type OffBalanceSheetItem struct {
 - [x] plan.md checkpoint P2-5 ✅, P2 closed
 
 **Verification:** `git log` shows per-slice commits; final commit includes docs
+
+---
+
+## 🔲 Tax Core Foundations — Round A: Calculation + Declaration (NEXT)
+
+### A1: Rate resolver
+- [ ] `resolveRate(taxType, applicableTo, onDate)` helper in tax service — reads TaxRepository.GetRates, picks active rate for date
+- [ ] Fallback: STANDARD rate if no match; error if no rate at all
+- [ ] Test: active/inactive, effective date window, fallback
+- [ ] `go vet ./... && go test -count=1 ./...`
+
+### A2: VAT engine rewrite
+- [ ] CalculateVAT: explicit 33311 (output) / 1331/1332 (input) accounts first
+- [ ] Fallback: rate-table × revenue/expense for accounts without explicit VAT line
+- [ ] 8% reduced rate honored via rate table (VAT-02)
+- [ ] Tests: payable, refundable, 8% reduced, FA input, zero input
+- [ ] `go vet ./... && go test -count=1 ./...` + commit
+
+### A3: CIT engine rewrite
+- [ ] Rate by company size: STANDARD 20 / SMALL 17 / MICRO 15 (rate table keys)
+- [ ] Provisional vs final; 80% rule flag (CIT-10)
+- [ ] Tests: standard/small/micro, loss (taxable=0), provisional<80% flag
+- [ ] `go vet ./... && go test -count=1 ./...` + commit
+
+### A4: PIT engine
+- [ ] PITEmployeeInput struct (gross, dependants, residence, months)
+- [ ] Progressive brackets 5-35% from rate table (PROGRESSIVE type)
+- [ ] Deductions: personal 11M, dependant 4.4M, social 8%, health 1.5%, unemployment 1%
+- [ ] CalculatePIT signature change + handler route body update + tests
+- [ ] `go vet ./... && go test -count=1 ./...` + commit
+
+### A5: Declaration engine
+- [ ] taxService gains journalRepo + periodRepo deps (constructor + main.go + tests)
+- [ ] GenerateDeclaration: pull posted journals for period → VAT/CIT engine → GTGT01/TNDN03 lines
+- [ ] Cross-validation per TAX_RULES §2.1 ([30]=[23]-[16], XOR 31/32)
+- [ ] Duplicate period+type rejection
+- [ ] Tests: generation, validation fail, duplicate
+- [ ] `go vet ./... && go test -count=1 ./...` + commit
+
+### A6: Declaration→payment automation
+- [ ] CreatePaymentFromDeclaration: amount from lines, due date, status PENDING
+- [ ] Late flag: due date passed → calendar OVERDUE + alert
+- [ ] Tests: payment created, late flag
+- [ ] `go vet ./... && go test -count=1 ./...` + commit — Round A DONE
+
+## Verification Gate
+- [ ] Round A: `go vet ./... && go test -count=1 ./...` green
+- [ ] Each slice: RED test → GREEN impl → commit
+- [ ] No migrations added Round A

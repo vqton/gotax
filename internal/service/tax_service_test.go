@@ -269,3 +269,78 @@ func TestCalculateCIT_RateTableOverridesSize(t *testing.T) {
 	assert.Equal(t, 12.5, res.TaxRate)
 	assert.Equal(t, 5000000.0, res.CITPayable) // 40M * 12.5%
 }
+
+// ─── A4: PIT Engine ─────────────────────────────────────────────────────
+
+func TestCalculatePIT_ResidentProgressive(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{GrossMonthly: 25000000, Dependants: 1, Months: 1},
+	})
+	require.NoError(t, err)
+	// insurance 10.5% = 2.625M; taxable = 25 - 2.625 - 11 - 4.4 = 6.975M
+	// bracket 5-10M: 6.975 * 10% - 0.25M = 447,500
+	assert.Equal(t, 1, res.EmployeeCount)
+	assert.Equal(t, 447500.0, res.TotalPIT)
+	assert.Equal(t, 25000000.0, res.TotalGross)
+	assert.Equal(t, 18025000.0, res.TotalDeductions) // (2.625 + 11 + 4.4)M
+}
+
+func TestCalculatePIT_NonResidentFlat(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{GrossMonthly: 25000000, Months: 1, NonResident: true},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5000000.0, res.TotalPIT) // 25M * 20%
+	assert.Equal(t, 0.0, res.TotalDeductions)
+}
+
+func TestCalculatePIT_NoTaxableIncome(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{GrossMonthly: 10000000, Dependants: 1, Months: 1},
+	})
+	require.NoError(t, err)
+	// taxable = 10 - 1.05 - 11 - 4.4 < 0
+	assert.Equal(t, 0.0, res.TotalPIT)
+}
+
+func TestCalculatePIT_BracketBoundary(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{GrossMonthly: 35000000, Dependants: 0, Months: 1},
+	})
+	require.NoError(t, err)
+	// taxable = 35 - 3.675 - 11 = 20.325M → bracket 18-32M: 20.325*20% - 1.65M = 2.415M
+	assert.Equal(t, 2415000.0, res.TotalPIT)
+}
+
+func TestCalculatePIT_MultipleMonths(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{GrossMonthly: 25000000, Dependants: 1, Months: 12},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5370000.0, res.TotalPIT) // 12 * 447,500
+	assert.Equal(t, 300000000.0, res.TotalGross)
+}
+
+func TestCalculatePIT_MultipleEmployees(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculatePIT(ctx, "c1", vatPeriod(), []domain.PITEmployeeInput{
+		{EmployeeID: "e1", GrossMonthly: 25000000, Dependants: 1, Months: 1},
+		{EmployeeID: "e2", GrossMonthly: 20000000, Months: 1},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.EmployeeCount)
+	// e1: 447,500; e2: insurance 2.1M, taxable = 20-2.1-11 = 6.9M → 6.9*10%-0.25 = 440,000
+	assert.Equal(t, 887500.0, res.TotalPIT)
+	assert.Equal(t, 45000000.0, res.TotalGross)
+}

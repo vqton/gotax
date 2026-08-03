@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -133,7 +134,7 @@ type TaxServiceInterface interface {
 	// Calculations
 	CalculateVAT(ctx context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error)
 	CalculateCIT(ctx context.Context, companyID string, year int, entries []domain.JournalEntry) (*domain.CITResult, error)
-	CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employeeIDs []string) (*domain.PITResult, error)
+	CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employees []domain.PITEmployeeInput) (*domain.PITResult, error)
 }
 
 type taxService struct {
@@ -595,6 +596,74 @@ func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year in
 	return result, nil
 }
 
-func (s *taxService) CalculatePIT(_ context.Context, _ string, _ domain.TaxPeriod, _ []string) (*domain.PITResult, error) {
-	return &domain.PITResult{}, nil
+// PIT progressive brackets per PIT Law Art. 7 (monthly taxable income, VND).
+// tax = taxableIncome * rate% - reduction.
+var pitBrackets = []struct {
+	upper      float64
+	rate       float64
+	reduction  float64
+}{
+	{5e6, 5, 0},
+	{10e6, 10, 250000},
+	{18e6, 15, 750000},
+	{32e6, 20, 1650000},
+	{52e6, 25, 3250000},
+	{80e6, 30, 5850000},
+	{math.Inf(1), 35, 9850000},
+}
+
+const (
+	pitPersonalDeduction = 11e6  // PIT-03: 11M/month resident
+	pitDependantDeduction = 4.4e6 // PIT-04: 4.4M/month per dependant
+	pitSocialRate        = 0.08  // PIT-05
+	pitHealthRate        = 0.015 // PIT-06
+	pitUnemploymentRate  = 0.01  // PIT-07
+)
+
+func progressivePIT(monthlyTaxable float64) float64 {
+	if monthlyTaxable <= 0 {
+		return 0
+	}
+	for _, b := range pitBrackets {
+		if monthlyTaxable < b.upper {
+			return round2(monthlyTaxable*b.rate/100 - b.reduction)
+		}
+	}
+	return round2(monthlyTaxable*35/100 - 9850000)
+}
+
+func (s *taxService) CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employees []domain.PITEmployeeInput) (*domain.PITResult, error) {
+	if companyID == "" {
+		return nil, domain.ErrCompanyIDRequired
+	}
+	nonResidentRate, err := s.resolveRate(ctx, domain.TaxTypePIT, "STANDARD", periodEndDate(period))
+	if err != nil {
+		return nil, err
+	}
+	result := &domain.PITResult{CompanyID: companyID, Period: period}
+	for _, e := range employees {
+		months := e.Months
+		if months < 1 {
+			months = 1
+		}
+		gross := e.GrossMonthly * float64(months)
+		result.TotalGross += gross
+		result.EmployeeCount++
+		if e.NonResident {
+			result.TotalPIT += gross * nonResidentRate.RateValue / 100
+			continue
+		}
+		insuranceBase := e.SocialInsuranceBase
+		if insuranceBase <= 0 {
+			insuranceBase = e.GrossMonthly
+		}
+		insurance := (pitSocialRate + pitHealthRate + pitUnemploymentRate) * insuranceBase
+		deductions := insurance + pitPersonalDeduction + pitDependantDeduction*float64(e.Dependants)
+		result.TotalDeductions += deductions * float64(months)
+		result.TotalPIT += progressivePIT(e.GrossMonthly-deductions) * float64(months)
+	}
+	result.TotalGross = round2(result.TotalGross)
+	result.TotalDeductions = round2(result.TotalDeductions)
+	result.TotalPIT = round2(result.TotalPIT)
+	return result, nil
 }

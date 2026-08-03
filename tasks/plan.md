@@ -148,3 +148,74 @@ Phase 4 ──→ 10 (credit limit: trivial check)
 | Bad debt provision % not regulatory-aligned | Medium | Make % configurable, default to VAS 17 rates |
 | FX rate source (daily rate from central bank?) | Low | Manual rate input for now; API integration later |
 | Credit limit stale (customer pays between check and create) | Low | Race acknowledged — detect at next statement |
+
+---
+
+# Tax Core Foundations — Shared Infrastructure (TDD)
+
+## Overview
+
+Build the shared tax foundations flagged in TAX_READINESS.md: configurable rate engine, real VAT/CIT/PIT calculation, declaration engine, declaration→payment automation, GDT client + XMLDSig. All TDD (RED→GREEN), memory repos, per-slice commits. Order = dependency + risk.
+
+Sources: `docs/tax/TAX_RULES.md` (rules), `docs/tax/TAX_SPECS.md` (forms), `docs/tax/TAX_READINESS.md` (gaps).
+
+## Current State (verified)
+
+- `TaxServiceInterface` + `taxService` exist. CRUD for declarations/rates/payments/e-invoices/calendar/alerts/audit DONE.
+- `CalculateVAT`/`CalculateCIT`: **hardcoded** rates (10%/20%), naive account classification.
+- `CalculatePIT`: **stub** — returns empty `PITResult{}`.
+- **Zero** `tax_service_test.go` (handler tests only, 610 lines).
+- `MemoryTaxRepo` in `internal/repository/memory.go:1152`; PG in `pg_tax.go`.
+- `TaxRepository` interface in `interfaces.go:194` — no rate-lookup-by-date method.
+- No HTTP client, no XMLDSig anywhere in codebase. `internal/einvoice` = parse/generate only.
+- `DigitalSignature` model = metadata only (no key storage).
+
+## Architecture Decisions
+
+- **Rate table drives everything.** Rates stored in `tax_rates` (TaxRate model exists: tax_type, rate_code, rate_value, brackets, effective_from/to, is_active, applicable_to). New service helper `resolveRate(taxType, applicableTo, onDate)` reads via `TaxRepository.GetRates`. No new migration (table exists — verify 000009_tax_schema).
+- **VAT engine reads explicit VAT accounts first** (Cr 33311 output, Dr 1331/1332 input), falls back to rate × revenue for accounts without explicit VAT line. Replaces hardcoded lists.
+- **CIT rate by company size** — rate table keys: `STANDARD` 20%, `SMALL` 17% (3-50B), `MICRO` 15% (<3B). Company revenue input passed in (no company repo dep in engine).
+- **PIT signature changes** — current `CalculatePIT(ctx, companyID, period, employeeIDs)` carries no salary data. New input struct `PITEmployeeInput` (gross, dependants, residence, months). Breaking change: interface + handler route body. Accepted — stub unusable as-is.
+- **Declaration engine pulls posted journals** — taxService gains journalRepo + periodRepo deps (constructor change, wire in main.go + tests). Generate → compute → map to form lines → validate cross-sums → DRAFT(VALIDATED).
+- **GDT client isolated** — new package `internal/gdtclient` (or `internal/gdt`): interface `GDTClient`, mock HTTP server in tests, retry 1s/5s/30s, timeout 120s. XMLDSig separate package `internal/xmldsig` (C14N + RSA-SHA256). Wiring into IssueEInvoice = Round B.
+- **No new migrations Round A** — all on existing tables.
+
+## Rounds (each = several slices, checkpoint, commit)
+
+### Round A: Calculation + Declaration core (THIS ROUND)
+| # | Slice | Scope | Deps |
+|---|-------|-------|------|
+| A1 | Rate resolver — `resolveRate` helper + tests | S | — |
+| A2 | VAT engine rewrite (rate-table driven, 33311/1331 first) | M | A1 |
+| A3 | CIT engine rewrite (size-based rate, provisional/80% rule) | M | A1 |
+| A4 | PIT engine (brackets, deductions, insurances) + signature change | M | A1 |
+| A5 | Declaration engine — GenerateDeclaration from posted journals + form-line mapping + cross-validation | L | A2, A3 |
+| A6 | Declaration→payment automation (create TaxPayment, due date, late flag) | M | A5 |
+
+### Round B: GDT infrastructure (next)
+| # | Slice | Scope | Deps |
+|---|-------|-------|------|
+| B1 | `internal/xmldsig` — C14N + RSA-SHA256 sign/verify | S | — |
+| B2 | `internal/gdt` client — submit/acknowledge, retry, error map, mock server | M | — |
+| B3 | Wire IssueEInvoice → sign → GDT submit → status transitions | L | B1, B2 |
+
+### Round C: Tax form XML (later)
+GTGT-01/TNDN-01/KK-TNCN per Circular 80 + HTKK wrapper. Depends on A5.
+
+## Checkpoints
+
+- A1-A2: `go vet ./... && go test -count=1 ./...` green, commit each
+- A3-A4: same + commit
+- A5-A6: same + commit — Round A done
+- B: same + commit — Round B done
+- Final: docs + AGENTS.md + todo.md updated
+
+## Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| PIT signature change breaks handler | Med | Update handler + tests in same slice A4 |
+| NewService constructor growth (journalRepo, periodRepo) | Med | Add 2 params; update main.go ×2 + tests |
+| GDT XML/SOAP format drift | High | Mock server + isolate format in gdt package |
+| VAT account classification edge cases | Med | Explicit-account-first, fallback documented, tests per rule |
+| Rate table empty → calc fails | Med | Seed defaults in memory repo tests; PG: seed migration (Round A checkpoint verifies) |

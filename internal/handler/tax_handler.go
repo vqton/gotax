@@ -591,15 +591,15 @@ func (h *TaxHandler) CalculateCIT(c *gin.Context) {
 
 func (h *TaxHandler) CalculatePIT(c *gin.Context) {
 	var req struct {
-		CompanyID  string           `json:"company_id"`
-		Period     domain.TaxPeriod `json:"period"`
-		EmployeeIDs []string        `json:"employee_ids"`
+		CompanyID string                    `json:"company_id"`
+		Period    domain.TaxPeriod          `json:"period"`
+		Employees []domain.PITEmployeeInput `json:"employees"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	result, err := h.svc.CalculatePIT(c.Request.Context(), req.CompanyID, req.Period, req.EmployeeIDs)
+	result, err := h.svc.CalculatePIT(c.Request.Context(), req.CompanyID, req.Period, req.Employees)
 	if err != nil {
 		h.taxError(c, err)
 		return

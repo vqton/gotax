@@ -460,6 +460,18 @@ type PITResult struct {
 	TotalPIT        float64 `json:"total_pit"`
 }
 
+// PITEmployeeInput carries per-employee payroll data for PIT calculation.
+// NonResident defaults to false (resident): the safe default applies the
+// progressive schedule with deductions.
+type PITEmployeeInput struct {
+	EmployeeID         string  `json:"employee_id"`
+	GrossMonthly       float64 `json:"gross_monthly"`          // gross salary per month (VND)
+	Dependants         int     `json:"dependants"`             // registered dependants
+	Months             int     `json:"months"`                 // months covered by the period (1 = monthly)
+	NonResident        bool    `json:"non_resident,omitempty"` // flat 20%, no deductions
+	SocialInsuranceBase float64 `json:"social_insurance_base,omitempty"` // capped base; defaults to gross
+}
+
 type TaxDeclarationFilter struct {
 	CompanyID       string           `json:"company_id,omitempty"`
 	DeclarationType DeclarationType  `json:"declaration_type,omitempty"`

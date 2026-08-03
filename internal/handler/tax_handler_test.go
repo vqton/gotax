@@ -570,6 +570,28 @@ func TestCalculateVAT_ZeroInput(t *testing.T) {
 	assert.Equal(t, 1000000.0, result.VATPayable)
 }
 
+func TestCalculatePIT(t *testing.T) {
+	ts := setupTaxTest(t)
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"period":{"period_type":"MONTHLY","period_year":2026,"period_number":1},
+		"employees":[
+			{"employee_id":"e1","gross_monthly":25000000,"dependants":1,"months":1}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/calculate/pit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result domain.PITResult
+	json.Unmarshal(w.Body.Bytes(), &result)
+	assert.Equal(t, ts.compID, result.CompanyID)
+	assert.Equal(t, 1, result.EmployeeCount)
+	assert.Equal(t, 447500.0, result.TotalPIT)
+}
+
 func TestTimeDependentOperations(t *testing.T) {
 	ts := setupTaxTest(t)
 
