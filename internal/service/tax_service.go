@@ -416,57 +416,120 @@ func (s *taxService) CloseAuditCase(ctx context.Context, id string, findings str
 
 // ─── Calculations ──────────────────────────────────────────────────────
 
-var vatOutputAccounts = []string{"5111", "5112", "5113", "711"}
-var vatInputAccounts = []string{"152", "153", "156", "611", "621", "627", "641", "642"}
-var vatOutputRate = 0.10
-var vatInputRate = 0.10
-var vatInputFARate = 0.10
+// VAT account classification. Explicit VAT accounts (3331x output, 133x input)
+// carry the bookkeeper-posted amounts and win over rate-based estimation.
+var vatOutputAccounts = []string{"33311", "33312", "33313"}
+var vatInputAccounts = []string{"1331", "1332"}
+var vatRevenueAccounts = []string{"5111", "5112", "5113", "711"}
+var vatExpenseAccounts = []string{"152", "153", "156", "611", "621", "627", "641", "642"}
 
-func (s *taxService) CalculateVAT(_ context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error) {
+func (s *taxService) CalculateVAT(ctx context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error) {
 	if companyID == "" {
 		return nil, domain.ErrCompanyIDRequired
+	}
+	standard, err := s.resolveRate(ctx, domain.TaxTypeVAT, "STANDARD", periodEndDate(period))
+	if err != nil {
+		return nil, err
 	}
 	result := &domain.VATResult{
 		CompanyID: companyID,
 		Period:    period,
 	}
+	explicitOutput := false
+	explicitInput := false
 	for _, entry := range entries {
 		for _, line := range entry.Lines {
 			if line.CreditAmount > 0 {
-				for _, acct := range vatOutputAccounts {
-					if line.AccountCode == acct {
-						result.OutputVAT += line.CreditAmount * vatOutputRate
-						result.SalesTotal += line.CreditAmount
-					}
+				if contains(vatOutputAccounts, line.AccountCode) {
+					result.OutputVAT += line.CreditAmount
+					explicitOutput = true
+				}
+				if contains(vatRevenueAccounts, line.AccountCode) {
+					result.SalesTotal += line.CreditAmount
 				}
 			}
 			if line.DebitAmount > 0 {
-				isInput := false
-				for _, acct := range vatInputAccounts {
-					if line.AccountCode == acct {
-						result.InputVAT += line.DebitAmount * vatInputRate
-						result.PurchaseTotal += line.DebitAmount
-						isInput = true
-						break
-					}
+				if contains(vatInputAccounts, line.AccountCode) {
+					result.InputVAT += line.DebitAmount
+					explicitInput = true
 				}
-				if !isInput && len(line.AccountCode) >= 3 && line.AccountCode[:3] == "211" {
-					result.InputVATFA += line.DebitAmount * vatInputFARate
+				if contains(vatExpenseAccounts, line.AccountCode) || isFixedAssetAccount(line.AccountCode) {
 					result.PurchaseTotal += line.DebitAmount
 				}
 			}
 		}
 	}
+	if !explicitOutput {
+		result.OutputVAT = result.SalesTotal * standard.RateValue / 100
+	}
+	if !explicitInput {
+		rate := standard.RateValue / 100
+		var inputBase, faBase float64
+		for _, entry := range entries {
+			for _, line := range entry.Lines {
+				if line.DebitAmount <= 0 {
+					continue
+				}
+				if contains(vatExpenseAccounts, line.AccountCode) {
+					inputBase += line.DebitAmount
+				}
+				if isFixedAssetAccount(line.AccountCode) {
+					faBase += line.DebitAmount
+				}
+			}
+		}
+		result.InputVAT = inputBase * rate
+		result.InputVATFA = faBase * rate
+	}
 	result.TotalInputVAT = result.InputVAT + result.InputVATFA
 	if result.OutputVAT > result.TotalInputVAT {
-		result.VATPayable = math.Round((result.OutputVAT - result.TotalInputVAT)*100) / 100
+		result.VATPayable = round2(result.OutputVAT - result.TotalInputVAT)
 	} else {
-		result.VATRefundable = math.Round((result.TotalInputVAT - result.OutputVAT)*100) / 100
+		result.VATRefundable = round2(result.TotalInputVAT - result.OutputVAT)
 	}
-	result.OutputVAT = math.Round(result.OutputVAT*100) / 100
-	result.InputVAT = math.Round(result.InputVAT*100) / 100
-	result.TotalInputVAT = math.Round(result.TotalInputVAT*100) / 100
+	result.OutputVAT = round2(result.OutputVAT)
+	result.InputVAT = round2(result.InputVAT)
+	result.InputVATFA = round2(result.InputVATFA)
+	result.TotalInputVAT = round2(result.TotalInputVAT)
+	result.SalesTotal = round2(result.SalesTotal)
+	result.PurchaseTotal = round2(result.PurchaseTotal)
 	return result, nil
+}
+
+func isFixedAssetAccount(code string) bool {
+	return len(code) >= 3 && code[:3] == "211"
+}
+
+// periodEndDate returns the ISO end date of the tax period (used for rate
+// resolution). Monthly/quarterly/annual mapping; per-occurrence defaults to
+// December of the period year.
+func periodEndDate(p domain.TaxPeriod) string {
+	n := p.PeriodNumber
+	switch p.PeriodType {
+	case domain.PeriodTypeQuarterly:
+		n *= 3
+	case domain.PeriodTypeAnnual:
+		n = 12
+	case domain.PeriodTypePerOccurrence:
+		n = 12
+	}
+	if n < 1 {
+		n = 1
+	}
+	if n > 12 {
+		n = 12
+	}
+	date := time.Date(p.PeriodYear, time.Month(n)+1, 0, 0, 0, 0, 0, time.UTC)
+	return date.Format("2006-01-02")
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 var citRate = 0.20

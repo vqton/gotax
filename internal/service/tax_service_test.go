@@ -97,3 +97,90 @@ func TestResolveRate_StatutoryFallback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 17.0, cit.RateValue)
 }
+
+// ─── A2: VAT Engine ─────────────────────────────────────────────────────
+
+func vatPeriod() domain.TaxPeriod {
+	return domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 1}
+}
+
+func vatEntry(num string, lines []domain.JournalLine) domain.JournalEntry {
+	return domain.JournalEntry{EntryNumber: num, Lines: lines}
+}
+
+func vatLine(account string, dr, cr float64) domain.JournalLine {
+	return domain.JournalLine{AccountCode: account, DebitAmount: dr, CreditAmount: cr}
+}
+
+func TestCalculateVAT_FallbackUsesRateTable(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+	require.NoError(t, repo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "VAT_STANDARD", TaxType: domain.TaxTypeVAT,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 8,
+		ApplicableTo: "STANDARD", EffectiveFrom: "2026-01-01", IsActive: true,
+	}))
+
+	res, err := svc.CalculateVAT(ctx, "c1", vatPeriod(), []domain.JournalEntry{
+		vatEntry("E1", []domain.JournalLine{vatLine("5111", 0, 10000000)}),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 800000.0, res.OutputVAT) // 10M * 8% from rate table
+	assert.Equal(t, 800000.0, res.VATPayable)
+}
+
+func TestCalculateVAT_ExplicitAccountsWin(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateVAT(ctx, "c1", vatPeriod(), []domain.JournalEntry{
+		vatEntry("E1", []domain.JournalLine{
+			vatLine("152", 5000000, 0),
+			vatLine("1331", 500000, 0),
+			vatLine("331", 0, 5500000),
+		}),
+	})
+	require.NoError(t, err)
+	// explicit 1331 used; no double-count via 152 fallback
+	assert.Equal(t, 500000.0, res.InputVAT)
+	assert.Equal(t, 5000000.0, res.PurchaseTotal)
+}
+
+func TestCalculateVAT_ExplicitOutput(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateVAT(ctx, "c1", vatPeriod(), []domain.JournalEntry{
+		vatEntry("E1", []domain.JournalLine{
+			vatLine("131", 11000000, 0),
+			vatLine("5111", 0, 10000000),
+			vatLine("33311", 0, 1000000),
+		}),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1000000.0, res.OutputVAT) // explicit 33311, no rate applied
+	assert.Equal(t, 10000000.0, res.SalesTotal)
+}
+
+func TestCalculateVAT_FAInput(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateVAT(ctx, "c1", vatPeriod(), []domain.JournalEntry{
+		vatEntry("E1", []domain.JournalLine{vatLine("2111", 10000000, 0)}),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1000000.0, res.InputVATFA) // 10M * 10% default
+	assert.Equal(t, 1000000.0, res.TotalInputVAT)
+}
+
+func TestCalculateVAT_Refundable(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	res, err := svc.CalculateVAT(ctx, "c1", vatPeriod(), []domain.JournalEntry{
+		vatEntry("E1", []domain.JournalLine{vatLine("5111", 0, 2000000)}),
+		vatEntry("E2", []domain.JournalLine{vatLine("152", 3000000, 0)}),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 200000.0, res.OutputVAT)
+	assert.Equal(t, 300000.0, res.InputVAT)
+	assert.Equal(t, 0.0, res.VATPayable)
+	assert.Equal(t, 100000.0, res.VATRefundable)
+}
