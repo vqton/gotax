@@ -555,9 +555,9 @@ type OffBalanceSheetItem struct {
 **Desc:** Readiness 0%→100%, AGENTS.md module table row, plan.md checkpoint.
 
 **AC:**
-- [ ] PURCHASE_READINESS.md e-invoice row updated
-- [ ] PURCHASE_ANALYSIS_SUMMARY.md updated
-- [ ] AGENTS.md purchase row readiness updated
-- [ ] plan.md checkpoint P2-5 ✅, P2 closed
+- [x] PURCHASE_READINESS.md e-invoice row updated
+- [x] PURCHASE_ANALYSIS_SUMMARY.md updated
+- [x] AGENTS.md purchase row readiness updated
+- [x] plan.md checkpoint P2-5 ✅, P2 closed
 
 **Verification:** `git log` shows per-slice commits; final commit includes docs

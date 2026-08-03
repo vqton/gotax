@@ -38,8 +38,8 @@ Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features
 - After P2-2: same + commit — ✅ DONE (daa69a4 + returns commit)
 - After P2-3: same + commit — ✅ DONE (8a8274a + import commit)
 - After P2-4: same + commit — ✅ DONE (e0d5cf8 + fx commit)
-- After P2-5: same + commit
-- Final: docs bumped (readiness 85% → P2 closed), AGENTS.md updated
+- After P2-5: same + commit — ✅ DONE (c3068c8 + 8a484a5 + 5074d93 + docs commit)
+- Final: docs bumped (readiness → P2 closed), AGENTS.md updated — ✅ DONE (this commit)
 
 ## P2-5 Slice Plan — GDT E-Invoice XML (M-1)
 

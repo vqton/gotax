@@ -29,7 +29,7 @@
 | 3-way matching | **100%** | PO x GRN x Invoice on PostInvoice, 5% tolerance, ErrInvoice3WayMismatch |
 | GL auto-posting | **100%** | PostInvoice creates posted JE (Dr expense/VAT, Cr 331) via existing JournalEntry engine; GLPosted set only on success |
 | Validate package integration | **100%** | 8 purchase custom validators + validate/purchase.go wired into service (supplier/PO/GRN/invoice/AP/cost) |
-| E-invoice GDT integration | **0%** | ReceiveEInvoice creates invoice but no XML parse/GDT API |
+| E-invoice GDT integration | **100%** | GDT XML parse + generate (internal/einvoice, Decree 254/2026 schema), ReceiveEInvoiceXML auto-creates supplier + stores raw XML, POST /invoices/e-invoice + GET /invoices/:id/e-invoice |
 | Circular 99 compliance | **85%** | Doubtful-debt provisioning automated (30/50/70/100% tiers, per-supplier oldest-date aging) |
 | Negative-path tests | **60%** | State-machine violations, not-found, missing-supplier covered at service + handler |
 | Reports | **100%** | S01-DN, S02-DN, S03-DN, VAT input, uninvoiced receipts — service + handler + tests |

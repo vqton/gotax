@@ -26,12 +26,7 @@ Purchase/AP module assessed at **~95% complete** (v2.1). v2.0 gaps closed: 3-way
 4. Negative-path tests (H-2) — state-machine violations covered at handler + service
 5. Domain validation tests (M-7) — 16 tests in models_purchase_test.go
 
-**Still open (P2, non-blocking):**
-- E-invoice GDT XML integration
-- Import purchase + landed cost
-- Purchase return workflow
-- Purchase requisition + approval workflow
-- Multi-currency AP FX revaluation
+**Still open (non-blocking):**
 - Supplier portal integration
 
 ---
@@ -169,10 +164,11 @@ purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo
 | S01-DN/S02-DN/S03-DN reports | 100% | 100% | P1 |
 | VAT input tracking report | 100% | 100% | P1 |
 | Domain validation tests | 100% | 100% | P1 |
-| E-invoice GDT integration | 0% | 100% | P2 |
-| Import purchase + landed cost | 0% | 100% | P2 |
-| Purchase return workflow | 0% | 100% | P2 |
-| Purchase requisition + approval | 0% | 100% | P2 |
+| E-invoice GDT integration | 100% | 100% | P2 ✅ |
+| Import purchase + landed cost | 100% | 100% | P2 ✅ |
+| Purchase return workflow | 100% | 100% | P2 ✅ |
+| Purchase requisition + approval | 100% | 100% | P2 ✅ |
+| Multi-currency AP FX revaluation | 100% | 100% | P2 ✅ |
 
 ---
 

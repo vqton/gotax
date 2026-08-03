@@ -22,6 +22,7 @@ internal/handler/           →  HTTP handlers, authMW, route registration
 internal/repository/        →  per-module PG + memory impls (pg_*.go, memory_*.go)
 internal/db/                →  GORM setup, golang-migrate runner
 internal/validate/          →  go-playground/validator singleton + custom validators
+internal/einvoice/          →  GDT e-invoice XML parse + generate (Decree 254/2026 schema). Pure encoding/xml.
 ```
 
 **Two backends** controlled by `DATABASE_URL` env var:
@@ -166,7 +167,7 @@ When adding a new module that uses the validator: register custom validators in 
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
 | Tax | ~20% | Declaration stubs, e-invoice CRUD, rates CRUD. Missing: declaration engine, XML gen, GDT API |
-| Purchase | ~90% | Full domain models + repos + service + handlers + 41 routes + 22 handler tests + 27 service tests + 16 domain tests. 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports (S01/02/03-DN, VAT input, uninvoiced receipts), validate package integration. Missing: e-invoice GDT XML, import landed cost, returns |
+| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 66 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
 | Sale | ~0% | Interface + PG + memory repos. Service incomplete |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
 
