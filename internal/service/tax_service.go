@@ -3,10 +3,85 @@ package service
 import (
 	"context"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"gotax/internal/domain"
 )
+
+// defaultRateValues holds statutory fallback rates used when the rate table
+// has no matching active rate. Keeps calculation deterministic on fresh
+// installs (empty table). Keys are applicableTo selectors.
+var defaultRateValues = map[domain.TaxType]map[string]float64{
+	domain.TaxTypeVAT: {"STANDARD": 10, "REDUCED": 8, "ZERO": 0},
+	domain.TaxTypeCIT: {"STANDARD": 20, "SMALL": 17, "MICRO": 15},
+	domain.TaxTypePIT: {"STANDARD": 20},
+}
+
+// resolveRate returns the active rate for taxType as of onDate (ISO date).
+// The applicableTo key is matched against the RateCode suffix (e.g. "SMALL"
+// matches "CIT_SMALL") or the ApplicableTo field. RateCode suffix matching
+// keeps the resolver backend-agnostic (PG mapping drops ApplicableTo).
+// Falls back to a STANDARD-keyed rate, then any active rate, then the
+// statutory default.
+func (s *taxService) resolveRate(ctx context.Context, taxType domain.TaxType, applicableTo, onDate string) (domain.TaxRate, error) {
+	rates, err := s.repo.GetRates(ctx, domain.TaxRateFilter{TaxType: taxType})
+	if err != nil {
+		return domain.TaxRate{}, err
+	}
+	key := strings.ToUpper(strings.TrimSpace(applicableTo))
+	var active []domain.TaxRate
+	for _, r := range rates {
+		if r.IsActive && rateAppliesOn(r, onDate) {
+			active = append(active, r)
+		}
+	}
+	for _, r := range active {
+		if matchesRateKey(r, key) {
+			return r, nil
+		}
+	}
+	for _, r := range active {
+		if matchesRateKey(r, "STANDARD") {
+			return r, nil
+		}
+	}
+	sort.Slice(active, func(i, j int) bool { return active[i].RateCode < active[j].RateCode })
+	if len(active) > 0 {
+		return active[0], nil
+	}
+	val, ok := defaultRateValues[taxType][key]
+	if !ok {
+		val = defaultRateValues[taxType]["STANDARD"]
+	}
+	return domain.TaxRate{RateType: domain.RateTypePERCENTAGE, RateValue: val, IsActive: true}, nil
+}
+
+func matchesRateKey(r domain.TaxRate, key string) bool {
+	if key == "" {
+		return false
+	}
+	if r.ApplicableTo != "" && strings.EqualFold(strings.TrimSpace(r.ApplicableTo), key) {
+		return true
+	}
+	return strings.HasSuffix(strings.ToUpper(r.RateCode), key)
+}
+
+// rateAppliesOn reports whether the rate is effective on the ISO date.
+// Empty onDate means "always". Lexicographic compare is valid for ISO dates.
+func rateAppliesOn(r domain.TaxRate, onDate string) bool {
+	if onDate == "" {
+		return true
+	}
+	if r.EffectiveFrom != "" && r.EffectiveFrom > onDate {
+		return false
+	}
+	if r.EffectiveTo != "" && r.EffectiveTo < onDate {
+		return false
+	}
+	return true
+}
 
 type TaxServiceInterface interface {
 	// Declarations
