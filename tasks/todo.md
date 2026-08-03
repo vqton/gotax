@@ -79,14 +79,15 @@
 
 ---
 
-## ⏸️ Phase 2: E-Invoice Pipeline (DEFERRED)
+## ✅ Phase 2: E-Invoice Pipeline (DONE — B1/B2/B3: ce92489, de729c6, 4528214)
 
-Deferred per PI direction. Full design in `docs/sale/AR_WORKFLOW.md`. Retained for reference.
+Tax-module e-invoice pipeline built under Round B (see `docs/tax/`). TXML generation for the sale/tax side (Task 6), digital signer (Task 7), GDT client (Task 8) complete. Task 9 (auto-pipeline hook) deferred — issue is manual `POST /:id/issue`.
 
-### Task 6: E-Invoice Pipeline Interface + TXML Generator
-### Task 7: E-Invoice Digital Signer
-### Task 8: GDT API Client
-### Task 9: E-Invoice Auto-Pipeline Hook
+- [x] Task 6: E-Invoice Pipeline Interface + TXML Generator — `internal/einvoice/txml.go` (BKHoaDon per Decree 254/2026, money type)
+- [x] Task 7: E-Invoice Digital Signer — `internal/xmldsig` + `pemSigner` (C14N + RSA-SHA256, BK:ChuKySo)
+- [x] Task 8: GDT API Client — `internal/gdt` (submit/status/cancel, retry 1s/5s/30s, error map)
+- [x] Task 9a: Issue pipeline — DRAFT/VALIDATED→SIGNED→SUBMITTED, status poll→ISSUED, cancel→GDT notify
+- [ ] Task 9b: Auto-pipeline hook — issue on validation approval (deferred)
 
 ---
 
