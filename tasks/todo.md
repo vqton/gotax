@@ -509,19 +509,19 @@ type OffBalanceSheetItem struct {
 
 ---
 
-## ✅ Purchase P2-5: GDT E-Invoice XML
+## ✅ Purchase P2-5: GDT E-Invoice XML (COMPLETE — c3068c8, 8a484a5, 5074d93, 6895977)
 
 ### Slice 5.1 — einvoice package (Parse + Generate)
 
 **Desc:** New pure package `internal/einvoice`. XML structs mirror PURCHASE_TEMPLATES §8. `Parse(raw) → *domain.SupplierInvoice`, `Generate(inv) → []byte`. GL defaults 152/1331, VAT rate→type map.
 
 **AC:**
-- [ ] Parse valid VND invoice → SupplierInvoice (fields + lines + totals)
-- [ ] Parse FC invoice with ExchangeRate
-- [ ] Parse credit note (InvoiceType)
-- [ ] Parse error: malformed XML, missing required fields
-- [ ] Generate→Parse round-trip
-- [ ] VAT map: 0/5/8/10/-1
+- [x] Parse valid VND invoice → SupplierInvoice (fields + lines + totals)
+- [x] Parse FC invoice with ExchangeRate
+- [x] Parse credit note (InvoiceType)
+- [x] Parse error: malformed XML, missing required fields
+- [x] Generate→Parse round-trip
+- [x] VAT map: 0/5/8/10/-1
 
 **Verification:** `go vet ./internal/einvoice && go test -count=1 ./internal/einvoice/`
 
@@ -530,11 +530,11 @@ type OffBalanceSheetItem struct {
 **Desc:** `ReceiveEInvoiceXML(ctx, companyID, raw)` — parse → auto-create supplier → dedupe → create draft invoice → persist raw XML. `GenerateEInvoiceXML(ctx, id)` — load → XML.
 
 **AC:**
-- [ ] ReceiveEInvoiceXML creates draft invoice with supplier auto-created
-- [ ] Raw XML stored in EInvoiceData
-- [ ] Duplicate invoice number rejected
-- [ ] GenerateEInvoiceXML returns parseable XML for posted invoice
-- [ ] Generate on missing invoice → ErrInvoiceNotFound
+- [x] ReceiveEInvoiceXML creates draft invoice with supplier auto-created
+- [x] Raw XML stored in EInvoiceData
+- [x] Duplicate invoice number rejected
+- [x] GenerateEInvoiceXML returns parseable XML for posted invoice
+- [x] Generate on missing invoice → ErrInvoiceNotFound
 
 **Verification:** `go test -count=1 -run 'ReceiveEInvoiceXML|GenerateEInvoiceXML|EInvoice' ./internal/service/`
 
@@ -543,10 +543,10 @@ type OffBalanceSheetItem struct {
 **Desc:** `POST /api/v1/purchase/invoices/e-invoice` (raw XML body, company_id query) → 201. `GET /api/v1/purchase/invoices/:id/e-invoice` → 200 XML.
 
 **AC:**
-- [ ] POST valid XML → 201, invoice returned, supplier auto-created
-- [ ] POST malformed XML → 400
-- [ ] GET → 200, content-type application/xml, round-trips through Parse
-- [ ] GET missing → 404
+- [x] POST valid XML → 201, invoice returned, supplier auto-created
+- [x] POST malformed XML → 400
+- [x] GET → 200, content-type application/xml, round-trips through Parse
+- [x] GET missing → 404
 
 **Verification:** `go vet ./... && go test -count=1 ./...`
 
