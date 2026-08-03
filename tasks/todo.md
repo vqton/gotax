@@ -610,3 +610,38 @@ type OffBalanceSheetItem struct {
 - [ ] Round A: `go vet ./... && go test -count=1 ./...` green
 - [ ] Each slice: RED test → GREEN impl → commit
 - [ ] No migrations added Round A
+
+## ✅ Tax Round A: Calculation + Declaration Core (COMPLETE — c6c3a86)
+
+### A1: Rate resolver (3e84268)
+- [x] `resolveRate(taxType, applicableTo, onDate)` helper — rate table lookup, statutory fallback, suffix matching on RateCode
+- [x] Tests: by-rate-code-suffix, active-window, empty-table-fallback
+
+### A2: Rate-table VAT engine (a06e4db)
+- [x] `CalculateVAT` reads explicit VAT accounts first (Cr 33311 output, Dr 1331/1332 input), rate × revenue fallback
+- [x] OutputVAT/InputVAT/InputVATFA/payable/refundable from rate table
+- [x] Tests per rule incl. zero-rate export, partial-credit purchase
+
+### A3: Size-based CIT engine (9d85d2b)
+- [x] `CalculateCIT` — revenue → size tier (MICRO 15% / SMALL 17% / STANDARD 20%) from rate table
+- [x] Revenue - expenses + other income = taxable income
+- [x] Handler test updated (100M → MICRO 15%)
+
+### A4: Real PIT engine (c3398fd)
+- [x] `CalculatePIT` progressive brackets (5-35%), resident/non-resident, dependants, insurance caps
+- [x] **Breaking change approved**: `[]PITEmployeeInput` replaces `[]string employeeIDs` — interface + handler body
+- [x] Tests: progressive bracket, non-resident flat 20%, insurance cap
+
+### A5: Declaration engine (f57dd9d)
+- [x] `GenerateDeclaration` — posted journals by period date range → CalculateVAT/CIT → form lines (FROM_LEDGER source) → cross-validation (TAX_RULES §2.1) → VALIDATED
+- [x] GTGT01 lines 14/15/16/21/22/23/30/31/32; TNDN03 lines 04/06/12/13/14
+- [x] Duplicate period+type → 409 ErrDuplicateDeclaration; KK_TNCN → 400
+- [x] Zero declaration (no posted journals) supported — VAT-13
+- [x] Company-scoped journal filter (cross-tenant fix)
+- [x] `POST /api/v1/tax/declarations/generate`; NewTaxService + JournalRepository
+
+### A6: Declaration→payment automation (c6c3a86)
+- [x] AcknowledgeDeclaration auto-creates PENDING TaxPayment (payable lines [31]/[14])
+- [x] Statutory due dates: VAT monthly 20th next month / quarterly 30th, CIT annual 31-Mar
+- [x] Refundable/zero → no payment; idempotent per declaration
+- [x] Validation fix: GTGT01 [30] algebraic sum may be negative

@@ -8,11 +8,11 @@
 
 ## Executive Summary
 
-GoTax backend has strong accounting foundations (Circular 99/2025/TT-BTC COA, journal lifecycle, period management, basic GL reports) and skeleton tax infrastructure (company tax code, e-invoice pattern CRUD, digital signature CRUD, integration profile CRUD). The **tax module** proper — calculation, declaration, form generation, electronic submission, payment tracking — is **entirely absent**.
+GoTax backend has strong accounting foundations (Circular 99/2025/TT-BTC COA, journal lifecycle, period management, basic GL reports) and skeleton tax infrastructure (company tax code, e-invoice pattern CRUD, digital signature CRUD, integration profile CRUD). **Round A (2026-08-03):** rate-table engines for VAT/CIT/PIT, declaration engine (GL→GTGT01/TNDN03 with cross-validation), and declaration→payment automation are now built and tested. Remaining: form XML generation, GDT electronic submission, e-invoice pipeline.
 
 **Verdict: NOT PRODUCTION-READY for tax compliance.**
 
-Estimating 70-80% of work remains for a compliant Vietnamese tax module.
+Estimating 50-60% of work remains for a compliant Vietnamese tax module (Round B: GDT + XMLDSig; Round C: form XML).
 
 ---
 
@@ -25,14 +25,14 @@ Estimating 70-80% of work remains for a compliant Vietnamese tax module.
 | E-invoice pattern CRUD | STUB | Schema + CRUD routes | No issuance, no XML, no GDT sub. |
 | Digital signature CRUD | STUB | Schema + CRUD routes | No signing, no verify |
 | GDT integration profile | STUB | Schema + CRUD | `TestIntegration` is no-op |
-| **Tax declaration module** | **MISSING** | Zero code | **Full build needed** |
-| **VAT calc + forms** | **MISSING** | Zero code | **Full build needed** |
-| **CIT calc + forms** | **MISSING** | Zero code | **Full build needed** |
-| **PIT calc + forms** | **MISSING** | Zero code | **Full build needed** |
-| **Tax rate tables** | **MISSING** | Zero code | **Full build needed** |
-| **HTKK/GDT integration** | **MISSING** | Zero code | **Full build needed** |
-| **E-invoice pipeline** | **MISSING** | Zero code | **Full build needed** |
-| **Tax payment tracking** | **MISSING** | Zero code | **Full build needed** |
+| **Tax declaration module** | **PARTIAL** | Engine: GL→GTGT01/TNDN03 lines + cross-validation + dup rejection + payment automation. CRUD + submit/ack/amend/cancel | Form XML gen, GDT submit |
+| **VAT calc** | **DONE** | Rate-table engine, explicit VAT accounts first (33311/1331/1332), fallback rate × revenue | None (form XML in Round C) |
+| **CIT calc** | **DONE** | Size-based rates (MICRO 15% / SMALL 17% / STANDARD 20%), revenue−expenses+other | None (form XML in Round C) |
+| **PIT calc** | **DONE** | Progressive brackets, resident/non-resident, dependants, insurance caps | KK-TNCN payroll input, form XML |
+| **Tax rate tables** | **DONE** | tax_rates CRUD + `resolveRate` (suffix matching, active window, statutory fallback) | PG seed data for defaults |
+| **HTKK/GDT integration** | **MISSING** | Zero code | Full build needed |
+| **E-invoice pipeline** | **MISSING** | Zero code | Full build needed |
+| **Tax payment tracking** | **PARTIAL** | TaxPayment CRUD, record payment, auto-create on declaration ACKNOWLEDGED + due dates | Payment journal auto-posting, late-interest wiring |
 | **Tax audit support** | **MISSING** | Zero code | **Full build needed** |
 | **FCT/withholding tax** | **MISSING** | Zero code | **Full build needed** |
 | **Global minimum tax** | **MISSING** | Account 82112 exists | **Logic needed** |

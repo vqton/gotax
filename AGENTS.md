@@ -166,7 +166,7 @@ When adding a new module that uses the validator: register custom validators in 
 | Cash | PROD | Receipts, payments, transfers, petty cash, advances |
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
-| Tax | ~20% | Declaration stubs, e-invoice CRUD, rates CRUD. Missing: declaration engine, XML gen, GDT API |
+| Tax | ~40% | Rate resolver + VAT/CIT/PIT engines (rate-table), declaration engine (GL→GTGT01/TNDN03, cross-validation), declaration→payment automation (due dates). Missing: form XML gen, GDT API push, e-invoice engine |
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 66 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
 | Sale | ~0% | Interface + PG + memory repos. Service incomplete |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |

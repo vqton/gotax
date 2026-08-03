@@ -153,6 +153,8 @@ Phase 4 ──→ 10 (credit limit: trivial check)
 
 # Tax Core Foundations — Shared Infrastructure (TDD)
 
+**Status: Round A COMPLETE (2026-08-03, commits 3e84268→c6c3a86). Round B next.**
+
 ## Overview
 
 Build the shared tax foundations flagged in TAX_READINESS.md: configurable rate engine, real VAT/CIT/PIT calculation, declaration engine, declaration→payment automation, GDT client + XMLDSig. All TDD (RED→GREEN), memory repos, per-slice commits. Order = dependency + risk.
