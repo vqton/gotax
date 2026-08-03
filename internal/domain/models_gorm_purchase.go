@@ -82,6 +82,7 @@ type GRNGORM struct {
 	CompanyID   string        `gorm:"column:company_id;not null;size:36;index:idx_grn_company" json:"companyId"`
 	GRNNumber   string        `gorm:"column:grn_number;not null;size:30;index:idx_grn_number" json:"grnNumber"`
 	POID        string        `gorm:"column:po_id;not null;size:36;index:idx_grn_po" json:"poId"`
+	ReturnOfGRNID string      `gorm:"column:return_of_grn_id;not null;default:'';index:idx_grn_return_of" json:"returnOfGrnId"`
 	ReceiptDate string        `gorm:"column:receipt_date;not null" json:"receiptDate"`
 	Warehouse   string        `gorm:"column:warehouse;not null;default:''" json:"warehouse"`
 	Status      string        `gorm:"column:status;not null;default:DRAFT;index:idx_grn_status" json:"status"`
@@ -119,6 +120,7 @@ type SupplierInvoiceGORM struct {
 	SupplierName      string                  `gorm:"column:supplier_name;not null" json:"supplierName"`
 	SupplierTaxCode   string                  `gorm:"column:supplier_tax_code;not null" json:"supplierTaxCode"`
 	InvoiceType       string                  `gorm:"column:invoice_type;not null;default:domestic" json:"invoiceType"`
+	OriginalInvoiceID string                  `gorm:"column:original_invoice_id;not null;default:'';index:idx_inv_original" json:"originalInvoiceId"`
 	Currency          string                  `gorm:"column:currency;not null;default:VND" json:"currency"`
 	ExchangeRate      float64                 `gorm:"column:exchange_rate;not null;default:1" json:"exchangeRate"`
 	Subtotal          float64                 `gorm:"column:subtotal;not null;default:0" json:"subtotal"`

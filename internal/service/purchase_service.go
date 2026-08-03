@@ -316,7 +316,12 @@ func (s *PurchaseService) PostInvoice(ctx context.Context, id string) error {
 	if inv.Status != domain.InvoiceVerified {
 		return domain.ErrInvoiceInvalidTransition
 	}
-	if err := s.verifyThreeWayMatch(ctx, inv); err != nil {
+	isCreditNote := inv.InvoiceType == domain.InvoiceTypeCreditNote
+	if isCreditNote {
+		if err := s.verifyCreditNote(ctx, inv); err != nil {
+			return err
+		}
+	} else if err := s.verifyThreeWayMatch(ctx, inv); err != nil {
 		return err
 	}
 	now := s.now().UTC()
@@ -329,7 +334,54 @@ func (s *PurchaseService) PostInvoice(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return s.invRepo.PostInvoice(ctx, id, now)
+	if err := s.invRepo.PostInvoice(ctx, id, now); err != nil {
+		return err
+	}
+	if isCreditNote {
+		return s.applyCreditNote(ctx, inv, now)
+	}
+	return nil
+}
+
+func (s *PurchaseService) verifyCreditNote(ctx context.Context, inv *domain.SupplierInvoice) error {
+	original, err := s.invRepo.GetInvoice(ctx, inv.OriginalInvoiceID)
+	if err != nil {
+		return domain.ErrCreditNoteOriginalRequired
+	}
+	if original.Status != domain.InvoicePosted && original.Status != domain.InvoicePaid {
+		return domain.ErrCreditNoteOriginalNotPosted
+	}
+	if original.SupplierID != inv.SupplierID {
+		return domain.ErrCreditNoteSupplierMismatch
+	}
+	if math.Abs(inv.TotalAmount) > original.BalanceDue+0.001 {
+		return domain.ErrCreditNoteExceedsBalance
+	}
+	return nil
+}
+
+func (s *PurchaseService) applyCreditNote(ctx context.Context, inv *domain.SupplierInvoice, now time.Time) error {
+	amount := math.Abs(inv.TotalAmount)
+	original, err := s.invRepo.GetInvoice(ctx, inv.OriginalInvoiceID)
+	if err != nil {
+		return err
+	}
+	if err := s.invRepo.ReduceInvoiceBalance(ctx, original.ID, amount); err != nil {
+		return err
+	}
+	txn := &domain.APTransaction{
+		CompanyID:       inv.CompanyID,
+		SupplierID:      inv.SupplierID,
+		InvoiceID:       original.ID,
+		TransactionType: domain.APTransCreditNote,
+		TransactionDate: now,
+		Amount:          amount,
+		Currency:        inv.Currency,
+		ReferenceType:   "invoice",
+		ReferenceID:     inv.ID,
+		CreatedAt:       now,
+	}
+	return s.aptRepo.CreateAPTransaction(ctx, txn)
 }
 
 // verifyThreeWayMatch enforces PO qty >= GRN qty >= Invoice qty per line and a
@@ -385,24 +437,46 @@ func (s *PurchaseService) verifyThreeWayMatch(ctx context.Context, inv *domain.S
 func (s *PurchaseService) buildInvoiceGLEntry(inv *domain.SupplierInvoice) *domain.JournalEntry {
 	expense := make(map[string]float64)
 	vat := make(map[string]float64)
+	creditNote := inv.InvoiceType == domain.InvoiceTypeCreditNote
 	for _, l := range inv.Lines {
 		expense[l.AccountID] += l.LineTotal
 		vat[l.VATAccountID] += l.LineVATAmount
 	}
 	lines := make([]domain.JournalLine, 0, len(expense)+len(vat)+1)
 	for acc, amt := range expense {
-		lines = append(lines, domain.JournalLine{
-			AccountCode: acc, DebitAmount: amt, Description: "Purchase: " + inv.InvoiceNumber,
-		})
+		amt = math.Abs(amt)
+		if creditNote {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, CreditAmount: amt, Description: "Credit note: " + inv.InvoiceNumber,
+			})
+		} else {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, DebitAmount: amt, Description: "Purchase: " + inv.InvoiceNumber,
+			})
+		}
 	}
 	for acc, amt := range vat {
+		amt = math.Abs(amt)
+		if creditNote {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, CreditAmount: amt, Description: "VAT input reversal: " + inv.InvoiceNumber,
+			})
+		} else {
+			lines = append(lines, domain.JournalLine{
+				AccountCode: acc, DebitAmount: amt, Description: "VAT input: " + inv.InvoiceNumber,
+			})
+		}
+	}
+	total := math.Abs(inv.TotalAmount)
+	if creditNote {
 		lines = append(lines, domain.JournalLine{
-			AccountCode: acc, DebitAmount: amt, Description: "VAT input: " + inv.InvoiceNumber,
+			AccountCode: apPayableAccount, DebitAmount: total, Description: "AP reversal: " + inv.InvoiceNumber,
+		})
+	} else {
+		lines = append(lines, domain.JournalLine{
+			AccountCode: apPayableAccount, CreditAmount: total, Description: "AP: " + inv.InvoiceNumber,
 		})
 	}
-	lines = append(lines, domain.JournalLine{
-		AccountCode: apPayableAccount, CreditAmount: inv.TotalAmount, Description: "AP: " + inv.InvoiceNumber,
-	})
 	return &domain.JournalEntry{
 		CompanyID:   inv.CompanyID,
 		EntryNumber: inv.InvoiceNumber,
@@ -1070,4 +1144,110 @@ func (s *PurchaseService) DeleteRequisition(ctx context.Context, id string) erro
 		return domain.ErrRequisitionCannotUpdate
 	}
 	return s.reqRepo.DeleteRequisition(ctx, id)
+}
+
+// ─── Purchase Return / Credit Note (P2-2) ────────────────────────────────
+
+func (s *PurchaseService) CreateReturnGRN(ctx context.Context, grn *domain.GRN) error {
+	if grn.ReturnOfGRNID == "" {
+		return domain.ErrReturnGRNRequired
+	}
+	original, err := s.grnRepo.GetGRN(ctx, grn.ReturnOfGRNID)
+	if err != nil {
+		return domain.ErrReturnGRNRequired
+	}
+	if original.Status != domain.GRNPosted {
+		return domain.ErrReturnGRNNotPosted
+	}
+	if original.ReturnOfGRNID != "" {
+		return domain.ErrReturnGRNReturnAgain
+	}
+	origLines, err := s.grnRepo.GetGRNLines(ctx, original.ID)
+	if err != nil {
+		return err
+	}
+	origByPOLine := make(map[string]float64, len(origLines))
+	for _, l := range origLines {
+		origByPOLine[l.POLineID] += l.QuantityReceived
+	}
+	returned, _, err := s.grnRepo.ListGRNs(ctx, domain.GRNFilter{CompanyID: grn.CompanyID, ReturnOfGRNID: original.ID})
+	if err != nil {
+		return err
+	}
+	alreadyReturned := make(map[string]float64)
+	for _, rg := range returned {
+		if rg.Status != domain.GRNPosted {
+			continue
+		}
+		lines, _ := s.grnRepo.GetGRNLines(ctx, rg.ID)
+		for _, l := range lines {
+			alreadyReturned[l.POLineID] += l.QuantityReceived
+		}
+	}
+	grn.POID = original.POID
+	grn.WarehouseID = original.WarehouseID
+	if err := validate.GRN(grn); err != nil {
+		return err
+	}
+	for i := range grn.Lines {
+		l := &grn.Lines[i]
+		if l.QuantityReceived <= 0 {
+			return domain.ErrReturnQtyExceeds
+		}
+		balance := origByPOLine[l.POLineID] - alreadyReturned[l.POLineID]
+		if l.QuantityReceived > balance+0.001 {
+			return domain.ErrReturnQtyExceeds
+		}
+	}
+	now := s.now()
+	grn.Status = domain.GRNPosted
+	grn.PostedAt = now
+	grn.CreatedAt = now
+	if err := s.grnRepo.CreateGRN(ctx, grn); err != nil {
+		return err
+	}
+	for i := range grn.Lines {
+		grn.Lines[i].GRNID = grn.ID
+	}
+	return s.grnRepo.CreateGRNLines(ctx, grn.Lines)
+}
+
+func (s *PurchaseService) CreateCreditNote(ctx context.Context, inv *domain.SupplierInvoice) error {
+	if inv.InvoiceType != domain.InvoiceTypeCreditNote {
+		return domain.ErrCreditNoteTypeInvalid
+	}
+	if inv.OriginalInvoiceID == "" {
+		return domain.ErrCreditNoteOriginalRequired
+	}
+	original, err := s.invRepo.GetInvoice(ctx, inv.OriginalInvoiceID)
+	if err != nil {
+		return domain.ErrCreditNoteOriginalRequired
+	}
+	if original.Status != domain.InvoicePosted && original.Status != domain.InvoicePaid {
+		return domain.ErrCreditNoteOriginalNotPosted
+	}
+	inv.CompanyID = original.CompanyID
+	inv.SupplierID = original.SupplierID
+	inv.SupplierName = original.SupplierName
+	inv.SupplierTaxCode = original.SupplierTaxCode
+	if inv.Currency == "" {
+		inv.Currency = original.Currency
+	}
+	if err := validate.SupplierInvoice(inv); err != nil {
+		return err
+	}
+	for i := range inv.Lines {
+		inv.Lines[i].Quantity = -math.Abs(inv.Lines[i].Quantity)
+	}
+	inv.CalculateTotals()
+	inv.Status = domain.InvoiceDraft
+	inv.VATDeductionStatus = domain.VATPending
+	inv.CreatedAt = s.now()
+	if err := s.invRepo.CreateInvoice(ctx, inv); err != nil {
+		return err
+	}
+	for i := range inv.Lines {
+		inv.Lines[i].InvoiceID = inv.ID
+	}
+	return s.invRepo.CreateInvoiceLines(ctx, inv.Lines)
 }

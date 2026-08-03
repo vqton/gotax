@@ -453,6 +453,9 @@ func (r *MemoryPurchaseRepo) ListGRNs(_ context.Context, filter domain.GRNFilter
 		if filter.POID != "" && g.POID != filter.POID {
 			continue
 		}
+		if filter.ReturnOfGRNID != "" && g.ReturnOfGRNID != filter.ReturnOfGRNID {
+			continue
+		}
 		if filter.Status != "" && g.Status != filter.Status {
 			continue
 		}
@@ -629,6 +632,9 @@ func (r *MemoryPurchaseRepo) ListInvoices(_ context.Context, filter domain.Suppl
 		if filter.SupplierID != "" && inv.SupplierID != filter.SupplierID {
 			continue
 		}
+		if filter.OriginalInvoiceID != "" && inv.OriginalInvoiceID != filter.OriginalInvoiceID {
+			continue
+		}
 		if filter.Status != "" && inv.Status != filter.Status {
 			continue
 		}
@@ -683,6 +689,20 @@ func (r *MemoryPurchaseRepo) UpdateInvoiceStatus(_ context.Context, id string, s
 	return nil
 }
 
+func (r *MemoryPurchaseRepo) ReduceInvoiceBalance(_ context.Context, id string, amount float64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inv, ok := r.invoices[id]
+	if !ok {
+		return domain.ErrSupplierInvoiceNotFound
+	}
+	cp := *inv
+	cp.BalanceDue -= amount
+	cp.AmountPaid += amount
+	r.invoices[id] = &cp
+	return nil
+}
+
 func (r *MemoryPurchaseRepo) PostInvoice(_ context.Context, id string, postedAt time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -691,6 +711,7 @@ func (r *MemoryPurchaseRepo) PostInvoice(_ context.Context, id string, postedAt 
 		return domain.ErrSupplierInvoiceNotFound
 	}
 	inv.Status = domain.InvoicePosted
+	inv.BalanceDue = inv.TotalAmount - inv.AmountPaid
 	return nil
 }
 

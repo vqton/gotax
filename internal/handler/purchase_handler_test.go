@@ -817,3 +817,69 @@ func TestRequisitionApproveWithoutSubmitFails(t *testing.T) {
 	r.ServeHTTP(w, rq)
 	assert.Equal(t, 400, w.Code)
 }
+
+// ─── Return / Credit Note (P2-2) ─────────────────────────────────────────
+
+func TestCreateReturnGRNHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "R-SUP", Name: "R Sup", TaxCode: "R-TX"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-R1", SupplierID: sup.ID, OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{ItemName: "W", Unit: "pcs", Quantity: 10, UnitPrice: 1000, VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-R1", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: po.Lines[0].ID, ItemName: "W", Unit: "pcs", QuantityReceived: 10}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+
+	body := fmt.Sprintf(`{"grn_number":"GRN-RR1","return_of_grn_id":"%s","receipt_date":"%s","lines":[{"po_line_id":"%s","item_name":"W","unit":"pcs","quantity_received":2}]}`,
+		grn.ID, time.Now().Format("2006-01-02T15:04:05Z07:00"), po.Lines[0].ID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/returns?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var out domain.GRN
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, domain.GRNPosted, out.Status)
+}
+
+func TestCreateCreditNoteHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "C-SUP", Name: "C Sup", TaxCode: "C-TX"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	po := &domain.PurchaseOrder{
+		CompanyID: "CMP001", PONumber: "PO-C1", SupplierID: sup.ID, OrderDate: time.Now(), Currency: "VND",
+		Lines: []domain.POItem{{ItemName: "W", Unit: "pcs", Quantity: 10, UnitPrice: 1000, VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreatePO(ctx, po))
+	grn := &domain.GRN{
+		CompanyID: "CMP001", GRNNumber: "GRN-C1", POID: po.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: po.Lines[0].ID, ItemName: "W", Unit: "pcs", QuantityReceived: 10}},
+	}
+	require.NoError(t, svc.CreateGRN(ctx, grn))
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+	inv := &domain.SupplierInvoice{
+		CompanyID: "CMP001", InvoiceNumber: "INV-C1", SupplierID: sup.ID, POID: po.ID, GRNID: grn.ID, InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{POLineID: po.Lines[0].ID, ItemName: "W", Unit: "pcs", Quantity: 10, UnitPrice: 1000, VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.VerifyInvoice(ctx, inv.ID))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+
+	body := fmt.Sprintf(`{"invoice_number":"CN-C1","original_invoice_id":"%s","invoice_type":"credit_note","invoice_date":"%s","lines":[{"item_name":"W","unit":"pcs","quantity":2,"unit_price":1000,"vat_rate":10,"vat_type":"VAT_10","account_id":"152","vat_account_id":"1331"}]}`,
+		inv.ID, time.Now().Format("2006-01-02T15:04:05Z07:00"))
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/credit-notes?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var out domain.SupplierInvoice
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.TotalAmount < 0)
+	assert.Equal(t, inv.ID, out.OriginalInvoiceID)
+}

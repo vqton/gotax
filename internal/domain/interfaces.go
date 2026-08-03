@@ -420,6 +420,7 @@ type SupplierInvoiceRepository interface {
 	GetInvoiceLines(ctx context.Context, invoiceID string) ([]SupplierInvoiceLine, error)
 	CreateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error
 	UpdateInvoiceLines(ctx context.Context, items []SupplierInvoiceLine) error
+	ReduceInvoiceBalance(ctx context.Context, id string, amount float64) error
 }
 
 type APTransactionRepository interface {

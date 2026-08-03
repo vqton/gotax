@@ -35,7 +35,7 @@ Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features
 ## Checkpoints
 
 - After P2-1: `go vet ./... && go test -count=1 ./...` green, commit — ✅ DONE (a9b5c85 + requisition commit)
-- After P2-2: same + commit
+- After P2-2: same + commit — ✅ DONE (daa69a4 + returns commit)
 - After P2-3: same + commit
 - After P2-4: same + commit
 - After P2-5: same + commit

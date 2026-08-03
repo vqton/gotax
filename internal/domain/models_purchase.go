@@ -172,6 +172,7 @@ type GRN struct {
 	GRNNumber       string     `json:"grn_number" validate:"required"`
 	POID            string     `json:"po_id,omitempty"`
 	WarehouseID     string     `json:"warehouse_id,omitempty"`
+	ReturnOfGRNID   string     `json:"return_of_grn_id,omitempty"`
 	ReceiptDate     time.Time  `json:"receipt_date" validate:"required"`
 	Warehouse       string     `json:"warehouse,omitempty"`
 	Status          GRNStatus  `json:"status" validate:"grnstatus"`
@@ -221,6 +222,8 @@ func (l *GRNItem) Validate() error {
 type InvoiceStatus string
 const (InvoiceDraft InvoiceStatus="DRAFT"; InvoiceVerified InvoiceStatus="VERIFIED"; InvoicePosted InvoiceStatus="POSTED"; InvoicePaid InvoiceStatus="PAID"; InvoiceCancelled InvoiceStatus="CANCELLED")
 
+const (InvoiceTypeInvoice="invoice"; InvoiceTypeCreditNote="credit_note")
+
 type VATDeductionStatus string
 const (VATPending VATDeductionStatus="pending"; VATClaimed VATDeductionStatus="claimed"; VATRejected VATDeductionStatus="rejected")
 
@@ -235,6 +238,7 @@ type SupplierInvoice struct {
 	SupplierName         string              `json:"supplier_name" validate:"required"`
 	SupplierTaxCode      string              `json:"supplier_tax_code" validate:"required"`
 	InvoiceType          string              `json:"invoice_type"`
+	OriginalInvoiceID    string              `json:"original_invoice_id,omitempty"`
 	Currency             string              `json:"currency"`
 	ExchangeRate         float64             `json:"exchange_rate"`
 	Subtotal             float64             `json:"subtotal"`
@@ -263,6 +267,7 @@ func (inv *SupplierInvoice) Validate() error {
 	if inv.SupplierName == "" { return ErrInvoiceSupplierNameRequired }
 	if inv.SupplierTaxCode == "" { return ErrInvoiceSupplierTaxCodeRequired }
 	if inv.InvoiceDate.IsZero() { return ErrInvoiceDateRequired }
+	if inv.InvoiceType == InvoiceTypeCreditNote && inv.OriginalInvoiceID == "" { return ErrCreditNoteOriginalRequired }
 	if inv.Currency == "" { inv.Currency = "VND" }
 	if inv.Status == "" { inv.Status = InvoiceDraft }
 	switch inv.Status {
@@ -387,23 +392,25 @@ type PurchaseOrderFilter struct {
 }
 
 type SupplierInvoiceFilter struct {
-	CompanyID  string
-	SupplierID string
-	Status     InvoiceStatus
-	FromDate   string
-	ToDate     string
-	Offset     int
-	Limit      int
+	CompanyID        string
+	SupplierID       string
+	OriginalInvoiceID string
+	Status           InvoiceStatus
+	FromDate         string
+	ToDate           string
+	Offset           int
+	Limit            int
 }
 
 type GRNFilter struct {
-	CompanyID string
-	POID      string
-	Status    GRNStatus
-	FromDate  string
-	ToDate    string
-	Offset    int
-	Limit     int
+	CompanyID    string
+	POID         string
+	ReturnOfGRNID string
+	Status       GRNStatus
+	FromDate     string
+	ToDate       string
+	Offset       int
+	Limit        int
 }
 
 type APAgingBucket struct {

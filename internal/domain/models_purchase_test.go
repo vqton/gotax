@@ -265,3 +265,32 @@ func TestRequisitionItemValidate(t *testing.T) {
 	assert.ErrorIs(t, (&RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: -1, AccountID: "152"}).Validate(), ErrRequisitionItemPriceRequired)
 	assert.ErrorIs(t, (&RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100}).Validate(), ErrRequisitionItemAccountRequired)
 }
+
+// ─── Credit Note / Return GRN (P2-2) ─────────────────────────────────────
+
+func TestSupplierInvoice_CreditNoteRequiresOriginal(t *testing.T) {
+	inv := &SupplierInvoice{
+		InvoiceNumber: "CN-1", SupplierID: "s1", SupplierName: "S", SupplierTaxCode: "TX",
+		InvoiceDate: time.Now(), InvoiceType: InvoiceTypeCreditNote,
+		Lines: []SupplierInvoiceLine{{ItemName: "W", Quantity: 1, AccountID: "152", VATAccountID: "1331"}},
+	}
+	err := inv.Validate()
+	assert.ErrorIs(t, err, ErrCreditNoteOriginalRequired)
+}
+
+func TestSupplierInvoice_CreditNoteValid(t *testing.T) {
+	inv := &SupplierInvoice{
+		InvoiceNumber: "CN-2", SupplierID: "s1", SupplierName: "S", SupplierTaxCode: "TX",
+		InvoiceDate: time.Now(), InvoiceType: InvoiceTypeCreditNote, OriginalInvoiceID: "INV-1",
+		Lines: []SupplierInvoiceLine{{ItemName: "W", Quantity: 1, AccountID: "152", VATAccountID: "1331"}},
+	}
+	assert.NoError(t, inv.Validate())
+}
+
+func TestGRN_ReturnGRN(t *testing.T) {
+	g := &GRN{
+		GRNNumber: "GRN-R1", POID: "po1", ReceiptDate: time.Now(), ReturnOfGRNID: "GRN-1",
+		Lines: []GRNItem{{POLineID: "pl1", ItemName: "W", QuantityReceived: 2}},
+	}
+	assert.NoError(t, g.Validate())
+}

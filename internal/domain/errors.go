@@ -352,6 +352,17 @@ var (
 	ErrRequisitionItemAccountRequired = errors.New("GL account is required")
 	ErrRequisitionNotApproved      = errors.New("requisition must be approved before conversion")
 
+	// Purchase return / credit note (P2-2)
+	ErrReturnGRNRequired        = errors.New("return GRN must reference an original GRN")
+	ErrReturnGRNNotPosted       = errors.New("original GRN must be posted before return")
+	ErrReturnGRNReturnAgain     = errors.New("cannot return a GRN that is itself a return")
+	ErrReturnQtyExceeds         = errors.New("return quantity exceeds received balance")
+	ErrCreditNoteTypeInvalid    = errors.New("credit note invoice_type must be credit_note")
+	ErrCreditNoteOriginalRequired = errors.New("credit note must reference an original invoice")
+	ErrCreditNoteOriginalNotPosted = errors.New("original invoice must be posted before credit note")
+	ErrCreditNoteSupplierMismatch = errors.New("credit note supplier must match original invoice")
+	ErrCreditNoteExceedsBalance = errors.New("credit note amount exceeds original invoice balance")
+
 	ErrProvisionDateRequired   = errors.New("provision as-of date is required")
 	ErrProvisionNoLines        = errors.New("provision has no lines")
 	ErrProvisionNotFound       = errors.New("doubtful debt provision not found")

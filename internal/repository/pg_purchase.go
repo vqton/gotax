@@ -112,7 +112,7 @@ func (r *PGSupplierRepo) ListSuppliers(ctx context.Context, filter domain.Purcha
 	var gs []domain.SupplierGORM
 	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
 	if filter.SupplierID != "" {
-		dq = dq.Where("id = ?", filter.SupplierID)
+		dq = dq.Where("supplier_id = ?", filter.SupplierID)
 	}
 	dq = dq.Order("code")
 	if filter.Limit > 0 {
@@ -474,6 +474,7 @@ func grnToGORM(g *domain.GRN) *domain.GRNGORM {
 		CompanyID:   g.CompanyID,
 		GRNNumber:   g.GRNNumber,
 		POID:        g.POID,
+		ReturnOfGRNID: g.ReturnOfGRNID,
 		ReceiptDate: safeTimeStr(g.ReceiptDate),
 		Warehouse:   g.Warehouse,
 		Status:      string(g.Status),
@@ -489,6 +490,7 @@ func grnFromGORM(gg *domain.GRNGORM) *domain.GRN {
 		CompanyID:   gg.CompanyID,
 		GRNNumber:   gg.GRNNumber,
 		POID:        gg.POID,
+		ReturnOfGRNID: gg.ReturnOfGRNID,
 		ReceiptDate: parseDate(gg.ReceiptDate),
 		Warehouse:   gg.Warehouse,
 		Status:      domain.GRNStatus(gg.Status),
@@ -546,6 +548,9 @@ func (r *PGGRNRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) ([]do
 	if filter.POID != "" {
 		q = q.Where("po_id = ?", filter.POID)
 	}
+	if filter.ReturnOfGRNID != "" {
+		q = q.Where("return_of_grn_id = ?", filter.ReturnOfGRNID)
+	}
 	if filter.Status != "" {
 		q = q.Where("status = ?", string(filter.Status))
 	}
@@ -562,6 +567,9 @@ func (r *PGGRNRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) ([]do
 	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
 	if filter.POID != "" {
 		dq = dq.Where("po_id = ?", filter.POID)
+	}
+	if filter.ReturnOfGRNID != "" {
+		dq = dq.Where("return_of_grn_id = ?", filter.ReturnOfGRNID)
 	}
 	if filter.Status != "" {
 		dq = dq.Where("status = ?", string(filter.Status))
@@ -704,6 +712,7 @@ func sinvToGORM(inv *domain.SupplierInvoice) *domain.SupplierInvoiceGORM {
 		SupplierName:      inv.SupplierName,
 		SupplierTaxCode:   inv.SupplierTaxCode,
 		InvoiceType:       inv.InvoiceType,
+		OriginalInvoiceID: inv.OriginalInvoiceID,
 		Currency:          inv.Currency,
 		ExchangeRate:      inv.ExchangeRate,
 		Subtotal:          inv.Subtotal,
@@ -737,6 +746,7 @@ func sinvFromGORM(g *domain.SupplierInvoiceGORM) *domain.SupplierInvoice {
 		SupplierName:      g.SupplierName,
 		SupplierTaxCode:   g.SupplierTaxCode,
 		InvoiceType:       g.InvoiceType,
+		OriginalInvoiceID: g.OriginalInvoiceID,
 		Currency:          g.Currency,
 		ExchangeRate:      g.ExchangeRate,
 		Subtotal:          g.Subtotal,
@@ -806,6 +816,9 @@ func (r *PGSupplierInvoiceRepo) ListInvoices(ctx context.Context, filter domain.
 	if filter.SupplierID != "" {
 		q = q.Where("supplier_id = ?", filter.SupplierID)
 	}
+	if filter.OriginalInvoiceID != "" {
+		q = q.Where("original_invoice_id = ?", filter.OriginalInvoiceID)
+	}
 	if filter.Status != "" {
 		q = q.Where("status = ?", string(filter.Status))
 	}
@@ -822,6 +835,9 @@ func (r *PGSupplierInvoiceRepo) ListInvoices(ctx context.Context, filter domain.
 	dq := r.db.WithContext(ctx).Where("company_id = ?", filter.CompanyID)
 	if filter.SupplierID != "" {
 		dq = dq.Where("supplier_id = ?", filter.SupplierID)
+	}
+	if filter.OriginalInvoiceID != "" {
+		dq = dq.Where("original_invoice_id = ?", filter.OriginalInvoiceID)
 	}
 	if filter.Status != "" {
 		dq = dq.Where("status = ?", string(filter.Status))
@@ -868,7 +884,19 @@ func (r *PGSupplierInvoiceRepo) UpdateInvoiceStatus(ctx context.Context, id stri
 }
 
 func (r *PGSupplierInvoiceRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
-	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).Update("status", string(domain.InvoicePosted)).Error
+	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":      string(domain.InvoicePosted),
+			"balance_due": gorm.Expr("total_amount - amount_paid"),
+		}).Error
+}
+
+func (r *PGSupplierInvoiceRepo) ReduceInvoiceBalance(ctx context.Context, id string, amount float64) error {
+	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"balance_due": gorm.Expr("balance_due - ?", amount),
+			"amount_paid": gorm.Expr("amount_paid + ?", amount),
+		}).Error
 }
 
 func (r *PGSupplierInvoiceRepo) SetInvoiceGLPosted(ctx context.Context, id string, postedAt time.Time) error {

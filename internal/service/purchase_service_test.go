@@ -842,3 +842,169 @@ func TestListRequisitions_FilterByStatus(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, r2.ID, list[0].ID)
 }
+
+// ─── Purchase Return / Credit Note (P2-2) ────────────────────────────────
+
+func makePostedInvoice(t *testing.T, svc *PurchaseService, ctx context.Context) (*domain.SupplierInvoice, *domain.GRN, *domain.PurchaseOrder) {
+	t.Helper()
+	sup := makeSupplier(t, svc, ctx, "PR-SUP")
+	po := makePO(t, svc, ctx, sup.ID, 10, 1000)
+	grn := makeGRN(t, svc, ctx, po, 10)
+	require.NoError(t, svc.PostGRN(ctx, grn.ID))
+	inv := makeInvoice(t, svc, ctx, sup.ID, po.ID, grn.ID, po.Lines[0].ID, 10, 1000)
+	require.NoError(t, verifyAndPost(t, svc, ctx, inv))
+	return inv, grn, po
+}
+
+func TestCreateReturnGRN(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	_, grn, _ := makePostedInvoice(t, svc, ctx)
+	rg := &domain.GRN{
+		CompanyID: "c1", GRNNumber: "GRN-R1", ReturnOfGRNID: grn.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: grn.Lines[0].POLineID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 2}},
+	}
+	require.NoError(t, svc.CreateReturnGRN(ctx, rg))
+	loaded, err := svc.GetGRN(ctx, rg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.GRNPosted, loaded.Status)
+	assert.Equal(t, grn.ID, loaded.ReturnOfGRNID)
+}
+
+func TestCreateReturnGRN_QtyExceeds(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	_, grn, _ := makePostedInvoice(t, svc, ctx)
+	rg := &domain.GRN{
+		CompanyID: "c1", GRNNumber: "GRN-R2", ReturnOfGRNID: grn.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: grn.Lines[0].POLineID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 99}},
+	}
+	assert.ErrorIs(t, svc.CreateReturnGRN(ctx, rg), domain.ErrReturnQtyExceeds)
+}
+
+func TestCreateReturnGRN_OriginalNotPosted(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	sup := makeSupplier(t, svc, ctx, "PR-S2")
+	po := makePO(t, svc, ctx, sup.ID, 5, 1000)
+	grn := makeGRN(t, svc, ctx, po, 5)
+	rg := &domain.GRN{
+		CompanyID: "c1", GRNNumber: "GRN-R3", ReturnOfGRNID: grn.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: po.Lines[0].ID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 1}},
+	}
+	assert.ErrorIs(t, svc.CreateReturnGRN(ctx, rg), domain.ErrReturnGRNNotPosted)
+}
+
+func TestCreateReturnGRN_ReturnAgain(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	_, grn, _ := makePostedInvoice(t, svc, ctx)
+	rg := &domain.GRN{
+		CompanyID: "c1", GRNNumber: "GRN-R4", ReturnOfGRNID: grn.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: grn.Lines[0].POLineID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 2}},
+	}
+	require.NoError(t, svc.CreateReturnGRN(ctx, rg))
+	rg2 := &domain.GRN{
+		CompanyID: "c1", GRNNumber: "GRN-R5", ReturnOfGRNID: rg.ID, ReceiptDate: time.Now(),
+		Lines: []domain.GRNItem{{POLineID: grn.Lines[0].POLineID, ItemName: "Widget", Unit: "pcs", QuantityReceived: 1}},
+	}
+	assert.ErrorIs(t, svc.CreateReturnGRN(ctx, rg2), domain.ErrReturnGRNReturnAgain)
+}
+
+func TestCreateCreditNote_RequiresOriginal(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	cn := &domain.SupplierInvoice{InvoiceNumber: "CN-1", SupplierID: "s1", InvoiceDate: time.Now(), InvoiceType: domain.InvoiceTypeCreditNote}
+	err := svc.CreateCreditNote(ctx, cn)
+	assert.ErrorIs(t, err, domain.ErrCreditNoteOriginalRequired)
+}
+
+func TestCreateCreditNote_InvalidType(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	cn := &domain.SupplierInvoice{InvoiceNumber: "CN-2", SupplierID: "s1", InvoiceDate: time.Now(), OriginalInvoiceID: "INV-1"}
+	err := svc.CreateCreditNote(ctx, cn)
+	assert.ErrorIs(t, err, domain.ErrCreditNoteTypeInvalid)
+}
+
+func TestCreateCreditNote(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	inv, _, _ := makePostedInvoice(t, svc, ctx)
+	cn := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "CN-3", OriginalInvoiceID: inv.ID,
+		InvoiceType: domain.InvoiceTypeCreditNote, InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 2, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateCreditNote(ctx, cn))
+	loaded, err := svc.GetInvoice(ctx, cn.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.InvoiceDraft, loaded.Status)
+	assert.Equal(t, inv.SupplierID, loaded.SupplierID)
+	assert.True(t, loaded.TotalAmount < 0)
+	assert.InDelta(t, -2200, loaded.TotalAmount, 0.001)
+	_ = gl
+}
+
+func TestPostCreditNote(t *testing.T) {
+	svc, gl, ctx := setupPurchaseGL(t)
+	inv, _, _ := makePostedInvoice(t, svc, ctx)
+	cn := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "CN-4", OriginalInvoiceID: inv.ID,
+		InvoiceType: domain.InvoiceTypeCreditNote, InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 2, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateCreditNote(ctx, cn))
+	require.NoError(t, svc.VerifyInvoice(ctx, cn.ID))
+	require.NoError(t, svc.PostInvoice(ctx, cn.ID))
+
+	original, _ := svc.GetInvoice(ctx, inv.ID)
+	assert.InDelta(t, 11000-2200, original.BalanceDue, 0.001)
+
+	txns, err := svc.ListAPTransactionsBySupplier(ctx, "c1", inv.SupplierID)
+	require.NoError(t, err)
+	found := false
+	for _, txn := range txns {
+		if txn.TransactionType == domain.APTransCreditNote {
+			found = true
+			assert.InDelta(t, 2200, txn.Amount, 0.001)
+		}
+	}
+	assert.True(t, found, "credit note AP transaction should exist")
+
+	entries, err := gl.GetEntriesByDateRange(ctx, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	entry := findEntry(entries, "CN-4")
+	require.NotNil(t, entry)
+	var debit float64
+	for _, l := range entry.Lines {
+		if l.AccountCode == "331" {
+			debit = l.DebitAmount
+		}
+	}
+	assert.InDelta(t, 2200, debit, 0.001)
+}
+
+func TestPostCreditNote_ExceedsBalance(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	inv, _, _ := makePostedInvoice(t, svc, ctx)
+	cn := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "CN-5", OriginalInvoiceID: inv.ID,
+		InvoiceType: domain.InvoiceTypeCreditNote, InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 100, UnitPrice: 1000,
+			VATRate: 10, VATType: domain.VAT10, AccountID: "152", VATAccountID: "1331",
+		}},
+	}
+	require.NoError(t, svc.CreateCreditNote(ctx, cn))
+	require.NoError(t, svc.VerifyInvoice(ctx, cn.ID))
+	assert.ErrorIs(t, svc.PostInvoice(ctx, cn.ID), domain.ErrCreditNoteExceedsBalance)
+}
+
+func findEntry(entries []domain.JournalEntry, number string) *domain.JournalEntry {
+	for i := range entries {
+		if entries[i].EntryNumber == number {
+			return &entries[i]
+		}
+	}
+	return nil
+}

@@ -62,6 +62,15 @@ func RegisterPurchaseRoutes(r *gin.Engine, h *PurchaseHandler, authMW gin.Handle
 			receipts.PATCH("/:id/post", h.PostGRN)
 			receipts.PATCH("/:id/cancel", h.CancelGRN)
 		}
+		returns := purchase.Group("/returns")
+		{
+			returns.POST("", h.CreateReturnGRN)
+			returns.GET("", h.ListReturnGRNs)
+		}
+		creditNotes := purchase.Group("/credit-notes")
+		{
+			creditNotes.POST("", h.CreateCreditNote)
+		}
 		invoices := purchase.Group("/invoices")
 		{
 			invoices.POST("", h.CreateInvoice)
@@ -700,4 +709,61 @@ func (h *PurchaseHandler) ConvertRequisitionToPO(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, po)
+}
+
+// ─── Return / Credit Note Handlers (P2-2) ────────────────────────────────
+
+func (h *PurchaseHandler) CreateReturnGRN(c *gin.Context) {
+	var grn domain.GRN
+	if err := c.ShouldBindJSON(&grn); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	grn.CompanyID = c.Query("company_id")
+	if grn.CompanyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
+		return
+	}
+	grn.CreatedBy = GetUserID(c)
+	if err := h.svc.CreateReturnGRN(c.Request.Context(), &grn); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, grn)
+}
+
+func (h *PurchaseHandler) ListReturnGRNs(c *gin.Context) {
+	companyID := c.Query("company_id")
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	list, total, err := h.svc.ListGRNs(c.Request.Context(), domain.GRNFilter{
+		CompanyID:     companyID,
+		ReturnOfGRNID: c.Query("grn_id"),
+		Offset:        offset,
+		Limit:         limit,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
+}
+
+func (h *PurchaseHandler) CreateCreditNote(c *gin.Context) {
+	var inv domain.SupplierInvoice
+	if err := c.ShouldBindJSON(&inv); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	inv.CompanyID = c.Query("company_id")
+	if inv.CompanyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
+		return
+	}
+	inv.CreatedBy = GetUserID(c)
+	if err := h.svc.CreateCreditNote(c.Request.Context(), &inv); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, inv)
 }
