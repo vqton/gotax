@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
 	"gotax/internal/validate"
 	"time"
 )
@@ -555,13 +556,6 @@ func (s *PurchaseService) ClaimVAT(ctx context.Context, id string) error {
 }
 
 func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.SupplierInvoice) error {
-	if err := validate.SupplierInvoice(inv); err != nil {
-		return err
-	}
-	dup, _ := s.invRepo.GetInvoiceByNumber(ctx, inv.CompanyID, inv.InvoiceNumber)
-	if dup != nil {
-		return fmt.Errorf("invoice %s already exists", inv.InvoiceNumber)
-	}
 	sup, _ := s.supRepo.GetSupplierByCode(ctx, inv.CompanyID, inv.SupplierTaxCode)
 	if sup == nil {
 		if err := s.CreateSupplier(ctx, &domain.Supplier{
@@ -575,6 +569,13 @@ func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.Suppl
 		sup, _ = s.supRepo.GetSupplierByCode(ctx, inv.CompanyID, fmt.Sprintf("SUP-%s", inv.SupplierTaxCode))
 	}
 	inv.SupplierID = sup.ID
+	if err := validate.SupplierInvoice(inv); err != nil {
+		return err
+	}
+	dup, _ := s.invRepo.GetInvoiceByNumber(ctx, inv.CompanyID, inv.InvoiceNumber)
+	if dup != nil {
+		return fmt.Errorf("invoice %s already exists", inv.InvoiceNumber)
+	}
 	inv.Status = domain.InvoiceDraft
 	inv.VATDeductionStatus = domain.VATPending
 	inv.CreatedAt = s.now()
@@ -1406,4 +1407,36 @@ func (s *PurchaseService) PostFXRevaluation(ctx context.Context, id string) erro
 		}
 	}
 	return s.fxRepo.UpdateRevaluationStatus(ctx, id, domain.FXRevalPosted)
+}
+
+// ─── E-Invoice GDT XML (P2-5) ────────────────────────────────────────────
+
+// ReceiveEInvoiceXML parses a GDT e-invoice XML document into a draft
+// supplier invoice and persists it (supplier auto-created on first receipt).
+// The raw XML is stored on the invoice for audit.
+func (s *PurchaseService) ReceiveEInvoiceXML(ctx context.Context, companyID string, raw []byte) (*domain.SupplierInvoice, error) {
+	inv, err := einvoice.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	inv.CompanyID = companyID
+	inv.EInvoiceData = string(raw)
+	if err := s.ReceiveEInvoice(ctx, inv); err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
+// GenerateEInvoiceXML renders a stored supplier invoice as a GDT e-invoice
+// XML document.
+func (s *PurchaseService) GenerateEInvoiceXML(ctx context.Context, id string) (string, error) {
+	inv, err := s.invRepo.GetInvoice(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	raw, err := einvoice.Generate(inv)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }

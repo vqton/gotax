@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
 	"gotax/internal/repository"
 )
 
@@ -1156,4 +1157,121 @@ func TestPostFXRevaluation(t *testing.T) {
 	assert.InDelta(t, 1000000, gainDebit, 0.001)
 
 	assert.ErrorIs(t, svc.PostFXRevaluation(ctx, r.ID), domain.ErrFXRevaluationAlreadyPosted)
+}
+
+// ─── E-Invoice GDT XML (P2-5) ────────────────────────────────────────────
+
+const testGDTXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://gdt.gov.vn/schemas/einvoice/2026">
+  <InvoiceHeader>
+    <InvoiceNumber>INV-EINV-1</InvoiceNumber>
+    <InvoiceDate>2026-07-20</InvoiceDate>
+    <InvoiceType>01GTKT</InvoiceType>
+    <CurrencyCode>VND</CurrencyCode>
+  </InvoiceHeader>
+  <Seller>
+    <TaxCode>9876543210</TaxCode>
+    <Name>Cong ty GDT Seller</Name>
+  </Seller>
+  <Buyer>
+    <TaxCode>0123456789</TaxCode>
+    <Name>Cong ty Buyer</Name>
+  </Buyer>
+  <InvoiceLines>
+    <Line>
+      <LineNumber>1</LineNumber>
+      <ItemName>Widget</ItemName>
+      <Unit>Cai</Unit>
+      <Quantity>2</Quantity>
+      <UnitPrice>1000</UnitPrice>
+      <VatRate>10</VatRate>
+      <VatAmount>200</VatAmount>
+      <LineTotal>2000</LineTotal>
+    </Line>
+  </InvoiceLines>
+  <Summary>
+    <Subtotal>2000</Subtotal>
+    <Discount>0</Discount>
+    <VatAmount>200</VatAmount>
+    <GrandTotal>2200</GrandTotal>
+  </Summary>
+</Invoice>
+`
+
+func TestReceiveEInvoiceXML(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	inv, err := svc.ReceiveEInvoiceXML(ctx, "c1", []byte(testGDTXML))
+	require.NoError(t, err)
+	assert.Equal(t, "INV-EINV-1", inv.InvoiceNumber)
+	assert.Equal(t, domain.InvoiceDraft, inv.Status)
+	assert.NotEmpty(t, inv.SupplierID)
+	assert.Contains(t, inv.EInvoiceData, "INV-EINV-1")
+
+	loaded, err := svc.GetInvoice(ctx, inv.ID)
+	require.NoError(t, err)
+	require.Len(t, loaded.Lines, 1)
+	assert.Equal(t, "152", loaded.Lines[0].AccountID)
+	assert.Equal(t, "1331", loaded.Lines[0].VATAccountID)
+	assert.Equal(t, 2200.0, loaded.TotalAmount)
+	assert.Equal(t, 200.0, loaded.TaxAmount)
+
+	suppliers, _, err := svc.ListSuppliers(ctx, "c1", 0, 50)
+	require.NoError(t, err)
+	var sup *domain.Supplier
+	for i := range suppliers {
+		if suppliers[i].TaxCode == "9876543210" {
+			sup = &suppliers[i]
+			break
+		}
+	}
+	require.NotNil(t, sup)
+	assert.Equal(t, "Cong ty GDT Seller", sup.Name)
+}
+
+func TestReceiveEInvoiceXML_Duplicate(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	_, err := svc.ReceiveEInvoiceXML(ctx, "c1", []byte(testGDTXML))
+	require.NoError(t, err)
+	_, err = svc.ReceiveEInvoiceXML(ctx, "c1", []byte(testGDTXML))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestReceiveEInvoiceXML_Malformed(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	_, err := svc.ReceiveEInvoiceXML(ctx, "c1", []byte("<Invoice><InvoiceHeader>"))
+	assert.Error(t, err)
+}
+
+func TestGenerateEInvoiceXML(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	inv := &domain.SupplierInvoice{
+		CompanyID: "c1", InvoiceNumber: "INV-GEN-1", SupplierID: makeSupplier(t, svc, ctx, "GEN-SUP").ID,
+		InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{ItemName: "W", Unit: "pcs", Quantity: 3, UnitPrice: 1000, VATRate: 8, VATType: domain.VAT8, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.VerifyInvoice(ctx, inv.ID))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+
+	raw, err := svc.GenerateEInvoiceXML(ctx, inv.ID)
+	require.NoError(t, err)
+	assert.Contains(t, raw, "<InvoiceNumber>INV-GEN-1</InvoiceNumber>")
+
+	parsed, err := einvoice.Parse([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, inv.InvoiceNumber, parsed.InvoiceNumber)
+	assert.Equal(t, "GEN-SUP-TX", parsed.SupplierTaxCode)
+	require.Len(t, parsed.Lines, 1)
+	assert.Equal(t, 8.0, parsed.Lines[0].VATRate)
+	assert.Equal(t, domain.VAT8, parsed.Lines[0].VATType)
+	assert.Equal(t, 3000.0, parsed.Subtotal)
+	assert.Equal(t, 240.0, parsed.TaxAmount)
+	assert.Equal(t, 3240.0, parsed.TotalAmount)
+}
+
+func TestGenerateEInvoiceXML_NotFound(t *testing.T) {
+	svc, _, ctx := setupPurchaseGL(t)
+	_, err := svc.GenerateEInvoiceXML(ctx, "nope")
+	assert.ErrorIs(t, err, domain.ErrSupplierInvoiceNotFound)
 }
