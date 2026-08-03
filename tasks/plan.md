@@ -6,6 +6,51 @@ Enterprise AR module for GoTax. Target: MISA/FAST/Bravo ERP parity for order-to-
 
 Full lifecycle doc: `docs/sale/AR_WORKFLOW.md`
 
+---
+
+# Purchase Module — P2 Features (TDD)
+
+## Overview
+
+Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features, each a full vertical slice implemented TDD (RED → GREEN → REFACTOR), committed separately. Order = dependency + risk.
+
+## Order
+
+1. **P2-1 Purchase requisition + approval (M-4)** — pure additive, foundation for PO-from-requisition
+2. **P2-2 Purchase return workflow (M-3)** — return GRN + credit note + AP offset + GL reversal
+3. **P2-3 Import purchase + landed cost (M-2)** — import duty (3333) + import VAT (33312) on invoice, landed cost breakdown
+4. **P2-4 Multi-currency AP FX revaluation (M-5)** — revalue AP at period-end → 515/635
+5. **P2-5 E-invoice GDT XML (M-1)** — generate + parse GDT XML for ReceiveEInvoice
+
+## Architecture Decisions
+
+- **Per-feature TDD**: domain validation tests RED first, then service tests, then handler tests. Memory repos used throughout (AGENTS.md convention — no DB).
+- **Single interface additions per feature**: new repository interface (Requisition, Return, etc.) added to `domain/interfaces.go`; MemoryPurchaseRepo + PGPurchaseRepo implement.
+- **Constructor grows**: `NewPurchaseService` gains one repo param per feature (9→13 args). All call sites updated: main.go ×2, purchase_service_test.go, purchase_handler_test.go.
+- **Migrations sequential**: 000012_requisitions, 000013_returns, 000014_landed_cost, 000015_fx_revaluation. Each with .up + .down.
+- **Validate package**: register one custom validator per new enum (`reqstatus`, `retstatus`), add `validate.Requisition`/`validate.Return` mapper functions.
+- **E-invoice XML**: pure-Go `encoding/xml`, no new deps. GDT invoice XML generation + parse, wired into ReceiveEInvoice + a generate endpoint.
+- **FX revaluation**: reuse existing ExchangeRate framework + GL CreatePostedEntry. Realized on payment, unrealized at period-end.
+
+## Checkpoints
+
+- After P2-1: `go vet ./... && go test -count=1 ./...` green, commit — ✅ DONE (a9b5c85 + requisition commit)
+- After P2-2: same + commit
+- After P2-3: same + commit
+- After P2-4: same + commit
+- After P2-5: same + commit
+- Final: docs bumped (readiness 85% → P2 closed), AGENTS.md updated
+
+## Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Constructor param explosion | Med | Group into opts struct if 13+; acceptable now |
+| Return GL reversal double-posting | High | Unit-test GL entry generation; reuse APGLService |
+| FX revaluation math drift | Med | round2 helper, deterministic tests |
+| GDT XML format drift | Med | Abstract parser; wire format version in header |
+
+
 ## Architecture Decisions
 
 - **GL posting via JournalEntry.CreatePostedEntry** — skip review cycle for auto-generated entries. Already implemented.

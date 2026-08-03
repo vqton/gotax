@@ -23,6 +23,7 @@ func init() {
 	v.RegisterValidation("apttype", apTypeValidator)
 	v.RegisterValidation("costtype", costTypeValidator)
 	v.RegisterValidation("allocmethod", allocMethodValidator)
+	v.RegisterValidation("reqstatus", reqStatusValidator)
 }
 
 func Validator() *validator.Validate {
@@ -148,6 +149,14 @@ func costTypeValidator(fl validator.FieldLevel) bool {
 func allocMethodValidator(fl validator.FieldLevel) bool {
 	switch domain.CostAllocationMethod(fl.Field().String()) {
 	case domain.CostAllocByQty, domain.CostAllocByValue, domain.CostAllocByWeight, domain.CostAllocByVolume:
+		return true
+	}
+	return false
+}
+
+func reqStatusValidator(fl validator.FieldLevel) bool {
+	switch domain.RequisitionStatus(fl.Field().String()) {
+	case domain.ReqDraft, domain.ReqPending, domain.ReqApproved, domain.ReqRejected, domain.ReqOrdered:
 		return true
 	}
 	return false

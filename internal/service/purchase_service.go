@@ -25,6 +25,7 @@ type PurchaseService struct {
 	aptRepo  domain.APTransactionRepository
 	costRepo domain.CostAllocationRepository
 	provRepo domain.DoubtfulDebtProvisionRepository
+	reqRepo  domain.RequisitionRepository
 	gl       APGLService
 	now      func() time.Time
 }
@@ -37,14 +38,15 @@ func NewPurchaseService(
 	aptRepo domain.APTransactionRepository,
 	costRepo domain.CostAllocationRepository,
 	provRepo domain.DoubtfulDebtProvisionRepository,
+	reqRepo domain.RequisitionRepository,
 	gl APGLService,
 ) *PurchaseService {
 	return &PurchaseService{
 		supRepo: supRepo, poRepo: poRepo, grnRepo: grnRepo,
 		invRepo: invRepo, aptRepo: aptRepo, costRepo: costRepo,
-		provRepo: provRepo,
-		gl:       gl,
-		now:      time.Now,
+		provRepo: provRepo, reqRepo: reqRepo,
+		gl:  gl,
+		now: time.Now,
 	}
 }
 
@@ -937,4 +939,135 @@ func ageInMonths(from, to time.Time) int {
 
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+// ─── Requisition ─────────────────────────────────────────────────────────
+
+func (s *PurchaseService) CreateRequisition(ctx context.Context, r *domain.PurchaseRequisition) error {
+	if err := validate.Requisition(r); err != nil {
+		return err
+	}
+	r.CalculateTotals()
+	r.CreatedAt = s.now()
+	r.UpdatedAt = r.CreatedAt
+	if err := s.reqRepo.CreateRequisition(ctx, r); err != nil {
+		return err
+	}
+	for i := range r.Lines {
+		r.Lines[i].RequisitionID = r.ID
+		r.Lines[i].LineNumber = i + 1
+	}
+	return s.reqRepo.CreateRequisitionLines(ctx, r.Lines)
+}
+
+func (s *PurchaseService) GetRequisition(ctx context.Context, id string) (*domain.PurchaseRequisition, error) {
+	return s.reqRepo.GetRequisition(ctx, id)
+}
+
+func (s *PurchaseService) ListRequisitions(ctx context.Context, filter domain.RequisitionFilter) ([]domain.PurchaseRequisition, int, error) {
+	return s.reqRepo.ListRequisitions(ctx, filter)
+}
+
+func (s *PurchaseService) UpdateRequisition(ctx context.Context, r *domain.PurchaseRequisition) error {
+	existing, err := s.reqRepo.GetRequisition(ctx, r.ID)
+	if err != nil {
+		return err
+	}
+	if existing.Status != domain.ReqDraft {
+		return domain.ErrRequisitionCannotUpdate
+	}
+	if err := validate.Requisition(r); err != nil {
+		return err
+	}
+	r.CalculateTotals()
+	r.UpdatedAt = s.now()
+	return s.reqRepo.UpdateRequisition(ctx, r)
+}
+
+func (s *PurchaseService) SubmitRequisition(ctx context.Context, id, submittedBy string) error {
+	r, err := s.reqRepo.GetRequisition(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.ReqPending) {
+		return domain.ErrRequisitionInvalidTransition
+	}
+	return s.reqRepo.UpdateRequisitionStatus(ctx, id, domain.ReqPending, "", time.Time{})
+}
+
+func (s *PurchaseService) ApproveRequisition(ctx context.Context, id, approvedBy string) error {
+	r, err := s.reqRepo.GetRequisition(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.ReqApproved) {
+		return domain.ErrRequisitionInvalidTransition
+	}
+	return s.reqRepo.UpdateRequisitionStatus(ctx, id, domain.ReqApproved, approvedBy, s.now())
+}
+
+func (s *PurchaseService) RejectRequisition(ctx context.Context, id, reason string) error {
+	r, err := s.reqRepo.GetRequisition(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !r.Status.ValidTransition(domain.ReqRejected) {
+		return domain.ErrRequisitionInvalidTransition
+	}
+	return s.reqRepo.RejectRequisition(ctx, id, reason)
+}
+
+func (s *PurchaseService) ConvertRequisitionToPO(ctx context.Context, requisitionID, supplierID string) (*domain.PurchaseOrder, error) {
+	r, err := s.reqRepo.GetRequisition(ctx, requisitionID)
+	if err != nil {
+		return nil, err
+	}
+	if r.Status != domain.ReqApproved {
+		return nil, domain.ErrRequisitionNotApproved
+	}
+	if _, err := s.supRepo.GetSupplier(ctx, supplierID); err != nil {
+		return nil, domain.ErrPOSupplierRequired
+	}
+	po := &domain.PurchaseOrder{
+		CompanyID:     r.CompanyID,
+		PONumber:      "PO-" + r.RequisitionNumber,
+		SupplierID:    supplierID,
+		RequisitionID: r.ID,
+		OrderDate:     s.now(),
+		Currency:      "VND",
+		Status:        domain.POStatusDraft,
+		CreatedBy:     r.CreatedBy,
+	}
+	for i, l := range r.Lines {
+		po.Lines = append(po.Lines, domain.POItem{
+			LineNumber:   i + 1,
+			ItemCode:     l.ItemCode,
+			ItemName:     l.ItemName,
+			Unit:         l.Unit,
+			Quantity:     l.Quantity,
+			UnitPrice:    l.EstimatedPrice,
+			VATRate:      10,
+			VATType:      domain.VAT10,
+			AccountID:    l.AccountID,
+			VATAccountID: "1331",
+		})
+	}
+	if err := s.CreatePO(ctx, po); err != nil {
+		return nil, err
+	}
+	if err := s.reqRepo.UpdateRequisitionStatus(ctx, r.ID, domain.ReqOrdered, "", time.Time{}); err != nil {
+		return nil, err
+	}
+	return po, nil
+}
+
+func (s *PurchaseService) DeleteRequisition(ctx context.Context, id string) error {
+	r, err := s.reqRepo.GetRequisition(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.Status != domain.ReqDraft {
+		return domain.ErrRequisitionCannotUpdate
+	}
+	return s.reqRepo.DeleteRequisition(ctx, id)
 }

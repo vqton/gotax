@@ -33,6 +33,8 @@ type MemoryPurchaseRepo struct {
 	costAllocs    map[string]*domain.CostAllocation
 	provisions    map[string]*domain.DoubtfulDebtProvision
 	provLines     map[string][]domain.DoubtfulDebtProvisionLine
+	reqs          map[string]*domain.PurchaseRequisition
+	reqLines      map[string][]domain.RequisitionItem
 }
 
 func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
@@ -52,6 +54,8 @@ func NewMemoryPurchaseRepo() *MemoryPurchaseRepo {
 		costAllocs:  make(map[string]*domain.CostAllocation),
 		provisions:  make(map[string]*domain.DoubtfulDebtProvision),
 		provLines:   make(map[string][]domain.DoubtfulDebtProvisionLine),
+		reqs:        make(map[string]*domain.PurchaseRequisition),
+		reqLines:    make(map[string][]domain.RequisitionItem),
 	}
 }
 
@@ -936,7 +940,173 @@ func (r *MemoryPurchaseRepo) ListProvisions(_ context.Context, companyID string,
 	return all[offset:end], len(all), nil
 }
 
+// ─── Requisition ─────────────────────────────────────────────────────────
+
+func (r *MemoryPurchaseRepo) CreateRequisition(_ context.Context, req *domain.PurchaseRequisition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cr := *req
+	if cr.ID == "" {
+		cr.ID = purchaseID("REQ-")
+	}
+	cr.CreatedAt = time.Now()
+	cr.UpdatedAt = cr.CreatedAt
+	r.reqs[cr.ID] = &cr
+	req.ID = cr.ID
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) CreateRequisitionLines(_ context.Context, lines []domain.RequisitionItem) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range lines {
+		cl := lines[i]
+		if cl.ID == "" {
+			cl.ID = purchaseID("REQL-")
+		}
+		r.reqLines[cl.RequisitionID] = append(r.reqLines[cl.RequisitionID], cl)
+		lines[i].ID = cl.ID
+	}
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) GetRequisition(_ context.Context, id string) (*domain.PurchaseRequisition, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	req, ok := r.reqs[id]
+	if !ok {
+		return nil, domain.ErrRequisitionNotFound
+	}
+	return r.loadRequisition(req)
+}
+
+func (r *MemoryPurchaseRepo) GetRequisitionLines(_ context.Context, requisitionID string) ([]domain.RequisitionItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if lines, ok := r.reqLines[requisitionID]; ok {
+		out := make([]domain.RequisitionItem, len(lines))
+		copy(out, lines)
+		return out, nil
+	}
+	return []domain.RequisitionItem{}, nil
+}
+
+func (r *MemoryPurchaseRepo) ListRequisitions(_ context.Context, filter domain.RequisitionFilter) ([]domain.PurchaseRequisition, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var all []domain.PurchaseRequisition
+	for _, req := range r.reqs {
+		if req.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.Status != "" && req.Status != filter.Status {
+			continue
+		}
+		if filter.RequesterID != "" && req.RequesterID != filter.RequesterID {
+			continue
+		}
+		if filter.FromDate != nil && req.CreatedAt.Before(*filter.FromDate) {
+			continue
+		}
+		if filter.ToDate != nil && req.CreatedAt.After(*filter.ToDate) {
+			continue
+		}
+		loaded, err := r.loadRequisition(req)
+		if err != nil {
+			return nil, 0, err
+		}
+		all = append(all, *loaded)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.After(all[j].CreatedAt) })
+	total := len(all)
+	offset := 0
+	if filter.Offset > 0 {
+		offset = filter.Offset
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		return all, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	if offset > total {
+		offset = total
+	}
+	return all[offset:end], total, nil
+}
+
+func (r *MemoryPurchaseRepo) UpdateRequisition(_ context.Context, req *domain.PurchaseRequisition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.reqs[req.ID]
+	if !ok {
+		return domain.ErrRequisitionNotFound
+	}
+	cr := *req
+	cr.CreatedAt = existing.CreatedAt
+	cr.UpdatedAt = time.Now()
+	r.reqs[req.ID] = &cr
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) UpdateRequisitionStatus(_ context.Context, id string, status domain.RequisitionStatus, approvedBy string, approvedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.reqs[id]
+	if !ok {
+		return domain.ErrRequisitionNotFound
+	}
+	cr := *req
+	cr.Status = status
+	if approvedBy != "" {
+		cr.ApprovedBy = approvedBy
+	}
+	if !approvedAt.IsZero() {
+		cr.ApprovedAt = &approvedAt
+	}
+	cr.UpdatedAt = time.Now()
+	r.reqs[id] = &cr
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) RejectRequisition(_ context.Context, id, reason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.reqs[id]
+	if !ok {
+		return domain.ErrRequisitionNotFound
+	}
+	cr := *req
+	cr.Status = domain.ReqRejected
+	cr.RejectedReason = reason
+	cr.UpdatedAt = time.Now()
+	r.reqs[id] = &cr
+	return nil
+}
+
+func (r *MemoryPurchaseRepo) DeleteRequisition(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.reqs[id]; !ok {
+		return domain.ErrRequisitionNotFound
+	}
+	delete(r.reqs, id)
+	delete(r.reqLines, id)
+	return nil
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────
+
+func (r *MemoryPurchaseRepo) loadRequisition(req *domain.PurchaseRequisition) (*domain.PurchaseRequisition, error) {
+	cp := *req
+	if lines, ok := r.reqLines[req.ID]; ok {
+		cp.Lines = make([]domain.RequisitionItem, len(lines))
+		copy(cp.Lines, lines)
+	}
+	return &cp, nil
+}
 
 func (r *MemoryPurchaseRepo) loadPO(po *domain.PurchaseOrder) (*domain.PurchaseOrder, error) {
 	cp := *po

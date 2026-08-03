@@ -585,3 +585,90 @@ type UninvoicedReceiptRow struct {
 	UnitPrice    float64 `json:"unit_price"`
 	LineTotal    float64 `json:"line_total"`
 }
+
+type RequisitionStatus string
+const (ReqDraft RequisitionStatus="DRAFT"; ReqPending RequisitionStatus="PENDING"; ReqApproved RequisitionStatus="APPROVED"; ReqRejected RequisitionStatus="REJECTED"; ReqOrdered RequisitionStatus="ORDERED")
+
+func (s RequisitionStatus) ValidTransition(next RequisitionStatus) bool {
+	switch s {
+	case ReqDraft: return next == ReqPending
+	case ReqPending: return next == ReqApproved || next == ReqRejected
+	case ReqApproved: return next == ReqOrdered
+	case ReqRejected, ReqOrdered: return false
+	}
+	return false
+}
+
+type PurchaseRequisition struct {
+	ID                string            `json:"id"`
+	CompanyID         string            `json:"company_id"`
+	RequisitionNumber string            `json:"requisition_number" validate:"required"`
+	RequesterID       string            `json:"requester_id" validate:"required"`
+	RequesterName     string            `json:"requester_name,omitempty"`
+	DepartmentID      string            `json:"department_id,omitempty"`
+	NeedByDate        *time.Time        `json:"need_by_date,omitempty"`
+	Priority          string            `json:"priority,omitempty"`
+	Reason            string            `json:"reason,omitempty"`
+	Status            RequisitionStatus `json:"status" validate:"reqstatus"`
+	TotalEstimated    float64           `json:"total_estimated"`
+	ApprovedBy        string            `json:"approved_by,omitempty"`
+	ApprovedAt        *time.Time        `json:"approved_at,omitempty"`
+	RejectedReason    string            `json:"rejected_reason,omitempty"`
+	CreatedBy         string            `json:"created_by"`
+	CreatedAt         time.Time         `json:"created_at,omitempty"`
+	UpdatedAt         time.Time         `json:"updated_at,omitempty"`
+	Lines             []RequisitionItem `json:"lines" validate:"min=1"`
+}
+
+func (r *PurchaseRequisition) Validate() error {
+	if r.RequisitionNumber == "" { return ErrRequisitionNumberRequired }
+	if r.RequesterID == "" { return ErrRequisitionRequesterRequired }
+	if r.Status == "" { r.Status = ReqDraft }
+	switch r.Status {
+	case ReqDraft, ReqPending, ReqApproved, ReqRejected, ReqOrdered:
+	default: return ErrRequisitionStatusInvalid
+	}
+	if len(r.Lines) == 0 { return ErrRequisitionLinesRequired }
+	return nil
+}
+
+func (r *PurchaseRequisition) CalculateTotals() {
+	total := 0.0
+	for i := range r.Lines {
+		l := &r.Lines[i]
+		l.EstimatedTotal = l.Quantity * l.EstimatedPrice
+		total += l.EstimatedTotal
+	}
+	r.TotalEstimated = total
+}
+
+type RequisitionItem struct {
+	ID             string  `json:"id"`
+	RequisitionID  string  `json:"requisition_id,omitempty"`
+	LineNumber     int     `json:"line_number"`
+	ItemCode       string  `json:"item_code,omitempty"`
+	ItemName       string  `json:"item_name" validate:"required"`
+	Unit           string  `json:"unit"`
+	Quantity       float64 `json:"quantity" validate:"gt=0"`
+	EstimatedPrice float64 `json:"estimated_price" validate:"gte=0"`
+	EstimatedTotal float64 `json:"estimated_total"`
+	AccountID      string  `json:"account_id" validate:"required"`
+}
+
+func (l *RequisitionItem) Validate() error {
+	if l.ItemName == "" { return ErrRequisitionItemNameRequired }
+	if l.Quantity <= 0 { return ErrRequisitionItemQtyRequired }
+	if l.EstimatedPrice < 0 { return ErrRequisitionItemPriceRequired }
+	if l.AccountID == "" { return ErrRequisitionItemAccountRequired }
+	return nil
+}
+
+type RequisitionFilter struct {
+	CompanyID   string
+	Status      RequisitionStatus
+	RequesterID string
+	FromDate    *time.Time
+	ToDate      *time.Time
+	Limit       int
+	Offset      int
+}

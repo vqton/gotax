@@ -55,7 +55,7 @@ func setupPurchaseTest(t *testing.T) (*gin.Engine, *service.PurchaseService, con
 		require.NoError(t, gl.CreateAccount(ctx, &acc))
 	}
 
-	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
+	purSvc := service.NewPurchaseService(purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, purRepo, gl)
 	purH := NewPurchaseHandler(purSvc)
 
 	r := gin.New()
@@ -748,5 +748,72 @@ func TestSupplierLedgerHandlerRequiresSupplier(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/purchase/reports/s02-dn?company_id=CMP001", nil)
 	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+// ─── Requisition ─────────────────────────────────────────────────────────
+
+func TestCreateRequisition(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	body := `{"requisition_number":"REQ-H1","requester_id":"u1","requester_name":"Alice","lines":[{"item_name":"Widget","unit":"pcs","quantity":10,"estimated_price":1000,"account_id":"152"}]}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/requisitions?company_id=CMP001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var out domain.PurchaseRequisition
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NotEmpty(t, out.ID)
+	assert.InDelta(t, 10000, out.TotalEstimated, 0.001)
+}
+
+func TestRequisitionWorkflow(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := makeTestSupplier(t, svc, ctx, "SRQ1")
+	req := &domain.PurchaseRequisition{
+		CompanyID: "CMP001", RequisitionNumber: "REQ-H2", RequesterID: "u1",
+		RequesterName: "Alice", CreatedBy: "u1",
+		Lines: []domain.RequisitionItem{{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100, AccountID: "152"}},
+	}
+	require.NoError(t, svc.CreateRequisition(ctx, req))
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{"PATCH", "/api/v1/purchase/requisitions/" + req.ID + "/submit"},
+		{"PATCH", "/api/v1/purchase/requisitions/" + req.ID + "/approve"},
+		{"POST", "/api/v1/purchase/requisitions/" + req.ID + "/convert-to-po?supplier_id=" + sup.ID},
+	} {
+		w := httptest.NewRecorder()
+		rq, _ := http.NewRequest(tc.method, tc.path, nil)
+		r.ServeHTTP(w, rq)
+		assert.Equal(t, 200, w.Code, "%s %s", tc.method, tc.path)
+	}
+
+	loaded, _ := svc.GetRequisition(ctx, req.ID)
+	assert.Equal(t, domain.ReqOrdered, loaded.Status)
+}
+
+func TestGetRequisitionNotFound(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/purchase/requisitions/nope", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 404, w.Code)
+}
+
+func TestRequisitionApproveWithoutSubmitFails(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	req := &domain.PurchaseRequisition{
+		CompanyID: "CMP001", RequisitionNumber: "REQ-H3", RequesterID: "u1",
+		RequesterName: "Alice", CreatedBy: "u1",
+		Lines: []domain.RequisitionItem{{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100, AccountID: "152"}},
+	}
+	require.NoError(t, svc.CreateRequisition(ctx, req))
+
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("PATCH", "/api/v1/purchase/requisitions/"+req.ID+"/approve", nil)
+	r.ServeHTTP(w, rq)
 	assert.Equal(t, 400, w.Code)
 }

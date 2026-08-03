@@ -338,6 +338,20 @@ var (
 	ErrCostAllocTypeInvalid     = errors.New("invalid cost allocation type")
 	ErrCostAllocMethodInvalid   = errors.New("invalid cost allocation method")
 
+	// Requisition
+	ErrRequisitionNumberRequired   = errors.New("requisition number is required")
+	ErrRequisitionRequesterRequired = errors.New("requester is required")
+	ErrRequisitionStatusInvalid    = errors.New("invalid requisition status")
+	ErrRequisitionLinesRequired    = errors.New("requisition must have at least one line")
+	ErrRequisitionNotFound         = errors.New("purchase requisition not found")
+	ErrRequisitionInvalidTransition = errors.New("invalid requisition status transition")
+	ErrRequisitionCannotUpdate     = errors.New("requisition cannot be updated in current status")
+	ErrRequisitionItemNameRequired = errors.New("item name is required")
+	ErrRequisitionItemQtyRequired  = errors.New("quantity must be positive")
+	ErrRequisitionItemPriceRequired = errors.New("estimated price must be non-negative")
+	ErrRequisitionItemAccountRequired = errors.New("GL account is required")
+	ErrRequisitionNotApproved      = errors.New("requisition must be approved before conversion")
+
 	ErrProvisionDateRequired   = errors.New("provision as-of date is required")
 	ErrProvisionNoLines        = errors.New("provision has no lines")
 	ErrProvisionNotFound       = errors.New("doubtful debt provision not found")

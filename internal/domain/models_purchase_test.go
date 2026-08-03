@@ -209,3 +209,59 @@ func TestDoubtfulDebtProvision_Validate(t *testing.T) {
 	invalid.Lines = nil
 	assert.ErrorIs(t, invalid.Validate(), ErrProvisionNoLines)
 }
+
+func TestRequisitionStatus_ValidTransition(t *testing.T) {
+	assert.True(t, ReqDraft.ValidTransition(ReqPending))
+	assert.True(t, ReqPending.ValidTransition(ReqApproved))
+	assert.True(t, ReqPending.ValidTransition(ReqRejected))
+	assert.True(t, ReqApproved.ValidTransition(ReqOrdered))
+	assert.False(t, ReqDraft.ValidTransition(ReqApproved))
+	assert.False(t, ReqApproved.ValidTransition(ReqRejected))
+	assert.False(t, ReqOrdered.ValidTransition(ReqDraft))
+	assert.False(t, ReqRejected.ValidTransition(ReqPending))
+}
+
+func TestPurchaseRequisition_CalculateTotals(t *testing.T) {
+	r := &PurchaseRequisition{Lines: []RequisitionItem{
+		{Quantity: 10, EstimatedPrice: 100000},
+		{Quantity: 2, EstimatedPrice: 50000},
+	}}
+	r.CalculateTotals()
+	assert.InDelta(t, 1100000, r.TotalEstimated, 0.001)
+}
+
+func TestPurchaseRequisition_Validate(t *testing.T) {
+	valid := &PurchaseRequisition{
+		RequisitionNumber: "REQ-1", RequesterID: "u1", RequesterName: "Alice",
+		Lines: []RequisitionItem{{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100, AccountID: "152"}},
+	}
+	require.NoError(t, valid.Validate())
+	assert.Equal(t, ReqDraft, valid.Status)
+}
+
+func TestPurchaseRequisition_Validate_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		r    PurchaseRequisition
+		want error
+	}{
+		{"number", PurchaseRequisition{RequesterID: "u", Lines: []RequisitionItem{{}}}, ErrRequisitionNumberRequired},
+		{"requester", PurchaseRequisition{RequisitionNumber: "r", Lines: []RequisitionItem{{}}}, ErrRequisitionRequesterRequired},
+		{"lines", PurchaseRequisition{RequisitionNumber: "r", RequesterID: "u"}, ErrRequisitionLinesRequired},
+		{"status", PurchaseRequisition{RequisitionNumber: "r", RequesterID: "u", Status: "bad", Lines: []RequisitionItem{{}}}, ErrRequisitionStatusInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ErrorIs(t, tt.r.Validate(), tt.want)
+		})
+	}
+}
+
+func TestRequisitionItemValidate(t *testing.T) {
+	l := RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100, AccountID: "152"}
+	require.NoError(t, l.Validate())
+	assert.ErrorIs(t, (&RequisitionItem{Unit: "pcs", Quantity: 1, EstimatedPrice: 100, AccountID: "152"}).Validate(), ErrRequisitionItemNameRequired)
+	assert.ErrorIs(t, (&RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 0, EstimatedPrice: 100, AccountID: "152"}).Validate(), ErrRequisitionItemQtyRequired)
+	assert.ErrorIs(t, (&RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: -1, AccountID: "152"}).Validate(), ErrRequisitionItemPriceRequired)
+	assert.ErrorIs(t, (&RequisitionItem{ItemName: "W", Unit: "pcs", Quantity: 1, EstimatedPrice: 100}).Validate(), ErrRequisitionItemAccountRequired)
+}

@@ -14,7 +14,7 @@ import (
 
 func newPurchaseTestSvc() (*PurchaseService, context.Context) {
 	repo := repository.NewMemoryPurchaseRepo()
-	return NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, nil), context.Background()
+	return NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, nil), context.Background()
 }
 
 func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) {
@@ -50,7 +50,7 @@ func setupPurchaseGL(t *testing.T) (*PurchaseService, Service, context.Context) 
 	}
 
 	repo := repository.NewMemoryPurchaseRepo()
-	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, gl)
+	svc := NewPurchaseService(repo, repo, repo, repo, repo, repo, repo, repo, gl)
 	return svc, gl, ctx
 }
 
@@ -743,4 +743,102 @@ func TestReport_UninvoicedReceipts(t *testing.T) {
 	assert.Equal(t, grn.GRNNumber, rows[0].GRNNumber)
 	assert.Equal(t, 5.0, rows[0].Quantity)
 	assert.Equal(t, sup.Name, rows[0].SupplierName)
+}
+
+// ─── Requisition ─────────────────────────────────────────────────────────
+
+func makeRequisition(t *testing.T, svc *PurchaseService, ctx context.Context, code string) *domain.PurchaseRequisition {
+	t.Helper()
+	r := &domain.PurchaseRequisition{
+		CompanyID: "c1", RequisitionNumber: "REQ-" + code, RequesterID: "user-" + code,
+		RequesterName: "Requester", Priority: "high", CreatedBy: "user",
+		Lines: []domain.RequisitionItem{{
+			ItemName: "Widget", Unit: "pcs", Quantity: 10,
+			EstimatedPrice: 1000, AccountID: "152",
+		}},
+	}
+	require.NoError(t, svc.CreateRequisition(ctx, r))
+	return r
+}
+
+func TestCreateRequisition(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R1")
+	require.NotEmpty(t, r.ID)
+	loaded, err := svc.GetRequisition(ctx, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReqDraft, loaded.Status)
+	assert.InDelta(t, 10000, loaded.TotalEstimated, 0.001)
+	require.Len(t, loaded.Lines, 1)
+	assert.Equal(t, r.ID, loaded.Lines[0].RequisitionID)
+}
+
+func TestCreateRequisition_Invalid(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	err := svc.CreateRequisition(ctx, &domain.PurchaseRequisition{
+		CompanyID: "c1", RequisitionNumber: "REQ-X", RequesterID: "u",
+	})
+	assert.ErrorIs(t, err, domain.ErrRequisitionLinesRequired)
+}
+
+func TestRequisition_Workflow(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R2")
+	sup := makeSupplier(t, svc, ctx, "SR2")
+
+	require.NoError(t, svc.SubmitRequisition(ctx, r.ID, "u"))
+	require.NoError(t, svc.ApproveRequisition(ctx, r.ID, "boss"))
+	po, err := svc.ConvertRequisitionToPO(ctx, r.ID, sup.ID)
+	require.NoError(t, err)
+	assert.Equal(t, r.ID, po.RequisitionID)
+	assert.Equal(t, sup.ID, po.SupplierID)
+
+	loaded, _ := svc.GetRequisition(ctx, r.ID)
+	assert.Equal(t, domain.ReqOrdered, loaded.Status)
+}
+
+func TestRequisition_ApproveWithoutSubmitFails(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R3")
+	err := svc.ApproveRequisition(ctx, r.ID, "boss")
+	assert.ErrorIs(t, err, domain.ErrRequisitionInvalidTransition)
+}
+
+func TestRequisition_Reject(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R4")
+	require.NoError(t, svc.SubmitRequisition(ctx, r.ID, "u"))
+	require.NoError(t, svc.RejectRequisition(ctx, r.ID, "budget cut"))
+	loaded, _ := svc.GetRequisition(ctx, r.ID)
+	assert.Equal(t, domain.ReqRejected, loaded.Status)
+	assert.Equal(t, "budget cut", loaded.RejectedReason)
+}
+
+func TestConvertRequisitionToPO_NotApproved(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R5")
+	sup := makeSupplier(t, svc, ctx, "SR5")
+	_, err := svc.ConvertRequisitionToPO(ctx, r.ID, sup.ID)
+	assert.ErrorIs(t, err, domain.ErrRequisitionNotApproved)
+}
+
+func TestRequisition_UpdateDraftOnly(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	r := makeRequisition(t, svc, ctx, "R6")
+	require.NoError(t, svc.SubmitRequisition(ctx, r.ID, "u"))
+	err := svc.UpdateRequisition(ctx, &domain.PurchaseRequisition{ID: r.ID, RequisitionNumber: r.RequisitionNumber, RequesterID: r.RequesterID})
+	assert.ErrorIs(t, err, domain.ErrRequisitionCannotUpdate)
+}
+
+func TestListRequisitions_FilterByStatus(t *testing.T) {
+	svc, ctx := newPurchaseTestSvc()
+	makeRequisition(t, svc, ctx, "R7A")
+	r2 := makeRequisition(t, svc, ctx, "R7B")
+	require.NoError(t, svc.SubmitRequisition(ctx, r2.ID, "u"))
+
+	list, total, err := svc.ListRequisitions(ctx, domain.RequisitionFilter{CompanyID: "c1", Status: domain.ReqPending})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, list, 1)
+	assert.Equal(t, r2.ID, list[0].ID)
 }

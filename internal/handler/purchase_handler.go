@@ -41,6 +41,18 @@ func RegisterPurchaseRoutes(r *gin.Engine, h *PurchaseHandler, authMW gin.Handle
 			orders.PATCH("/:id/cancel", h.CancelPO)
 			orders.PATCH("/:id/close", h.ClosePO)
 		}
+		requisitions := purchase.Group("/requisitions")
+		{
+			requisitions.POST("", h.CreateRequisition)
+			requisitions.GET("", h.ListRequisitions)
+			requisitions.GET("/:id", h.GetRequisition)
+			requisitions.PUT("/:id", h.UpdateRequisition)
+			requisitions.DELETE("/:id", h.DeleteRequisition)
+			requisitions.PATCH("/:id/submit", h.SubmitRequisition)
+			requisitions.PATCH("/:id/approve", h.ApproveRequisition)
+			requisitions.PATCH("/:id/reject", h.RejectRequisition)
+			requisitions.POST("/:id/convert-to-po", h.ConvertRequisitionToPO)
+		}
 		receipts := purchase.Group("/receipts")
 		{
 			receipts.POST("", h.CreateGRN)
@@ -568,4 +580,124 @@ func (h *PurchaseHandler) GetUninvoicedReceipts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, rows)
+}
+
+// ─── Requisition Handlers ────────────────────────────────────────────────
+
+func (h *PurchaseHandler) CreateRequisition(c *gin.Context) {
+	var req domain.PurchaseRequisition
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.CompanyID = c.Query("company_id")
+	if req.CompanyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
+		return
+	}
+	req.CreatedBy = GetUserID(c)
+	if err := h.svc.CreateRequisition(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, req)
+}
+
+func (h *PurchaseHandler) GetRequisition(c *gin.Context) {
+	id := c.Param("id")
+	req, err := h.svc.GetRequisition(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, req)
+}
+
+func (h *PurchaseHandler) ListRequisitions(c *gin.Context) {
+	companyID := c.Query("company_id")
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	filter := domain.RequisitionFilter{CompanyID: companyID, Limit: limit, Offset: offset}
+	if st := c.Query("status"); st != "" {
+		filter.Status = domain.RequisitionStatus(st)
+	}
+	if req := c.Query("requester_id"); req != "" {
+		filter.RequesterID = req
+	}
+	list, total, err := h.svc.ListRequisitions(c.Request.Context(), filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "total": total})
+}
+
+func (h *PurchaseHandler) UpdateRequisition(c *gin.Context) {
+	id := c.Param("id")
+	var req domain.PurchaseRequisition
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.ID = id
+	if err := h.svc.UpdateRequisition(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, req)
+}
+
+func (h *PurchaseHandler) DeleteRequisition(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.svc.DeleteRequisition(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func (h *PurchaseHandler) SubmitRequisition(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.svc.SubmitRequisition(c.Request.Context(), id, GetUserID(c)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "submitted"})
+}
+
+func (h *PurchaseHandler) ApproveRequisition(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.svc.ApproveRequisition(c.Request.Context(), id, GetUserID(c)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "approved"})
+}
+
+func (h *PurchaseHandler) RejectRequisition(c *gin.Context) {
+	id := c.Param("id")
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	if err := h.svc.RejectRequisition(c.Request.Context(), id, body.Reason); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
+}
+
+func (h *PurchaseHandler) ConvertRequisitionToPO(c *gin.Context) {
+	id := c.Param("id")
+	supplierID := c.Query("supplier_id")
+	if supplierID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "supplier_id query param required"})
+		return
+	}
+	po, err := h.svc.ConvertRequisitionToPO(c.Request.Context(), id, supplierID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, po)
 }

@@ -443,6 +443,18 @@ type DoubtfulDebtProvisionRepository interface {
 	ListProvisions(ctx context.Context, companyID string, limit, offset int) ([]DoubtfulDebtProvision, int, error)
 }
 
+type RequisitionRepository interface {
+	CreateRequisition(ctx context.Context, r *PurchaseRequisition) error
+	CreateRequisitionLines(ctx context.Context, lines []RequisitionItem) error
+	GetRequisition(ctx context.Context, id string) (*PurchaseRequisition, error)
+	GetRequisitionLines(ctx context.Context, requisitionID string) ([]RequisitionItem, error)
+	ListRequisitions(ctx context.Context, filter RequisitionFilter) ([]PurchaseRequisition, int, error)
+	UpdateRequisition(ctx context.Context, r *PurchaseRequisition) error
+	UpdateRequisitionStatus(ctx context.Context, id string, status RequisitionStatus, approvedBy string, approvedAt time.Time) error
+	RejectRequisition(ctx context.Context, id string, reason string) error
+	DeleteRequisition(ctx context.Context, id string) error
+}
+
 // ─── Sale Repository ────────────────────────────────────────────
 
 type CustomerRepository interface {

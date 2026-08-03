@@ -1249,3 +1249,178 @@ func (r *PGDoubtfulDebtProvisionRepo) ListProvisions(ctx context.Context, compan
 	}
 	return out, int(total), nil
 }
+
+// ─── Requisition ─────────────────────────────────────────────────────────
+
+type PGRequisitionRepo struct{ db *gorm.DB }
+
+func NewPGRequisitionRepo(db *gorm.DB) *PGRequisitionRepo {
+	return &PGRequisitionRepo{db: db}
+}
+
+func reqToGORM(r *domain.PurchaseRequisition) *domain.RequisitionGORM {
+	return &domain.RequisitionGORM{
+		ID:                r.ID,
+		CompanyID:         r.CompanyID,
+		RequisitionNumber: r.RequisitionNumber,
+		RequesterID:       r.RequesterID,
+		RequesterName:     r.RequesterName,
+		DepartmentID:      r.DepartmentID,
+		NeedByDate:        r.NeedByDate,
+		Priority:          r.Priority,
+		Reason:            r.Reason,
+		Status:            string(r.Status),
+		TotalEstimated:    r.TotalEstimated,
+		ApprovedBy:        r.ApprovedBy,
+		ApprovedAt:        r.ApprovedAt,
+		RejectedReason:    r.RejectedReason,
+		CreatedBy:         r.CreatedBy,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
+
+func reqFromGORM(g *domain.RequisitionGORM) *domain.PurchaseRequisition {
+	return &domain.PurchaseRequisition{
+		ID:                g.ID,
+		CompanyID:         g.CompanyID,
+		RequisitionNumber: g.RequisitionNumber,
+		RequesterID:       g.RequesterID,
+		RequesterName:     g.RequesterName,
+		DepartmentID:      g.DepartmentID,
+		NeedByDate:        g.NeedByDate,
+		Priority:          g.Priority,
+		Reason:            g.Reason,
+		Status:            domain.RequisitionStatus(g.Status),
+		TotalEstimated:    g.TotalEstimated,
+		ApprovedBy:        g.ApprovedBy,
+		ApprovedAt:        g.ApprovedAt,
+		RejectedReason:    g.RejectedReason,
+		CreatedBy:         g.CreatedBy,
+		CreatedAt:         g.CreatedAt,
+		UpdatedAt:         g.UpdatedAt,
+	}
+}
+
+func reqLineToGORM(l *domain.RequisitionItem) *domain.RequisitionItemGORM {
+	return &domain.RequisitionItemGORM{
+		ID:             l.ID,
+		RequisitionID:  l.RequisitionID,
+		LineNumber:     l.LineNumber,
+		ItemCode:       l.ItemCode,
+		ItemName:       l.ItemName,
+		Unit:           l.Unit,
+		Quantity:       l.Quantity,
+		EstimatedPrice: l.EstimatedPrice,
+		EstimatedTotal: l.EstimatedTotal,
+		AccountID:      l.AccountID,
+	}
+}
+
+func reqLineFromGORM(g *domain.RequisitionItemGORM) *domain.RequisitionItem {
+	return &domain.RequisitionItem{
+		ID:             g.ID,
+		RequisitionID:  g.RequisitionID,
+		LineNumber:     g.LineNumber,
+		ItemCode:       g.ItemCode,
+		ItemName:       g.ItemName,
+		Unit:           g.Unit,
+		Quantity:       g.Quantity,
+		EstimatedPrice: g.EstimatedPrice,
+		EstimatedTotal: g.EstimatedTotal,
+		AccountID:      g.AccountID,
+	}
+}
+
+func (r *PGRequisitionRepo) CreateRequisition(ctx context.Context, req *domain.PurchaseRequisition) error {
+	return r.db.WithContext(ctx).Create(reqToGORM(req)).Error
+}
+
+func (r *PGRequisitionRepo) CreateRequisitionLines(ctx context.Context, lines []domain.RequisitionItem) error {
+	gs := make([]domain.RequisitionItemGORM, len(lines))
+	for i := range lines {
+		gs[i] = *reqLineToGORM(&lines[i])
+	}
+	return r.db.WithContext(ctx).Create(&gs).Error
+}
+
+func (r *PGRequisitionRepo) GetRequisition(ctx context.Context, id string) (*domain.PurchaseRequisition, error) {
+	var g domain.RequisitionGORM
+	if err := r.db.WithContext(ctx).First(&g, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrRequisitionNotFound
+		}
+		return nil, err
+	}
+	req := reqFromGORM(&g)
+	lines, err := r.GetRequisitionLines(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	req.Lines = lines
+	return req, nil
+}
+
+func (r *PGRequisitionRepo) GetRequisitionLines(ctx context.Context, requisitionID string) ([]domain.RequisitionItem, error) {
+	var gs []domain.RequisitionItemGORM
+	if err := r.db.WithContext(ctx).Where("requisition_id = ?", requisitionID).Order("line_number").Find(&gs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]domain.RequisitionItem, len(gs))
+	for i := range gs {
+		out[i] = *reqLineFromGORM(&gs[i])
+	}
+	return out, nil
+}
+
+func (r *PGRequisitionRepo) ListRequisitions(ctx context.Context, filter domain.RequisitionFilter) ([]domain.PurchaseRequisition, int, error) {
+	q := r.db.WithContext(ctx).Model(&domain.RequisitionGORM{}).Where("company_id = ?", filter.CompanyID)
+	if filter.Status != "" {
+		q = q.Where("status = ?", string(filter.Status))
+	}
+	if filter.RequesterID != "" {
+		q = q.Where("requester_id = ?", filter.RequesterID)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var gs []domain.RequisitionGORM
+	if err := q.Order("created_at DESC").Limit(filter.Limit).Offset(filter.Offset).Find(&gs).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]domain.PurchaseRequisition, len(gs))
+	for i := range gs {
+		out[i] = *reqFromGORM(&gs[i])
+	}
+	return out, int(total), nil
+}
+
+func (r *PGRequisitionRepo) UpdateRequisition(ctx context.Context, req *domain.PurchaseRequisition) error {
+	g := reqToGORM(req)
+	return r.db.WithContext(ctx).Model(&domain.RequisitionGORM{}).
+		Where("id = ?", req.ID).
+		Select("requisition_number", "requester_id", "requester_name", "department_id", "need_by_date", "priority", "reason", "total_estimated", "updated_at").
+		Updates(g).Error
+}
+
+func (r *PGRequisitionRepo) UpdateRequisitionStatus(ctx context.Context, id string, status domain.RequisitionStatus, approvedBy string, approvedAt time.Time) error {
+	updates := map[string]interface{}{"status": string(status), "updated_at": time.Now()}
+	if approvedBy != "" {
+		updates["approved_by"] = approvedBy
+	}
+	if !approvedAt.IsZero() {
+		updates["approved_at"] = approvedAt
+	}
+	return r.db.WithContext(ctx).Model(&domain.RequisitionGORM{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (r *PGRequisitionRepo) RejectRequisition(ctx context.Context, id, reason string) error {
+	return r.db.WithContext(ctx).Model(&domain.RequisitionGORM{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{"status": string(domain.ReqRejected), "rejected_reason": reason, "updated_at": time.Now()}).Error
+}
+
+func (r *PGRequisitionRepo) DeleteRequisition(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.RequisitionGORM{}).Error
+}

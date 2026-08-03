@@ -62,6 +62,16 @@ func CostAllocation(c *domain.CostAllocation) error {
 	return mapCostAllocError(v.Struct(c))
 }
 
+func Requisition(r *domain.PurchaseRequisition) error {
+	if r.Status == "" {
+		r.Status = domain.ReqDraft
+	}
+	if err := v.Struct(r); err != nil {
+		return mapRequisitionError(err)
+	}
+	return nil
+}
+
 func firstField(err error) (string, bool) {
 	var verr validator.ValidationErrors
 	if !errors.As(err, &verr) || len(verr) == 0 {
@@ -212,6 +222,32 @@ func mapCostAllocError(err error) error {
 		return domain.ErrCostAllocTypeInvalid
 	case "AllocationMethod":
 		return domain.ErrCostAllocMethodInvalid
+	}
+	return err
+}
+
+func mapRequisitionError(err error) error {
+	f, ok := firstField(err)
+	if !ok {
+		return err
+	}
+	switch f {
+	case "RequisitionNumber":
+		return domain.ErrRequisitionNumberRequired
+	case "RequesterID":
+		return domain.ErrRequisitionRequesterRequired
+	case "Status":
+		return domain.ErrRequisitionStatusInvalid
+	case "Lines":
+		return domain.ErrRequisitionLinesRequired
+	case "Lines[0].ItemName":
+		return domain.ErrRequisitionItemNameRequired
+	case "Lines[0].Quantity":
+		return domain.ErrRequisitionItemQtyRequired
+	case "Lines[0].EstimatedPrice":
+		return domain.ErrRequisitionItemPriceRequired
+	case "Lines[0].AccountID":
+		return domain.ErrRequisitionItemAccountRequired
 	}
 	return err
 }

@@ -220,3 +220,40 @@ type DoubtfulDebtProvisionLineGORM struct {
 }
 
 func (DoubtfulDebtProvisionLineGORM) TableName() string { return "doubtful_debt_provision_lines" }
+
+type RequisitionGORM struct {
+	ID                string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID         string    `gorm:"column:company_id;not null;size:36;index:idx_req_company" json:"companyId"`
+	RequisitionNumber string    `gorm:"column:requisition_number;not null;size:50;index:idx_req_number" json:"requisitionNumber"`
+	RequesterID       string    `gorm:"column:requester_id;not null;size:36" json:"requesterId"`
+	RequesterName     string    `gorm:"column:requester_name;size:255;default:''" json:"requesterName"`
+	DepartmentID      string    `gorm:"column:department_id;size:36;default:''" json:"departmentId"`
+	NeedByDate        *time.Time `gorm:"column:need_by_date;type:date" json:"needByDate"`
+	Priority          string    `gorm:"column:priority;size:20;default:''" json:"priority"`
+	Reason            string    `gorm:"column:reason;type:text" json:"reason"`
+	Status            string    `gorm:"column:status;not null;size:20;default:DRAFT;index:idx_req_status" json:"status"`
+	TotalEstimated    float64   `gorm:"column:total_estimated;not null;default:0" json:"totalEstimated"`
+	ApprovedBy        string    `gorm:"column:approved_by;size:36;default:''" json:"approvedBy"`
+	ApprovedAt        *time.Time `gorm:"column:approved_at;type:timestamptz" json:"approvedAt"`
+	RejectedReason    string    `gorm:"column:rejected_reason;type:text" json:"rejectedReason"`
+	CreatedBy         string    `gorm:"column:created_by;not null;size:36" json:"createdBy"`
+	CreatedAt         time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt         time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+}
+
+func (RequisitionGORM) TableName() string { return "purchase_requisitions" }
+
+type RequisitionItemGORM struct {
+	ID             string  `gorm:"column:id;primaryKey;size:36" json:"id"`
+	RequisitionID  string  `gorm:"column:requisition_id;not null;size:36;index:idx_reql_req" json:"requisitionId"`
+	LineNumber     int     `gorm:"column:line_number;not null;default:0" json:"lineNumber"`
+	ItemCode       string  `gorm:"column:item_code;size:50;default:''" json:"itemCode"`
+	ItemName       string  `gorm:"column:item_name;not null;size:255" json:"itemName"`
+	Unit           string  `gorm:"column:unit;size:20;default:''" json:"unit"`
+	Quantity       float64 `gorm:"column:quantity;not null;default:0" json:"quantity"`
+	EstimatedPrice float64 `gorm:"column:estimated_price;not null;default:0" json:"estimatedPrice"`
+	EstimatedTotal float64 `gorm:"column:estimated_total;not null;default:0" json:"estimatedTotal"`
+	AccountID      string  `gorm:"column:account_id;not null;size:36" json:"accountId"`
+}
+
+func (RequisitionItemGORM) TableName() string { return "requisition_lines" }
