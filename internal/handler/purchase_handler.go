@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -74,8 +75,10 @@ func RegisterPurchaseRoutes(r *gin.Engine, h *PurchaseHandler, authMW gin.Handle
 		invoices := purchase.Group("/invoices")
 		{
 			invoices.POST("", h.CreateInvoice)
+			invoices.POST("/e-invoice", h.ReceiveEInvoice)
 			invoices.GET("", h.ListInvoices)
 			invoices.GET("/:id", h.GetInvoice)
+			invoices.GET("/:id/e-invoice", h.GetEInvoiceXML)
 			invoices.PUT("/:id", h.UpdateInvoice)
 			invoices.PATCH("/:id/verify", h.VerifyInvoice)
 			invoices.PATCH("/:id/post", h.PostInvoice)
@@ -829,4 +832,38 @@ func (h *PurchaseHandler) PostFXRevaluation(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "posted"})
+}
+
+// ─── E-Invoice GDT XML Handlers (P2-5) ───────────────────────────────────
+
+// ReceiveEInvoice accepts a raw GDT e-invoice XML document pushed by the tax
+// authority, parses it, and creates a draft supplier invoice.
+func (h *PurchaseHandler) ReceiveEInvoice(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id query param required"})
+		return
+	}
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	inv, err := h.svc.ReceiveEInvoiceXML(c.Request.Context(), companyID, raw)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, inv)
+}
+
+// GetEInvoiceXML renders a stored supplier invoice as a GDT e-invoice XML
+// document.
+func (h *PurchaseHandler) GetEInvoiceXML(c *gin.Context) {
+	raw, err := h.svc.GenerateEInvoiceXML(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "application/xml; charset=utf-8", []byte(raw))
 }

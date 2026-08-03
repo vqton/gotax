@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
 	"gotax/internal/repository"
 	"gotax/internal/service"
 )
@@ -1000,6 +1001,106 @@ func TestGetFXRevaluationNotFound(t *testing.T) {
 	r, _, _, _ := setupPurchaseGLTest(t)
 	w := httptest.NewRecorder()
 	rq, _ := http.NewRequest("GET", "/api/v1/purchase/fx-revaluations/nope", nil)
+	r.ServeHTTP(w, rq)
+	assert.Equal(t, 404, w.Code)
+}
+
+// ─── E-Invoice GDT XML (P2-5) ────────────────────────────────────────────
+
+const handlerGDTXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://gdt.gov.vn/schemas/einvoice/2026">
+  <InvoiceHeader>
+    <InvoiceNumber>INV-GDT-H1</InvoiceNumber>
+    <InvoiceDate>2026-07-20</InvoiceDate>
+    <InvoiceType>01GTKT</InvoiceType>
+    <CurrencyCode>VND</CurrencyCode>
+  </InvoiceHeader>
+  <Seller>
+    <TaxCode>1234567890</TaxCode>
+    <Name>Cong ty GDT Handler</Name>
+  </Seller>
+  <InvoiceLines>
+    <Line>
+      <LineNumber>1</LineNumber>
+      <ItemName>Widget</ItemName>
+      <Unit>Cai</Unit>
+      <Quantity>1</Quantity>
+      <UnitPrice>1000</UnitPrice>
+      <VatRate>10</VatRate>
+      <VatAmount>100</VatAmount>
+      <LineTotal>1000</LineTotal>
+    </Line>
+  </InvoiceLines>
+  <Summary>
+    <Subtotal>1000</Subtotal>
+    <Discount>0</Discount>
+    <VatAmount>100</VatAmount>
+    <GrandTotal>1100</GrandTotal>
+  </Summary>
+</Invoice>
+`
+
+func TestReceiveEInvoiceXMLHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/invoices/e-invoice?company_id=CMP001", strings.NewReader(handlerGDTXML))
+	req.Header.Set("Content-Type", "application/xml")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 201, w.Code)
+	var inv domain.SupplierInvoice
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &inv))
+	assert.Equal(t, "INV-GDT-H1", inv.InvoiceNumber)
+	assert.Equal(t, domain.InvoiceDraft, inv.Status)
+	assert.NotEmpty(t, inv.SupplierID)
+
+	suppliers, _, err := svc.ListSuppliers(ctx, "CMP001", 0, 50)
+	require.NoError(t, err)
+	var found bool
+	for _, s := range suppliers {
+		if s.TaxCode == "1234567890" {
+			found = true
+		}
+	}
+	assert.True(t, found, "supplier auto-created from GDT XML")
+}
+
+func TestReceiveEInvoiceXMLHandler_Malformed(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/purchase/invoices/e-invoice?company_id=CMP001", strings.NewReader("<Invoice><Broken"))
+	req.Header.Set("Content-Type", "application/xml")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestGetEInvoiceXMLHandler(t *testing.T) {
+	r, svc, ctx := setupPurchaseTest(t)
+	sup := &domain.Supplier{CompanyID: "CMP001", Code: "E-SUP", Name: "E Sup", TaxCode: "E-TX"}
+	require.NoError(t, svc.CreateSupplier(ctx, sup))
+	inv := &domain.SupplierInvoice{
+		CompanyID: "CMP001", InvoiceNumber: "INV-GEN-H1", SupplierID: sup.ID, InvoiceDate: time.Now(),
+		Lines: []domain.SupplierInvoiceLine{{ItemName: "W", Unit: "pcs", Quantity: 2, UnitPrice: 500, VATRate: 8, VATType: domain.VAT8, AccountID: "152", VATAccountID: "1331"}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("GET", "/api/v1/purchase/invoices/"+inv.ID+"/e-invoice", nil)
+	r.ServeHTTP(w, rq)
+	assert.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/xml")
+
+	parsed, err := einvoice.Parse(w.Body.Bytes())
+	require.NoError(t, err)
+	assert.Equal(t, "INV-GEN-H1", parsed.InvoiceNumber)
+	assert.Equal(t, 1000.0, parsed.Subtotal)
+	assert.Equal(t, 80.0, parsed.TaxAmount)
+}
+
+func TestGetEInvoiceXMLHandler_NotFound(t *testing.T) {
+	r, _, _ := setupPurchaseTest(t)
+	w := httptest.NewRecorder()
+	rq, _ := http.NewRequest("GET", "/api/v1/purchase/invoices/nope/e-invoice", nil)
 	r.ServeHTTP(w, rq)
 	assert.Equal(t, 404, w.Code)
 }
