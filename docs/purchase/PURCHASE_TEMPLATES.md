@@ -1,9 +1,10 @@
 # Purchase Module — Document Templates
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
 **Compliant with:** Circular 99/2025/TT-BTC, Decree 123/2020
+**Note:** Templates for UI reference only. PDF generation not yet wired.
 
 ---
 

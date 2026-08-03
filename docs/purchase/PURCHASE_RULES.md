@@ -1,9 +1,10 @@
 # Purchase Module — Business Rules & Compliance
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
 **Regulatory Basis:** Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP, Decree 70/2025, Decree 254/2026, IAS 2, VAS 02, VAS 17
+**Note:** Accounting rules implemented partially. Cost allocation engine pending (defined in domain).
 
 ---
 

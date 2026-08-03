@@ -1,8 +1,9 @@
 # Purchase Module — User Journeys
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
+**Note:** Journeys describe target state. Current implementation covers supplier/PO/GRN/invoice CRUD and basic AP reports.
 
 ---
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"gotax/internal/domain"
-	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -26,68 +25,46 @@ func supplierToGORM(s *domain.Supplier) *domain.SupplierGORM {
 		CompanyID:         s.CompanyID,
 		Code:              s.Code,
 		Name:              s.Name,
-		TaxCode:           strPtr(s.TaxCode),
-		Address:           strPtr(s.Address),
-		Phone:             strPtr(s.Phone),
-		Email:             strPtr(s.Email),
-		BankAccountName:   strPtr(s.BankAccountName),
-		BankAccountNumber: strPtr(s.BankAccountNumber),
-		BankName:          strPtr(s.BankName),
-		PaymentTerms:      strPtr(string(s.PaymentTerms)),
-		CreditLimit:       float64Ptr(s.CreditLimit),
-		IsActive:          s.Status == domain.SupplierActive,
+		TaxCode:           s.TaxCode,
+		Address:           s.Address,
+		Phone:             s.Phone,
+		Email:             s.Email,
+		BankAccountName:   s.BankAccountName,
+		BankAccountNumber: s.BankAccountNumber,
+		BankName:          s.BankName,
+		PaymentTerms:      string(s.PaymentTerms),
+		CreditLimit:       s.CreditLimit,
+		Currency:          s.Currency,
+		SupplierType:      string(s.SupplierType),
+		Status:            string(s.Status),
+		Notes:             s.Notes,
 		CreatedAt:         s.CreatedAt,
 		UpdatedAt:         s.UpdatedAt,
 	}
 }
 
 func supplierFromGORM(g *domain.SupplierGORM) *domain.Supplier {
-	s := &domain.Supplier{
+	return &domain.Supplier{
 		ID:                g.ID,
 		CompanyID:         g.CompanyID,
 		Code:              g.Code,
 		Name:              g.Name,
-		BankAccountName:   "",
-		BankAccountNumber: "",
-		BankName:          "",
-		PaymentTerms:      "",
-		Notes:             "",
-		Status:            domain.SupplierActive,
+		TaxCode:           g.TaxCode,
+		Address:           g.Address,
+		Phone:             g.Phone,
+		Email:             g.Email,
+		BankAccountName:   g.BankAccountName,
+		BankAccountNumber: g.BankAccountNumber,
+		BankName:          g.BankName,
+		PaymentTerms:      domain.PaymentTerms(g.PaymentTerms),
+		CreditLimit:       g.CreditLimit,
+		Currency:          g.Currency,
+		SupplierType:      domain.SupplierType(g.SupplierType),
+		Status:            domain.SupplierStatus(g.Status),
+		Notes:             g.Notes,
 		CreatedAt:         g.CreatedAt,
 		UpdatedAt:         g.UpdatedAt,
-		Currency:          "VND",
 	}
-	if g.TaxCode != nil {
-		s.TaxCode = *g.TaxCode
-	}
-	if g.Address != nil {
-		s.Address = *g.Address
-	}
-	if g.Phone != nil {
-		s.Phone = *g.Phone
-	}
-	if g.Email != nil {
-		s.Email = *g.Email
-	}
-	if g.BankAccountName != nil {
-		s.BankAccountName = *g.BankAccountName
-	}
-	if g.BankAccountNumber != nil {
-		s.BankAccountNumber = *g.BankAccountNumber
-	}
-	if g.BankName != nil {
-		s.BankName = *g.BankName
-	}
-	if g.PaymentTerms != nil {
-		s.PaymentTerms = domain.PaymentTerms(*g.PaymentTerms)
-	}
-	if g.CreditLimit != nil {
-		s.CreditLimit = *g.CreditLimit
-	}
-	if !g.IsActive {
-		s.Status = domain.SupplierSuspended
-	}
-	return s
 }
 
 func (r *PGSupplierRepo) CreateSupplier(ctx context.Context, s *domain.Supplier) error {
@@ -180,7 +157,10 @@ func (r *PGSupplierRepo) UpdateSupplier(ctx context.Context, s *domain.Supplier)
 		"bank_name":           g.BankName,
 		"payment_terms":       g.PaymentTerms,
 		"credit_limit":        g.CreditLimit,
-		"is_active":           g.IsActive,
+		"currency":            g.Currency,
+		"supplier_type":       g.SupplierType,
+		"status":              g.Status,
+		"notes":               g.Notes,
 	}).Error
 }
 
@@ -206,65 +186,59 @@ func NewPGPurchaseRepo(db *gorm.DB) *PGPurchaseOrderRepo {
 }
 
 func poToGORM(po *domain.PurchaseOrder) *domain.PurchaseOrderGORM {
-	g := &domain.PurchaseOrderGORM{
-		ID:          po.ID,
-		CompanyID:   po.CompanyID,
-		PONumber:    po.PONumber,
-		OrderDate:   po.OrderDate,
-		SupplierID:  po.SupplierID,
-		Subtotal:    po.Subtotal,
-		TaxAmount:   po.TaxAmount,
-		TotalAmount: po.TotalAmount,
-		Currency:    po.Currency,
-		Status:      string(po.Status),
-		ApprovedBy:  strPtr(po.ApprovedBy),
-		CreatedBy:   po.CreatedBy,
-		CreatedAt:   po.CreatedAt,
-		UpdatedAt:   po.UpdatedAt,
-		Notes:       strPtr(po.Notes),
-		PaymentTerms: strPtr(po.PaymentTerms),
+	return &domain.PurchaseOrderGORM{
+		ID:              po.ID,
+		CompanyID:       po.CompanyID,
+		PONumber:        po.PONumber,
+		SupplierID:      po.SupplierID,
+		RequisitionID:   po.RequisitionID,
+		OrderDate:       safeTimeStr(po.OrderDate),
+		ExpectedDate:    safeTimePtrStr(po.ExpectedDate),
+		Currency:        po.Currency,
+		ExchangeRate:    po.ExchangeRate,
+		PaymentTerms:    po.PaymentTerms,
+		DeliveryTerms:   po.DeliveryTerms,
+		Subtotal:        po.Subtotal,
+		DiscountAmount:  po.DiscountAmount,
+		TaxAmount:       po.TaxAmount,
+		TotalAmount:     po.TotalAmount,
+		Status:          string(po.Status),
+		ApprovedBy:      po.ApprovedBy,
+		ApprovedAt:      safeTimePtrRFC3339(po.ApprovedAt),
+		CancelledReason: po.CancelledReason,
+		Notes:           po.Notes,
+		CreatedBy:       po.CreatedBy,
+		CreatedAt:       po.CreatedAt,
+		UpdatedAt:       po.UpdatedAt,
 	}
-	if po.ExpectedDate != nil {
-		g.DeliveryDate = po.ExpectedDate
-	}
-	if po.ApprovedAt != nil {
-		g.ApprovedAt = po.ApprovedAt
-	}
-	return g
 }
 
 func poFromGORM(g *domain.PurchaseOrderGORM) *domain.PurchaseOrder {
-	po := &domain.PurchaseOrder{
-		ID:          g.ID,
-		CompanyID:   g.CompanyID,
-		PONumber:    g.PONumber,
-		OrderDate:   g.OrderDate,
-		SupplierID:  g.SupplierID,
-		Subtotal:    g.Subtotal,
-		TaxAmount:   g.TaxAmount,
-		TotalAmount: g.TotalAmount,
-		Currency:    g.Currency,
-		Status:      domain.POStatus(g.Status),
-		CreatedBy:   g.CreatedBy,
-		CreatedAt:   g.CreatedAt,
-		UpdatedAt:   g.UpdatedAt,
+	return &domain.PurchaseOrder{
+		ID:              g.ID,
+		CompanyID:       g.CompanyID,
+		PONumber:        g.PONumber,
+		SupplierID:      g.SupplierID,
+		RequisitionID:   g.RequisitionID,
+		OrderDate:       parseDate(g.OrderDate),
+		ExpectedDate:    timePtr(parseDate(g.ExpectedDate)),
+		Currency:        g.Currency,
+		ExchangeRate:    g.ExchangeRate,
+		PaymentTerms:    g.PaymentTerms,
+		DeliveryTerms:   g.DeliveryTerms,
+		Subtotal:        g.Subtotal,
+		DiscountAmount:  g.DiscountAmount,
+		TaxAmount:       g.TaxAmount,
+		TotalAmount:     g.TotalAmount,
+		Status:          domain.POStatus(g.Status),
+		ApprovedBy:      g.ApprovedBy,
+		ApprovedAt:      timePtr(parseDateTime(g.ApprovedAt)),
+		CancelledReason: g.CancelledReason,
+		Notes:           g.Notes,
+		CreatedBy:       g.CreatedBy,
+		CreatedAt:       g.CreatedAt,
+		UpdatedAt:       g.UpdatedAt,
 	}
-	if g.ApprovedBy != nil {
-		po.ApprovedBy = *g.ApprovedBy
-	}
-	if g.DeliveryDate != nil {
-		po.ExpectedDate = g.DeliveryDate
-	}
-	if g.ApprovedAt != nil {
-		po.ApprovedAt = g.ApprovedAt
-	}
-	if g.Notes != nil {
-		po.Notes = *g.Notes
-	}
-	if g.PaymentTerms != nil {
-		po.PaymentTerms = *g.PaymentTerms
-	}
-	return po
 }
 
 func (r *PGPurchaseOrderRepo) CreatePO(ctx context.Context, po *domain.PurchaseOrder) error {
@@ -364,12 +338,13 @@ func (r *PGPurchaseOrderRepo) ListPOs(ctx context.Context, filter domain.Purchas
 func (r *PGPurchaseOrderRepo) UpdatePO(ctx context.Context, po *domain.PurchaseOrder) error {
 	g := poToGORM(po)
 	return r.db.WithContext(ctx).Model(&domain.PurchaseOrderGORM{}).Where("id = ?", po.ID).Updates(map[string]interface{}{
-		"supplier_id":  g.SupplierID,
-		"order_date":   g.OrderDate,
-		"currency":     g.Currency,
-		"delivery_date": g.DeliveryDate,
-		"payment_terms": g.PaymentTerms,
-		"notes":        g.Notes,
+		"supplier_id":    g.SupplierID,
+		"order_date":     g.OrderDate,
+		"expected_date":  g.ExpectedDate,
+		"currency":       g.Currency,
+		"delivery_terms": g.DeliveryTerms,
+		"payment_terms":  g.PaymentTerms,
+		"notes":          g.Notes,
 	}).Error
 }
 
@@ -381,53 +356,58 @@ func (r *PGPurchaseOrderRepo) ApprovePO(ctx context.Context, id string, approved
 	return r.db.WithContext(ctx).Model(&domain.PurchaseOrderGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":      string(domain.POStatusApproved),
 		"approved_by": approvedBy,
-		"approved_at": approvedAt,
+		"approved_at": approvedAt.Format(time.RFC3339),
 	}).Error
 }
 
 func (r *PGPurchaseOrderRepo) CancelPO(ctx context.Context, id string, cancelReason string) error {
 	return r.db.WithContext(ctx).Model(&domain.PurchaseOrderGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":   string(domain.POStatusCancelled),
+		"status":           string(domain.POStatusCancelled),
 		"cancelled_reason": cancelReason,
 	}).Error
 }
 
 func poItemToGORM(l *domain.POItem) *domain.POItemGORM {
-	disc := l.DiscountPct
 	return &domain.POItemGORM{
-		POID:       l.POID,
-		LineNumber: l.LineNumber,
-		ItemCode:   l.ItemCode,
-		ItemName:   l.ItemName,
-		Quantity:   l.Quantity,
-		UnitPrice:  l.UnitPrice,
-		LineTotal:  l.LineTotal,
-		Discount:   &disc,
-		TaxRate:    &l.VATRate,
+		POID:          l.POID,
+		LineNumber:    l.LineNumber,
+		ItemCode:      l.ItemCode,
+		ItemName:      l.ItemName,
+		Unit:          l.Unit,
+		Quantity:      l.Quantity,
+		UnitPrice:     l.UnitPrice,
+		DiscountPct:   l.DiscountPct,
+		VATRate:       l.VATRate,
+		VATType:       string(l.VATType),
+		AccountID:     l.AccountID,
+		VATAccountID:  l.VATAccountID,
+		LineTotal:     l.LineTotal,
+		LineVATAmount: l.LineVATAmount,
+		ReceivedQty:   l.ReceivedQty,
+		InvoicedQty:   l.InvoicedQty,
 	}
 }
 
 func poItemFromGORM(g *domain.POItemGORM) *domain.POItem {
-	l := &domain.POItem{
-		ID:        g.ID,
-		POID:      g.POID,
-		LineNumber: g.LineNumber,
-		ItemCode:  g.ItemCode,
-		ItemName:  g.ItemName,
-		Unit:      "",
-		Quantity:  g.Quantity,
-		UnitPrice: g.UnitPrice,
-		LineTotal: g.LineTotal,
-		VATRate:   10,
-		AccountID: "",
+	return &domain.POItem{
+		ID:            g.ID,
+		POID:          g.POID,
+		LineNumber:    g.LineNumber,
+		ItemCode:      g.ItemCode,
+		ItemName:      g.ItemName,
+		Unit:          g.Unit,
+		Quantity:      g.Quantity,
+		UnitPrice:     g.UnitPrice,
+		DiscountPct:   g.DiscountPct,
+		VATRate:       g.VATRate,
+		VATType:       domain.VATType(g.VATType),
+		AccountID:     g.AccountID,
+		VATAccountID:  g.VATAccountID,
+		LineTotal:     g.LineTotal,
+		LineVATAmount: g.LineVATAmount,
+		ReceivedQty:   g.ReceivedQty,
+		InvoicedQty:   g.InvoicedQty,
 	}
-	if g.Discount != nil {
-		l.DiscountPct = *g.Discount
-	}
-	if g.TaxRate != nil {
-		l.VATRate = *g.TaxRate
-	}
-	return l
 }
 
 func (r *PGPurchaseOrderRepo) GetPOLines(ctx context.Context, poID string) ([]domain.POItem, error) {
@@ -489,39 +469,33 @@ func NewPGGRNRepo(db *gorm.DB) *PGGRNRepo {
 }
 
 func grnToGORM(g *domain.GRN) *domain.GRNGORM {
-	gg := &domain.GRNGORM{
-		ID:        g.ID,
-		CompanyID: g.CompanyID,
-		GRNNumber: g.GRNNumber,
-		GRNDate:   g.ReceiptDate,
-		POID:      strPtr(g.POID),
-		Status:    string(g.Status),
-		CreatedBy: g.CreatedBy,
-		CreatedAt: g.CreatedAt,
-		UpdatedAt: g.UpdatedAt,
-		Notes:     strPtr(g.Notes),
+	return &domain.GRNGORM{
+		ID:          g.ID,
+		CompanyID:   g.CompanyID,
+		GRNNumber:   g.GRNNumber,
+		POID:        g.POID,
+		ReceiptDate: safeTimeStr(g.ReceiptDate),
+		Warehouse:   g.Warehouse,
+		Status:      string(g.Status),
+		Notes:       g.Notes,
+		CreatedBy:   g.CreatedBy,
+		CreatedAt:   g.CreatedAt,
 	}
-	return gg
 }
 
 func grnFromGORM(gg *domain.GRNGORM) *domain.GRN {
-	g := &domain.GRN{
+	return &domain.GRN{
 		ID:          gg.ID,
 		CompanyID:   gg.CompanyID,
 		GRNNumber:   gg.GRNNumber,
-		ReceiptDate: gg.GRNDate,
+		POID:        gg.POID,
+		ReceiptDate: parseDate(gg.ReceiptDate),
+		Warehouse:   gg.Warehouse,
 		Status:      domain.GRNStatus(gg.Status),
+		Notes:       gg.Notes,
 		CreatedBy:   gg.CreatedBy,
 		CreatedAt:   gg.CreatedAt,
-		UpdatedAt:   gg.UpdatedAt,
 	}
-	if gg.POID != nil {
-		g.POID = *gg.POID
-	}
-	if gg.Notes != nil {
-		g.Notes = *gg.Notes
-	}
-	return g
 }
 
 func (r *PGGRNRepo) CreateGRN(ctx context.Context, g *domain.GRN) error {
@@ -531,7 +505,6 @@ func (r *PGGRNRepo) CreateGRN(ctx context.Context, g *domain.GRN) error {
 	}
 	g.ID = gg.ID
 	g.CreatedAt = gg.CreatedAt
-	g.UpdatedAt = gg.UpdatedAt
 	return nil
 }
 
@@ -577,10 +550,10 @@ func (r *PGGRNRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) ([]do
 		q = q.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		q = q.Where("grn_date >= ?", filter.FromDate)
+		q = q.Where("receipt_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		q = q.Where("grn_date <= ?", filter.ToDate)
+		q = q.Where("receipt_date <= ?", filter.ToDate)
 	}
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -594,12 +567,12 @@ func (r *PGGRNRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) ([]do
 		dq = dq.Where("status = ?", string(filter.Status))
 	}
 	if filter.FromDate != "" {
-		dq = dq.Where("grn_date >= ?", filter.FromDate)
+		dq = dq.Where("receipt_date >= ?", filter.FromDate)
 	}
 	if filter.ToDate != "" {
-		dq = dq.Where("grn_date <= ?", filter.ToDate)
+		dq = dq.Where("receipt_date <= ?", filter.ToDate)
 	}
-	dq = dq.Order("grn_date DESC")
+	dq = dq.Order("receipt_date DESC")
 	if filter.Limit > 0 {
 		dq = dq.Limit(filter.Limit)
 	}
@@ -621,10 +594,10 @@ func (r *PGGRNRepo) ListGRNs(ctx context.Context, filter domain.GRNFilter) ([]do
 func (r *PGGRNRepo) UpdateGRN(ctx context.Context, g *domain.GRN) error {
 	gg := grnToGORM(g)
 	return r.db.WithContext(ctx).Model(&domain.GRNGORM{}).Where("id = ?", g.ID).Updates(map[string]interface{}{
-		"grn_date":      gg.GRNDate,
-		"po_id":         gg.POID,
-		"status":        gg.Status,
-		"notes":         gg.Notes,
+		"receipt_date": gg.ReceiptDate,
+		"po_id":        gg.POID,
+		"status":       gg.Status,
+		"notes":        gg.Notes,
 	}).Error
 }
 
@@ -634,31 +607,31 @@ func (r *PGGRNRepo) UpdateGRNStatus(ctx context.Context, id string, status domai
 
 func grnItemToGORM(l *domain.GRNItem) *domain.GRNItemGORM {
 	return &domain.GRNItemGORM{
-		GRNID:      l.GRNID,
-		POLineID:   strPtr(l.POLineID),
-		ItemCode:   l.ItemCode,
-		ItemName:   l.ItemName,
-		QtyShipped: l.QuantityReceived,
-		UnitPrice:  l.UnitPrice,
-		LineTotal:  l.LineTotal,
+		GRNID:            l.GRNID,
+		POLineID:         l.POLineID,
+		ItemCode:         l.ItemCode,
+		ItemName:         l.ItemName,
+		Unit:             l.Unit,
+		QuantityReceived: l.QuantityReceived,
+		QuantityRejected: l.QuantityRejected,
+		UnitPrice:        l.UnitPrice,
+		LineTotal:        l.LineTotal,
 	}
 }
 
 func grnItemFromGORM(g *domain.GRNItemGORM) *domain.GRNItem {
-	l := &domain.GRNItem{
+	return &domain.GRNItem{
 		ID:               g.ID,
 		GRNID:            g.GRNID,
+		POLineID:         g.POLineID,
 		ItemCode:         g.ItemCode,
 		ItemName:         g.ItemName,
-		QuantityReceived: g.QtyShipped,
+		Unit:             g.Unit,
+		QuantityReceived: g.QuantityReceived,
+		QuantityRejected: g.QuantityRejected,
 		UnitPrice:        g.UnitPrice,
 		LineTotal:        g.LineTotal,
-		Unit:             "",
 	}
-	if g.POLineID != nil {
-		l.POLineID = *g.POLineID
-	}
-	return l
 }
 
 func (r *PGGRNRepo) GetGRNLines(ctx context.Context, grnID string) ([]domain.GRNItem, error) {
@@ -720,60 +693,69 @@ func NewPGSupplierInvoiceRepo(db *gorm.DB) *PGSupplierInvoiceRepo {
 }
 
 func sinvToGORM(inv *domain.SupplierInvoice) *domain.SupplierInvoiceGORM {
-	g := &domain.SupplierInvoiceGORM{
-		ID:            inv.ID,
-		CompanyID:     inv.CompanyID,
-		InvoiceNumber: inv.InvoiceNumber,
-		InvoiceDate:   inv.InvoiceDate,
-		SupplierID:    inv.SupplierID,
-		Subtotal:      inv.Subtotal,
-		TaxAmount:     inv.TaxAmount,
-		TotalAmount:   inv.TotalAmount,
-		Currency:      inv.Currency,
-		Status:        string(inv.Status),
-		GLPosted:      inv.GLPosted,
-		CreatedBy:     inv.CreatedBy,
-		CreatedAt:     inv.CreatedAt,
-		UpdatedAt:     inv.UpdatedAt,
+	return &domain.SupplierInvoiceGORM{
+		ID:                inv.ID,
+		CompanyID:         inv.CompanyID,
+		InvoiceNumber:     inv.InvoiceNumber,
+		InvoiceDate:       safeTimeStr(inv.InvoiceDate),
+		POID:              inv.POID,
+		GRNID:             inv.GRNID,
+		SupplierID:        inv.SupplierID,
+		SupplierName:      inv.SupplierName,
+		SupplierTaxCode:   inv.SupplierTaxCode,
+		InvoiceType:       inv.InvoiceType,
+		Currency:          inv.Currency,
+		ExchangeRate:      inv.ExchangeRate,
+		Subtotal:          inv.Subtotal,
+		DiscountAmount:    inv.DiscountAmount,
+		TaxAmount:         inv.TaxAmount,
+		TotalAmount:       inv.TotalAmount,
+		AmountPaid:        inv.AmountPaid,
+		BalanceDue:        inv.BalanceDue,
+		DueDate:           safeTimePtrStr(inv.DueDate),
+		VATDeductionStatus: string(inv.VATDeductionStatus),
+		EInvoiceData:      inv.EInvoiceData,
+		EInvoiceCode:      inv.EInvoiceCode,
+		Status:            string(inv.Status),
+		GLPosted:          inv.GLPosted,
+		GLPostedAt:        safeTimePtrRFC3339(inv.GLPostedAt),
+		Notes:             inv.Notes,
+		CreatedBy:         inv.CreatedBy,
+		CreatedAt:         inv.CreatedAt,
 	}
-	if inv.DueDate != nil {
-		g.DueDate = inv.DueDate
-	}
-	if inv.GLPostedAt != nil {
-		g.PostedAt = inv.GLPostedAt
-	}
-	return g
 }
 
 func sinvFromGORM(g *domain.SupplierInvoiceGORM) *domain.SupplierInvoice {
-	inv := &domain.SupplierInvoice{
-		ID:            g.ID,
-		CompanyID:     g.CompanyID,
-		InvoiceNumber: g.InvoiceNumber,
-		InvoiceDate:   g.InvoiceDate,
-		SupplierID:    g.SupplierID,
-		Subtotal:      g.Subtotal,
-		TaxAmount:     g.TaxAmount,
-		TotalAmount:   g.TotalAmount,
-		Currency:      g.Currency,
-		Status:        domain.InvoiceStatus(g.Status),
-		GLPosted:      g.GLPosted,
-		CreatedBy:     g.CreatedBy,
-		CreatedAt:     g.CreatedAt,
-		AmountPaid:    0,
-		BalanceDue:    g.TotalAmount,
-		InvoiceType:   "",
-		ExchangeRate:  1,
-		SupplierName:  "",
-		SupplierTaxCode: "",
+	return &domain.SupplierInvoice{
+		ID:                g.ID,
+		CompanyID:         g.CompanyID,
+		InvoiceNumber:     g.InvoiceNumber,
+		InvoiceDate:       parseDate(g.InvoiceDate),
+		POID:              g.POID,
+		GRNID:             g.GRNID,
+		SupplierID:        g.SupplierID,
+		SupplierName:      g.SupplierName,
+		SupplierTaxCode:   g.SupplierTaxCode,
+		InvoiceType:       g.InvoiceType,
+		Currency:          g.Currency,
+		ExchangeRate:      g.ExchangeRate,
+		Subtotal:          g.Subtotal,
+		DiscountAmount:    g.DiscountAmount,
+		TaxAmount:         g.TaxAmount,
+		TotalAmount:       g.TotalAmount,
+		AmountPaid:        g.AmountPaid,
+		BalanceDue:        g.BalanceDue,
+		DueDate:           timePtr(parseDate(g.DueDate)),
+		VATDeductionStatus: domain.VATDeductionStatus(g.VATDeductionStatus),
+		EInvoiceData:      g.EInvoiceData,
+		EInvoiceCode:      g.EInvoiceCode,
+		Status:            domain.InvoiceStatus(g.Status),
+		GLPosted:          g.GLPosted,
+		GLPostedAt:        timePtr(parseDateTime(g.GLPostedAt)),
+		Notes:             g.Notes,
+		CreatedBy:         g.CreatedBy,
+		CreatedAt:         g.CreatedAt,
 	}
-	if g.DueDate != nil {
-		inv.DueDate = g.DueDate
-	}
-	if g.PostedAt != nil {
-		inv.GLPostedAt = g.PostedAt
-	}
-	return inv
 }
 
 func (r *PGSupplierInvoiceRepo) CreateInvoice(ctx context.Context, inv *domain.SupplierInvoice) error {
@@ -783,7 +765,6 @@ func (r *PGSupplierInvoiceRepo) CreateInvoice(ctx context.Context, inv *domain.S
 	}
 	inv.ID = g.ID
 	inv.CreatedAt = g.CreatedAt
-	inv.UpdatedAt = g.UpdatedAt
 	return nil
 }
 
@@ -871,13 +852,14 @@ func (r *PGSupplierInvoiceRepo) ListInvoices(ctx context.Context, filter domain.
 }
 
 func (r *PGSupplierInvoiceRepo) UpdateInvoice(ctx context.Context, inv *domain.SupplierInvoice) error {
+	g := sinvToGORM(inv)
 	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", inv.ID).Updates(map[string]interface{}{
-		"invoice_date": inv.InvoiceDate,
-		"subtotal":     inv.Subtotal,
-		"tax_amount":   inv.TaxAmount,
-		"grand_total":  inv.TotalAmount,
-		"due_date":     inv.DueDate,
-		"notes":        inv.Notes,
+		"invoice_date": g.InvoiceDate,
+		"subtotal":     g.Subtotal,
+		"tax_amount":   g.TaxAmount,
+		"total_amount": g.TotalAmount,
+		"due_date":     g.DueDate,
+		"notes":        g.Notes,
 	}).Error
 }
 
@@ -887,48 +869,49 @@ func (r *PGSupplierInvoiceRepo) UpdateInvoiceStatus(ctx context.Context, id stri
 
 func (r *PGSupplierInvoiceRepo) PostInvoice(ctx context.Context, id string, postedAt time.Time) error {
 	return r.db.WithContext(ctx).Model(&domain.SupplierInvoiceGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":    string(domain.InvoicePosted),
-		"gl_posted": true,
-		"posted_at": postedAt,
+		"status":       string(domain.InvoicePosted),
+		"gl_posted":    true,
+		"gl_posted_at": postedAt.Format(time.RFC3339),
 	}).Error
 }
 
 func sinvLineToGORM(l *domain.SupplierInvoiceLine) *domain.SupplierInvoiceLineGORM {
 	return &domain.SupplierInvoiceLineGORM{
-		InvoiceID:  l.InvoiceID,
-		LineNumber: 0,
-		ItemCode:   l.ItemCode,
-		ItemName:   l.ItemName,
-		Quantity:   l.Quantity,
-		UnitPrice:  l.UnitPrice,
-		LineTotal:  l.LineTotal,
-		TaxRate:    float64Ptr(l.VATRate),
-		TaxAmount:  float64Ptr(l.LineVATAmount),
+		InvoiceID:     l.InvoiceID,
+		POLineID:      l.POLineID,
+		GRNLineID:     l.GRNLineID,
+		ItemCode:      l.ItemCode,
+		ItemName:      l.ItemName,
+		Unit:          l.Unit,
+		Quantity:      l.Quantity,
+		UnitPrice:     l.UnitPrice,
+		VATRate:       l.VATRate,
+		VATType:       string(l.VATType),
+		LineTotal:     l.LineTotal,
+		LineVATAmount: l.LineVATAmount,
+		AccountID:     l.AccountID,
+		VATAccountID:  l.VATAccountID,
 	}
 }
 
 func sinvLineFromGORM(g *domain.SupplierInvoiceLineGORM) *domain.SupplierInvoiceLine {
-	l := &domain.SupplierInvoiceLine{
-		ID:        strconv.Itoa(int(g.ID)),
-		InvoiceID: g.InvoiceID,
-		ItemCode:  g.ItemCode,
-		ItemName:  g.ItemName,
-		Quantity:  g.Quantity,
-		UnitPrice: g.UnitPrice,
-		LineTotal: g.LineTotal,
-		Unit:      "",
-		AccountID: "",
+	return &domain.SupplierInvoiceLine{
+		ID:            g.ID,
+		InvoiceID:     g.InvoiceID,
+		POLineID:      g.POLineID,
+		GRNLineID:     g.GRNLineID,
+		ItemCode:      g.ItemCode,
+		ItemName:      g.ItemName,
+		Unit:          g.Unit,
+		Quantity:      g.Quantity,
+		UnitPrice:     g.UnitPrice,
+		VATRate:       g.VATRate,
+		VATType:       domain.VATType(g.VATType),
+		LineTotal:     g.LineTotal,
+		LineVATAmount: g.LineVATAmount,
+		AccountID:     g.AccountID,
+		VATAccountID:  g.VATAccountID,
 	}
-	if g.TaxRate != nil {
-		l.VATRate = *g.TaxRate
-	}
-	if g.TaxAmount != nil {
-		l.LineVATAmount = *g.TaxAmount
-	}
-	if g.AccountCode != nil {
-		l.AccountID = *g.AccountCode
-	}
-	return l
 }
 
 func (r *PGSupplierInvoiceRepo) GetInvoiceLines(ctx context.Context, invoiceID string) ([]domain.SupplierInvoiceLine, error) {
@@ -982,15 +965,18 @@ func NewPGAPTransactionRepo(db *gorm.DB) *PGAPTransactionRepo {
 
 func aptToGORM(t *domain.APTransaction) *domain.APTransactionGORM {
 	return &domain.APTransactionGORM{
-		ID:        t.ID,
-		CompanyID: t.CompanyID,
-		SupplierID: t.SupplierID,
-		Amount:    t.Amount,
-		Currency:  t.Currency,
-		Status:    "OPEN",
-		CreatedBy: "",
-		CreatedAt: t.CreatedAt,
-		UpdatedAt: t.CreatedAt,
+		ID:              t.ID,
+		CompanyID:       t.CompanyID,
+		SupplierID:      t.SupplierID,
+		InvoiceID:       t.InvoiceID,
+		TransactionType: string(t.TransactionType),
+		TransactionDate: t.TransactionDate.Format(time.RFC3339),
+		Amount:          t.Amount,
+		Currency:        t.Currency,
+		ReferenceType:   t.ReferenceType,
+		ReferenceID:     t.ReferenceID,
+		Notes:           t.Notes,
+		CreatedAt:       t.CreatedAt,
 	}
 }
 
@@ -999,9 +985,14 @@ func aptFromGORM(g *domain.APTransactionGORM) *domain.APTransaction {
 		ID:              g.ID,
 		CompanyID:       g.CompanyID,
 		SupplierID:      g.SupplierID,
-		TransactionType: domain.APTransInvoice,
+		InvoiceID:       g.InvoiceID,
+		TransactionType: domain.APTransactionType(g.TransactionType),
+		TransactionDate: parseDateTime(g.TransactionDate),
 		Amount:          g.Amount,
 		Currency:        g.Currency,
+		ReferenceType:   g.ReferenceType,
+		ReferenceID:     g.ReferenceID,
+		Notes:           g.Notes,
 		CreatedAt:       g.CreatedAt,
 	}
 }
@@ -1079,20 +1070,27 @@ func NewPGCostAllocationRepo(db *gorm.DB) *PGCostAllocationRepo {
 
 func caToGORM(c *domain.CostAllocation) *domain.CostAllocationGORM {
 	return &domain.CostAllocationGORM{
-		CostCenter: strPtr(c.InvoiceID),
-		AllocPct:   100,
-		AllocAmount: c.CostAmount,
+		CompanyID:        c.CompanyID,
+		InvoiceID:        c.InvoiceID,
+		CostType:         string(c.CostType),
+		CostAmount:       c.CostAmount,
+		AllocationMethod: string(c.AllocationMethod),
+		AllocatedLines:   c.AllocatedLines,
+		Notes:            c.Notes,
 	}
 }
 
 func caFromGORM(g *domain.CostAllocationGORM) *domain.CostAllocation {
-	c := &domain.CostAllocation{
-		CostAmount: g.AllocAmount,
+	return &domain.CostAllocation{
+		ID:               g.ID,
+		CompanyID:        g.CompanyID,
+		InvoiceID:        g.InvoiceID,
+		CostType:         domain.CostAllocationType(g.CostType),
+		CostAmount:       g.CostAmount,
+		AllocationMethod: domain.CostAllocationMethod(g.AllocationMethod),
+		AllocatedLines:   g.AllocatedLines,
+		Notes:            g.Notes,
 	}
-	if g.CostCenter != nil {
-		c.InvoiceID = *g.CostCenter
-	}
-	return c
 }
 
 func (r *PGCostAllocationRepo) CreateCostAllocation(ctx context.Context, c *domain.CostAllocation) error {
@@ -1116,7 +1114,7 @@ func (r *PGCostAllocationRepo) GetCostAllocation(ctx context.Context, id string)
 
 func (r *PGCostAllocationRepo) ListCostAllocationsByInvoice(ctx context.Context, invoiceID string) ([]domain.CostAllocation, error) {
 	var gs []domain.CostAllocationGORM
-	if err := r.db.WithContext(ctx).Where("cost_center = ?", invoiceID).Find(&gs).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("invoice_id = ?", invoiceID).Find(&gs).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.CostAllocation, len(gs))

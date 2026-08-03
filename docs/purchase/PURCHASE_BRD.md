@@ -1,6 +1,6 @@
 # Purchase Module — Business Requirements Document (BRD)
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
 **Regulatory Basis:** Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP (amended by 70/2025), Decree 254/2026/ND-CP, IAS 2, IFRS 15, VAS 02 (Inventory)
@@ -11,7 +11,7 @@
 
 Purchase module manages the complete Procure-to-Pay (P2P) cycle: from purchase requisition through supplier selection, PO issuance, goods receipt, invoice verification, AP tracking, and supplier payment. Vietnamese tax compliance requires strict VAT invoice tracking (Decree 123/2020 + TT99 accounts: 151, 152, 153, 156, 331, 133).
 
-**GoTax currently has ZERO purchase functionality.** This BRD defines requirements for building P0 (must-have) features for PROD launch.
+**GoTax Purchase module: ~70% complete.** Domain models, repos (PG + memory), service, handlers (28 routes), and migration are built. Remaining gaps: 3-way matching, GL auto-posting, service tests, e-invoice GDT integration. This BRD defines remaining requirements for PROD launch.
 
 ---
 

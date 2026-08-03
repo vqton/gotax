@@ -1,8 +1,9 @@
 # Purchase Module — Functional Specifications
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
+**Note:** Models implemented in `internal/domain/models_purchase.go`. See code for latest field definitions.
 
 ---
 

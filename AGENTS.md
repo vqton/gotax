@@ -117,7 +117,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 28 files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000010_fa_schema`.
 
-**Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `005_purchase_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
+**Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
 Adding a migration: write `{next_version}_{title}.up.sql` + `.down.sql` in `migrations/`.
 
@@ -166,7 +166,7 @@ When adding a new module that uses the validator: register custom validators in 
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
 | Tax | ~20% | Declaration stubs, e-invoice CRUD, rates CRUD. Missing: declaration engine, XML gen, GDT API |
-| Purchase | ~0% | Interface + PG + memory repos. Service incomplete |
+| Purchase | ~70% | Full domain models + repos + service + handlers + 28 routes + 19 handler tests. Missing: 3-way matching, GL auto-posting, service tests, validate integration |
 | Sale | ~0% | Interface + PG + memory repos. Service incomplete |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
 

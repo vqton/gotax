@@ -1,8 +1,9 @@
 # Purchase Module — Use Cases
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
+**Note:** Handler tests cover UC-1 through UC-6 happy paths. See `internal/handler/purchase_handler_test.go`.
 
 ---
 

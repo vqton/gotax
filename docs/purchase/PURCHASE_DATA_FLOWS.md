@@ -1,8 +1,9 @@
 # Purchase Module — Data Flows & Entity Relationships
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** July 2026
 **Author:** BA Lead + Chief Accountant (20+ yrs each)
+**Note:** Data flows for CRUD operations implemented. GL posting and inventory posting flows pending.
 
 ---
 
