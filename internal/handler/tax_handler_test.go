@@ -45,10 +45,23 @@ func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*gdt.StatusResp
 	return &gdt.StatusResponse{Status: "ACKNOWLEDGED"}, nil
 }
 func (g *stubGDT) CancelInvoice(_ context.Context, _, _ string) error { return nil }
+func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*gdt.DeclarationSubmitResponse, error) {
+	g.submitted = true
+	if g.submitErr != nil {
+		return nil, g.submitErr
+	}
+	return &gdt.DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
+}
+func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*gdt.DeclarationStatusResponse, error) {
+	return &gdt.DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
+}
 
 type stubSigner struct{}
 
 func (s *stubSigner) SignTXML(xmlBody, _ string) (string, error) { return "signed:" + xmlBody, nil }
+func (s *stubSigner) SignDocument(xmlBody string) (service.SignResult, error) {
+	return service.SignResult{SignatureBase64: "BASE64:" + xmlBody, SignedAt: "2026-04-15T10:00:00+07:00"}, nil
+}
 
 func newTaxTestSvcIssuerH() (*stubGDT, service.TXMLSigner) {
 	return &stubGDT{submitResp: &gdt.SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED"}}, &stubSigner{}
@@ -61,7 +74,11 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 	taxRepo := repository.NewMemoryTaxRepo()
 	jeRepo := repository.NewMemoryJournalRepo()
 	gdtStub, signerStub := newTaxTestSvcIssuerH()
-	taxSvc := service.NewTaxService(taxRepo, jeRepo, gdtStub, signerStub)
+	companyRepo := repository.NewMemoryCompanyRepo()
+	_ = companyRepo.Create(nil, &domain.Company{
+		ID: "company-1", TaxCode: "0100123456", LegalNameVN: "CONG TY TEST",
+	})
+	taxSvc := service.NewTaxService(taxRepo, jeRepo, companyRepo, gdtStub, signerStub)
 	th := NewTaxHandler(taxSvc)
 
 	r := gin.New()
@@ -254,6 +271,27 @@ func TestSubmitDeclaration_NonDraft(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/api/v1/tax/declarations/"+d.ID+"/submit", nil)
 	ts.r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestCheckDeclarationStatus(t *testing.T) {
+	ts := setupTaxTest(t)
+	d := &domain.TaxDeclaration{
+		ID:              "DECL-1",
+		CompanyID:       ts.compID,
+		DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod:       domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 1},
+		Status:          domain.DeclStatusSUBMITTED,
+		GDTSubmissionID: "SUB-1",
+	}
+	require.NoError(t, ts.svc.CreateDeclaration(nil, d))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/declarations/"+d.ID+"/check-status", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	updated, _ := ts.svc.GetDeclaration(nil, d.ID)
+	assert.Equal(t, domain.DeclStatusACKNOWLEDGED, updated.Status)
 }
 
 func TestAcknowledgeDeclaration(t *testing.T) {

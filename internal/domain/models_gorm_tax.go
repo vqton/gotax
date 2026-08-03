@@ -14,6 +14,7 @@ type TaxDeclarationGORM struct {
 	SubmittedBy         *string   `gorm:"column:submitted_by;size:36" json:"submittedBy"`
 	AcknowledgedAt      *time.Time `gorm:"column:acknowledged_at" json:"acknowledgedAt"`
 	AcknowledgementRef  *string   `gorm:"column:acknowledgement_ref;size:100" json:"acknowledgementRef"`
+	GDTSubmissionID     *string   `gorm:"column:gdt_submission_id;size:100" json:"gdtSubmissionId"`
 	DeclarationXML      *string   `gorm:"column:declaration_xml;type:text" json:"-"`
 	GDTResponseXML      *string   `gorm:"column:gdt_response_xml;type:text" json:"-"`
 	PreviousDeclID      *string   `gorm:"column:previous_declaration_id;size:36" json:"previousDeclarationId"`

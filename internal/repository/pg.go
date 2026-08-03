@@ -726,6 +726,7 @@ func taxDeclarationOut(m *domain.TaxDeclarationGORM) *domain.TaxDeclaration {
 		Version: m.Version, PreviousDeclID: safeStr(m.PreviousDeclID),
 		SubmittedAt: safeTimePtrStr(m.SubmittedAt), SubmittedBy: safeStr(m.SubmittedBy),
 		AcknowledgedAt: safeTimePtrStr(m.AcknowledgedAt), AcknowledgementRef: safeStr(m.AcknowledgementRef),
+		GDTSubmissionID: safeStr(m.GDTSubmissionID),
 		DeclarationXML: safeStr(m.DeclarationXML), GDTResponseXML: safeStr(m.GDTResponseXML),
 		CreatedBy: m.CreatedBy, CreatedAt: safeTimeStr(m.CreatedAt), UpdatedAt: safeTimeStr(m.UpdatedAt),
 	}
@@ -763,6 +764,9 @@ func (r *PGTaxRepo) UpdateDeclaration(ctx context.Context, d *domain.TaxDeclarat
 	return r.db.WithContext(ctx).Model(&domain.TaxDeclarationGORM{}).Where("id = ?", d.ID).Updates(map[string]interface{}{
 		"status": string(d.Status), "declaration_xml": d.DeclarationXML,
 		"adjustment_type": string(d.AdjustmentType),
+		"submitted_at":    timePtr(parseDateTime(d.SubmittedAt)), "submitted_by": nullStrG(d.SubmittedBy),
+		"acknowledged_at": timePtr(parseDateTime(d.AcknowledgedAt)), "acknowledgement_ref": nullStrG(d.AcknowledgementRef),
+		"gdt_submission_id": nullStrG(d.GDTSubmissionID), "gdt_response_xml": d.GDTResponseXML,
 	}).Error
 }
 

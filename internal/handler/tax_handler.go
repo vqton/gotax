@@ -31,6 +31,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			declarations.GET("/:id", h.GetDeclaration)
 			declarations.PUT("/:id", h.UpdateDeclaration)
 			declarations.POST("/:id/submit", h.SubmitDeclaration)
+			declarations.POST("/:id/check-status", h.CheckDeclarationStatus)
 			declarations.POST("/:id/acknowledge", h.AcknowledgeDeclaration)
 			declarations.POST("/:id/reject", h.RejectDeclaration)
 			declarations.POST("/:id/cancel", h.CancelDeclaration)
@@ -198,7 +199,15 @@ func (h *TaxHandler) SubmitDeclaration(c *gin.Context) {
 		h.taxError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "declaration submitted"})
+	c.JSON(http.StatusOK, gin.H{"message": "declaration submitted to GDT"})
+}
+
+func (h *TaxHandler) CheckDeclarationStatus(c *gin.Context) {
+	if err := h.svc.CheckDeclarationStatus(c.Request.Context(), c.Param("id")); err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "declaration status updated"})
 }
 
 func (h *TaxHandler) AcknowledgeDeclaration(c *gin.Context) {

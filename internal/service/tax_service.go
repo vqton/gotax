@@ -13,6 +13,7 @@ import (
 	"gotax/internal/domain"
 	"gotax/internal/einvoice"
 	"gotax/internal/gdt"
+	"gotax/internal/htkk"
 	"gotax/internal/xmldsig"
 )
 
@@ -143,38 +144,53 @@ type TaxServiceInterface interface {
 
 	// Declaration Engine
 	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error)
+	// Declaration → GDT: XML → sign → submit; poll status.
+	CheckDeclarationStatus(ctx context.Context, id string) error
 
 	// E-Invoice Issuance
 	CheckInvoiceStatus(ctx context.Context, id string) error
 }
 
-// GDTClient is the GDT e-invoice API surface used by the service.
+// GDTClient is the GDT API surface used by the service (invoice + declaration).
 type GDTClient interface {
 	SubmitInvoice(ctx context.Context, invoiceXML, certID string) (*gdt.SubmitResponse, error)
 	GetInvoiceStatus(ctx context.Context, transactionID string) (*gdt.StatusResponse, error)
 	CancelInvoice(ctx context.Context, transactionID, reason string) error
+	SubmitDeclaration(ctx context.Context, declarationXML, certID string) (*gdt.DeclarationSubmitResponse, error)
+	QueryDeclarationStatus(ctx context.Context, submissionID string) (*gdt.DeclarationStatusResponse, error)
 }
 
 // TXMLSigner signs canonicalized GDT TXML (BK:ChuKySo/DuLieuKy).
 type TXMLSigner interface {
 	SignTXML(xmlBody, signatureID string) (string, error)
+	// SignDocument signs an arbitrary XML document (declaration files) and
+	// returns the detached base64 signature; used for HTKK submissions.
+	SignDocument(xmlBody string) (SignResult, error)
+}
+
+// SignResult is a detached signature over a canonicalized document.
+type SignResult struct {
+	SignatureBase64 string
+	SignedAt        string
 }
 
 type taxService struct {
-	repo   domain.TaxRepository
-	jeRepo domain.JournalRepository
-	gdt    GDTClient
-	signer TXMLSigner
-	now    func() time.Time
+	repo        domain.TaxRepository
+	jeRepo      domain.JournalRepository
+	companyRepo domain.CompanyRepository
+	gdt         GDTClient
+	signer      TXMLSigner
+	now         func() time.Time
 }
 
-func NewTaxService(repo domain.TaxRepository, jeRepo domain.JournalRepository, gdt GDTClient, signer TXMLSigner) TaxServiceInterface {
+func NewTaxService(repo domain.TaxRepository, jeRepo domain.JournalRepository, companyRepo domain.CompanyRepository, gdt GDTClient, signer TXMLSigner) TaxServiceInterface {
 	return &taxService{
-		repo:   repo,
-		jeRepo: jeRepo,
-		gdt:    gdt,
-		signer: signer,
-		now:    time.Now,
+		repo:        repo,
+		jeRepo:      jeRepo,
+		companyRepo: companyRepo,
+		gdt:         gdt,
+		signer:      signer,
+		now:         time.Now,
 	}
 }
 
@@ -206,7 +222,73 @@ func (s *taxService) SubmitDeclaration(ctx context.Context, id, userID string) e
 	d.Status = domain.DeclStatusSUBMITTED
 	d.SubmittedAt = s.now().Format(time.RFC3339)
 	d.SubmittedBy = userID
+	// Full pipeline when GDT + signer wired; otherwise local-only submit
+	// (dev backend) — same status, no XML.
+	if s.gdt != nil && s.signer != nil {
+		if s.companyRepo == nil {
+			return domain.ErrGDTUnavailable
+		}
+		company, err := s.companyRepo.GetByID(ctx, d.CompanyID)
+		if err != nil {
+			return err
+		}
+		raw, err := htkk.Generate(d, company)
+		if err != nil {
+			return err
+		}
+		d.DeclarationXML = string(raw)
+		sig, err := s.signer.SignDocument(d.DeclarationXML)
+		if err != nil {
+			return err
+		}
+		d.Signatures = append(d.Signatures, domain.DeclarationSignature{
+			SignatureID:   "DECL-" + d.ID,
+			SignedAt:      sig.SignedAt,
+			SignedBy:      userID,
+			SignatureData: sig.SignatureBase64,
+		})
+		resp, err := s.gdt.SubmitDeclaration(ctx, d.DeclarationXML, "DECL-"+d.ID)
+		if err != nil {
+			return mapGDTErr(err)
+		}
+		d.GDTSubmissionID = resp.SubmissionID
+	}
 	return s.repo.UpdateDeclaration(ctx, d)
+}
+
+// CheckDeclarationStatus polls GDT for the declaration's submission status
+// and advances the lifecycle: ACKNOWLEDGED (auto-creates the TaxPayment),
+// REJECTED (editable, resubmittable).
+func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) error {
+	d, err := s.repo.GetDeclarationByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if d.Status != domain.DeclStatusSUBMITTED {
+		return domain.ErrDeclarationNotEditable
+	}
+	if s.gdt == nil {
+		return domain.ErrGDTUnavailable
+	}
+	st, err := s.gdt.QueryDeclarationStatus(ctx, d.GDTSubmissionID)
+	if err != nil {
+		return mapGDTErr(err)
+	}
+	switch st.Status {
+	case "ACKNOWLEDGED", "ACCEPTED":
+		d.Status = domain.DeclStatusACKNOWLEDGED
+		d.AcknowledgedAt = s.now().Format(time.RFC3339)
+		d.AcknowledgementRef = st.AckRef
+		if err := s.repo.UpdateDeclaration(ctx, d); err != nil {
+			return err
+		}
+		return s.createPaymentForDeclaration(ctx, d)
+	case "REJECTED", "INVALID":
+		d.Status = domain.DeclStatusREJECTED
+		return s.repo.UpdateDeclaration(ctx, d)
+	default:
+		return nil // still processing — stay SUBMITTED
+	}
 }
 
 func (s *taxService) AcknowledgeDeclaration(ctx context.Context, id, ref string) error {
@@ -449,6 +531,21 @@ type pemSigner struct {
 // digital certificate serial placed in BK:SerialNumber.
 func NewPEMSigner(key *rsa.PrivateKey, serial string, now func() time.Time) TXMLSigner {
 	return &pemSigner{key: key, serial: serial, now: now}
+}
+
+func (p *pemSigner) SignDocument(xmlBody string) (SignResult, error) {
+	canon, err := xmldsig.Canonicalize([]byte(xmlBody))
+	if err != nil {
+		return SignResult{}, fmt.Errorf("sign document: %w", err)
+	}
+	sig, err := xmldsig.SignBase64(p.key, canon)
+	if err != nil {
+		return SignResult{}, fmt.Errorf("sign document: %w", err)
+	}
+	return SignResult{
+		SignatureBase64: sig,
+		SignedAt:        p.now().Format(time.RFC3339),
+	}, nil
 }
 
 func (p *pemSigner) SignTXML(xmlBody, signatureID string) (string, error) {

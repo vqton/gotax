@@ -217,6 +217,7 @@ type TaxDeclaration struct {
 	SubmittedBy         string               `json:"submitted_by,omitempty"`
 	AcknowledgedAt      string               `json:"acknowledged_at,omitempty"`
 	AcknowledgementRef  string               `json:"acknowledgement_ref,omitempty"`
+	GDTSubmissionID     string               `json:"gdt_submission_id,omitempty"`
 	GDTResponseXML      string               `json:"gdt_response_xml,omitempty"`
 	DeclarationXML      string               `json:"declaration_xml,omitempty"`
 	PreviousDeclID      string               `json:"previous_declaration_id,omitempty"`
