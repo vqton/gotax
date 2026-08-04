@@ -177,8 +177,9 @@ When adding a new module that uses the validator: register custom validators in 
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 67 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
 | Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn + aging/summary/statement/recon. GL auto-posting (invoice/receipt/CN/COGS), delivery tolerance, SO status progression, FR-9 reports (S01/S02/S03-BH, VAT output, unbilled), auto-numbering, migration 000017+000018. Missing: e-invoice TXML (deferred), GDT push |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
+| Payroll | 0% | **NOT PROD READY.** Full spec at `docs/payroll/`. Requires: salary engine, SI/HI/UI calc, PIT 5-bracket, timekeeping, payslips, GL posting, D02-TS/05-KK-TNCN declarations, approval workflow. Est. 12-16 weeks. |
 
-Full tax/purchase/warehouse specs at `docs/`.
+Full tax/purchase/warehouse/payroll specs at `docs/`.
 
 ## Adding a Feature — Step Order
 
@@ -204,3 +205,51 @@ Full tax/purchase/warehouse specs at `docs/`.
 - **Handler error mapping** uses `errors.Is` to switch on domain errors per module. See `internal/handler/fixed_asset_handler.go:79` (the `faError` func) for pattern.
 - **GDT env vars**: `GDT_BASE_URL`, `GDT_TOKEN` — e-invoice API client. Without them, `newGDTClient()` returns nil.
 - **E-invoice signing**: `EINVOICE_SIGNING_KEY` (RSA PEM), `EINVOICE_CERT_SERIAL`. Without key, ephemeral key generated at startup — signatures invalid after restart.
+- **Migration idempotency**: Always use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` in migrations. Legacy `.sql` files (002-007) may have been run manually against PG, creating tables outside migration tracking. Without `IF NOT EXISTS`, golang-migrate fails with `relation already exists`.
+- **SQLite rejected**: Adding SQLite support does NOT make sense. Schema deeply PG-specific (`pgcrypto`, `gen_random_uuid()`, `TIMESTAMPTZ`, `plpgsql` triggers, `SUBSTRING FROM` regex, `GREATEST()`). 20+ raw SQL queries in PG repos. 18 migrations would need dual sets. In-memory backend already covers dev/test.
+- **No LINQ library needed**: Go has `samber/lo` (19k stars, 120+ functions), `ahmetb/go-linq` (3.6k stars, v4 with iter.Seq), `CreateLab/GLinq` (lazy, fluent). For this codebase, standard `for` loops + `slices.SortFunc` are sufficient. Don't add collection libraries unless profiling shows bottleneck.
+
+## Module Inventory (22 modules, ~498 routes)
+
+| Module | Prefix | Routes | Handler Lines | Status |
+|--------|--------|--------|---------------|--------|
+| GL/Accounts | `/api/v1/accounts` | 5 | 1087 (shared) | PROD |
+| Journal Entries | `/api/v1/journal-entries` | 8 | ↑ | PROD |
+| Reports | `/api/v1/reports` | 3 | ↑ | PROD |
+| Opening Balances | `/api/v1/opening-balances` | 13 | 306 | PROD |
+| Carry Forward | `/api/v1/carry-forward` | 3 | ↑ | PROD |
+| Circular 99 Mappings | `/api/v1/circular99-mappings` | 3 | ↑ | PROD |
+| Balance Migrations | `/api/v1/balance-migrations` | 3 | ↑ | PROD |
+| Periods | `/api/v1/periods` | 5 | ↑ | PROD |
+| Exchange Rates | `/api/v1/exchange-rates` | 2 | ↑ | PROD |
+| Audit Log | `/api/v1/audit` | 2 | ↑ | PROD |
+| Users | `/api/v1/users` | 3 | ↑ | PROD |
+| COA Management | `/api/v1/coa/*` | 14 | ↑ | PROD |
+| User Auth (2FA/sessions) | `/api/v1/auth/*` | 10 | ↑ | PROD |
+| Company | `/api/v1/companies` | 48 | 714 | PROD |
+| Tax | `/api/v1/tax` | 41 | 675 | ~60% |
+| Cash | `/api/v1/cash` | 40 | 639 | PROD |
+| Bank | `/api/v1/bank` | 37 | 563 | PROD |
+| Purchase (P2P) | `/api/v1/purchase` | 55 | 870 | PROD |
+| Sale (O2C) | `/api/v1/sale` | 52 | 890 | PROD |
+| Warehouse | `/api/v1/warehouse` | 48 | 729 | ~30% |
+| Fixed Assets | `/api/v1/fixed-assets` | 34 | 541 | PROD |
+
+## Missing Modules (SME Gap Analysis)
+
+Compared to MISA SME (19 subsystems, Vietnam market leader) and standard SME ERP requirements:
+
+| Module | Priority | Why Missing |
+|--------|----------|-------------|
+| **Payroll** | CRITICAL | Spec complete at `docs/payroll/`. Full build needed: salary engine, SI/HI/UI, PIT, timekeeping, payslips, GL posting, declarations. Est. 12-16 weeks. |
+| **Tools & Equipment (CCDC)** | HIGH | Vietnamese accounting standard requires separate tracking from fixed assets. Account code 153. |
+| **Cost Accounting** | HIGH | Product/job costing for manufacturing/construction SMEs. |
+| **Budget Management** | HIGH | Budget planning by department, actual vs. budget variance. |
+| **Contracts** | MEDIUM | Sales/purchase contract tracking, renewal alerts. |
+| **CRM** | MEDIUM | Customer interaction history, pipeline. |
+| **Notifications** | MEDIUM | Invoice due dates, approval reminders, low stock alerts. |
+| **Recurring Entries** | MEDIUM | Auto-generate monthly rent, depreciation entries. |
+| **Cash Flow Forecasting** | MEDIUM | Projected cash position from receivables/payables. |
+| **Data Import/Export** | MEDIUM | Bulk Excel import for initial setup. |
+
+**Verdict**: GoTax covers ~65% of Vietnamese SME needs. Without payroll, cannot be standalone.

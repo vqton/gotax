@@ -1,287 +1,155 @@
-# AR Module — Implementation Roadmap v2
+# Payroll Module — Implementation Roadmap
 
-## Overview
-
-Enterprise AR module for GoTax. Target: MISA/FAST/Bravo ERP parity for order-to-cash collection workflow. Phases 0-1 complete (GL auto-posting, aging fix, customer statement). Remaining: collection management (dunning/bad debt/prepayment/FX) and controls (credit limit/recon/KPI/off-BS).
-
-Full lifecycle doc: `docs/sale/AR_WORKFLOW.md`
+**Document ID:** PLAN-PAYROLL-001
+**Version:** 1.0
+**Date:** 2026-08-04
+**Duration:** 16 weeks (4 months)
+**Target:** PROD-ready MVP
 
 ---
 
-# Purchase Module — P2 Features (TDD)
+## Executive Summary
 
-## Overview
+Build Vietnamese-compliant payroll module for GoTax from 0% to PROD-ready in 16 weeks. Four phases, each delivering working vertical slices. Dependencies flow bottom-up: schema → models → repos → service → handler → tests → docs.
 
-Close the remaining P2 gaps flagged in PURCHASE_READINESS.md v2.1. Five features, each a full vertical slice implemented TDD (RED → GREEN → REFACTOR), committed separately. Order = dependency + risk.
-
-## Order
-
-1. **P2-1 Purchase requisition + approval (M-4)** — pure additive, foundation for PO-from-requisition
-2. **P2-2 Purchase return workflow (M-3)** — return GRN + credit note + AP offset + GL reversal
-3. **P2-3 Import purchase + landed cost (M-2)** — import duty (3333) + import VAT (33312) on invoice, landed cost breakdown
-4. **P2-4 Multi-currency AP FX revaluation (M-5)** — revalue AP at period-end → 515/635
-5. **P2-5 E-invoice GDT XML (M-1)** — generate + parse GDT XML for ReceiveEInvoice
+---
 
 ## Architecture Decisions
 
-- **Per-feature TDD**: domain validation tests RED first, then service tests, then handler tests. Memory repos used throughout (AGENTS.md convention — no DB).
-- **Single interface additions per feature**: new repository interface (Requisition, Return, etc.) added to `domain/interfaces.go`; MemoryPurchaseRepo + PGPurchaseRepo implement.
-- **Constructor grows**: `NewPurchaseService` gains one repo param per feature that needs a new repo (9→10 args so far: requisition + FX). All call sites updated: main.go ×2, purchase_service_test.go ×2, purchase_handler_test.go ×1.
-- **Migrations sequential**: 000012_requisitions, 000013_returns, 000014_landed_cost, 000015_fx_revaluation. Each with .up + .down.
-- **Validate package**: register one custom validator per new enum (`reqstatus`, `fxrstatus`), add `validate.Requisition`/`validate.FXRevaluation` mapper functions.
-- **E-invoice XML**: pure-Go `encoding/xml`, no new deps. GDT invoice XML generation + parse, wired into ReceiveEInvoice + a generate endpoint.
-- **FX revaluation**: reuse existing ExchangeRate framework + GL CreatePostedEntry. Realized on payment, unrealized at period-end.
+| Decision | Rationale |
+|----------|-----------|
+| Separate `internal/payroll/` package | Clean module boundary, follows existing pattern (tax/, company/) |
+| Extend Employee model via `employee_payroll_info` table | Avoids breaking existing Employee struct; 1:1 relationship |
+| Config-driven rates | Vietnamese laws change frequently; JSON config per company |
+| Separate timekeeping module | Timekeeping reusable beyond payroll (attendance, reporting) |
+| PDF payslip via maroto/v2 | Already in codebase, no new dependency |
+| GL posting via existing service | Reuse `Service.PostJournalEntry()` from GL module |
 
-## Checkpoints
+---
 
-- After P2-1: `go vet ./... && go test -count=1 ./...` green, commit — ✅ DONE (a9b5c85 + requisition commit)
-- After P2-2: same + commit — ✅ DONE (daa69a4 + returns commit)
-- After P2-3: same + commit — ✅ DONE (8a8274a + import commit)
-- After P2-4: same + commit — ✅ DONE (e0d5cf8 + fx commit)
-- After P2-5: same + commit — ✅ DONE (c3068c8 + 8a484a5 + 5074d93 + docs commit)
-- Final: docs bumped (readiness → P2 closed), AGENTS.md updated — ✅ DONE (this commit)
-
-## P2-5 Slice Plan — GDT E-Invoice XML (M-1)
-
-Format authority: `docs/purchase/PURCHASE_TEMPLATES.md` §8 (Decree 254/2026 schema). Pure-Go `encoding/xml`, no new deps. New package `internal/einvoice` (adapter layer, per risk mitigation). No migration (EInvoiceData/EInvoiceCode columns exist). No constructor change (reuses invRepo + supRepo).
-
-| Slice | Scope | Deliverable |
-|-------|-------|-------------|
-| 5.1 | `internal/einvoice/gdt.go` + `gdt_test.go` | Parse([]byte)→SupplierInvoice, Generate(inv)→[]byte. GL account defaults 152/1331 on lines. VAT rate→VATType map. |
-| 5.2 | `purchase_service.go` + `purchase_service_test.go` | `ReceiveEInvoiceXML(ctx, companyID, raw)` (parse→ReceiveEInvoice→store raw in EInvoiceData), `GenerateEInvoiceXML(ctx, id)`. |
-| 5.3 | `purchase_handler.go` + `purchase_handler_test.go` | `POST /invoices/e-invoice` (raw XML body), `GET /invoices/:id/e-invoice` (XML response). |
-| 5.4 | docs + AGENTS.md + plan.md | Readiness rows 0%→100%, AGENTS.md module table, checkpoint. |
-
-Decisions:
-- XML→domain line mapping sets AccountID=152, VATAccountID=1331 (GL mapping is app concern, not GDT payload).
-- VAT rate to VATType: 0→VAT_0, 5→VAT_5, 8→VAT_8, 10→VAT_10, -1/KCT→NT.
-- Generate omits empty Seller/Buyer optional fields; Buyer carries no company data today (only name/tax code available from invoice).
-- XML namespace kept as `http://gdt.gov.vn/schemas/einvoice/2026` per template.
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Constructor param explosion | Med | Group into opts struct if 13+; acceptable now |
-| Return GL reversal double-posting | High | Unit-test GL entry generation; reuse APGLService |
-| FX revaluation math drift | Med | round2 helper, deterministic tests |
-| GDT XML format drift | Med | Abstract parser; wire format version in header |
-
-
-## Architecture Decisions
-
-- **GL posting via JournalEntry.CreatePostedEntry** — skip review cycle for auto-generated entries. Already implemented.
-- **Dunning as separate service** — `CollectionService` with own repos/models. Avoids sale_service.go bloat.
-- **Bad debt by VAS 17** — aging-bucket % provision + specific identification for known bads.
-- **Prepayment as Receipt type** — extend CustomerReceipt with `ReceiptType` (standard/prepayment/refund). No separate table.
-- **FX at receipt time** — compare invoice exchange rate vs receipt rate, post realized gain/loss. Month-end batch for unrealized.
-- **Credit limit** — check at SO Confirm + Invoice Create. Configurable warn/block per company.
-- **AR-GL reconciliation** — compare sub-ledger total vs GL 131 balance. Variance drill-down.
-- **E-invoice (Phase 2)** deferred per PI direction. Revisit when GDT API integration scope is clear.
-
-## Task List
-
-### ✅ Phase 0: Critical Fix (COMPLETE)
-
-- [x] Task 1: Fix AR aging — bucket by DueDate (was putting all in Bucket0)
-
-### ✅ Phase 1: Core AR (COMPLETE)
-
-- [x] Task 2: GL auto-posting on invoice post (Dr 131, Cr revenue 5111/3331)
-- [x] Task 3: GL auto-posting on receipt post (Dr 1111/1121, Cr 131)
-- [x] Task 4: GL auto-posting on credit note post (reverse entries: Dr 5111/3331, Cr 131)
-- [x] Task 5: Customer statement endpoint (merged invoice/receipt/CN timeline + running balance)
-
-### ⏸️ Phase 2: E-Invoice Pipeline (DEFERRED)
-
-Phase 2 is deferred—excluded from current AR deliverable. Design doc exists in `docs/sale/AR_WORKFLOW.md`. Revisit after GDT API integration scope is clarified. Task details retained in `todo.md` for reference.
-
-### 🔲 Phase 3: Collection Management (P1) — NEXT
-
-| # | Task | Scope | Depends On |
-|---|------|-------|------------|
-| 6 | Dunning engine — levels, schedule, auto-reminder, promise-to-pay | L (6-8 files) | Phase 1 ✓ |
-| 7 | Bad debt provision calc (VAS 17) + write-off workflow | L (5-7 files) | Task 6 |
-| 8 | Prepayment/deposit workflow — type, offset, refund | M (4-5 files) | Phase 1 ✓ |
-| 9 | FX revaluation — realized at receipt + month-end unrealized | M (4-5 files) | Phase 1 ✓ |
-
-### 🔲 Phase 4: Controls & Monitoring (P1/P2)
-
-| # | Task | Scope | Depends On |
-|---|------|-------|------------|
-| 10 | Credit limit enforcement (SO confirm + invoice create) | S (2-3 files) | Phase 1 ✓ |
-| 11 | AR-GL month-end reconciliation report | M (3-4 files) | Phase 1 ✓ |
-| 12 | DSO + AR KPI dashboard | M (3-4 files) | Phase 1 ✓ |
-| 13 | Off-balance-sheet tracking for written-off AR | M (4-5 files) | Task 7 |
-
-## Build Order
+## Dependency Graph
 
 ```
-Phase 3 ──→ 8 (prepayment: standalone, easy win)
-         │  9 (FX revaluation: standalone, uses existing exchange rates)
-         ├──→ 6 (dunning: biggest scope, start early)
-         │         │
-         │         └──→ 7 (bad debt: depends on dunning for aging data)
-         │
-Phase 4 ──→ 10 (credit limit: trivial check)
-         │  11 (AR-GL recon: query-based, no new data)
-         │  12 (KPI: calc-based, no new data)
-         └──→ 13 (off-BS: depends on bad debt write-off)
+Phase 1: Foundation
+    │
+    ├── Migration schema (DB tables)
+    │       │
+    │       ├── Domain models (structs)
+    │       │       │
+    │       │       ├── Repository interfaces
+    │       │       │       │
+    │       │       │       ├── PG repository
+    │       │       │       └── Memory repository
+    │       │       │
+    │       │       └── Validation functions
+    │       │
+    │       └── Seed data (rate config, holidays)
+    │
+    └── Calculation engine (pure functions)
+            │
+            └── Unit tests (100% coverage)
+
+Phase 2: Timekeeping
+    │
+    ├── Timekeeping schema + models
+    ├── CSV import handler
+    ├── Leave management
+    └── Integration with payroll calc
+
+Phase 3: Payroll Processing
+    │
+    ├── Period management
+    ├── Payroll run engine
+    ├── Payslip generation
+    └── GL integration
+
+Phase 4: Declarations & Polish
+    │
+    ├── D02-TS generation
+    ├── 05/KK-TNCN generation
+    ├── Approval workflow
+    └── Employee self-service
 ```
 
-## Recommended Order (by value/complexity ratio)
+---
 
-1. **Task 10** — Credit limit. Smallest effort, regulatory req, protects cash flow.
-2. **Task 8** — Prepayment. Common workflow, foundation for deposit handling.
-3. **Task 11** — AR-GL recon. Critical for month-end close, banks won't certify without it.
-4. **Task 9** — FX revaluation. Required for multi-currency AR. Regulatory requirement per Circular 99.
-5. **Task 12** — KPI dashboard. Reporting. Lower code risk.
-6. **Task 6** — Dunning. Largest effort. High business value but complex.
-7. **Task 7** — Bad debt. Depends on dunning data. High regulatory value.
-8. **Task 13** — Off-balance-sheet. Depends on bad debt. Lowest urgency.
+## Phase Overview
 
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Dunning email/SMS integration complexity | High | Start with status-only tracking, add notification later |
-| Bad debt provision % not regulatory-aligned | Medium | Make % configurable, default to VAS 17 rates |
-| FX rate source (daily rate from central bank?) | Low | Manual rate input for now; API integration later |
-| Credit limit stale (customer pays between check and create) | Low | Race acknowledged — detect at next statement |
+| Phase | Weeks | Focus | Deliverable |
+|-------|-------|-------|-------------|
+| 1 | 1-4 | Foundation & Calculation Engine | Gross-to-net calc with SI/HI/UI/PIT |
+| 2 | 5-8 | Timekeeping & Attendance | Import, OT, night shift, leave |
+| 3 | 9-12 | Payroll Processing & GL | Periods, runs, payslips, journal entries |
+| 4 | 13-16 | Declarations & Polish | D02-TS, 05/KK-TNCN, approval, self-service |
 
 ---
 
-# Tax Core Foundations — Shared Infrastructure (TDD)
+## Risk Register
 
-**Status: Round A COMPLETE (2026-08-03, commits 3e84268→c6c3a86). Round B next.**
-
-## Overview
-
-Build the shared tax foundations flagged in TAX_READINESS.md: configurable rate engine, real VAT/CIT/PIT calculation, declaration engine, declaration→payment automation, GDT client + XMLDSig. All TDD (RED→GREEN), memory repos, per-slice commits. Order = dependency + risk.
-
-Sources: `docs/tax/TAX_RULES.md` (rules), `docs/tax/TAX_SPECS.md` (forms), `docs/tax/TAX_READINESS.md` (gaps).
-
-## Current State (verified)
-
-- `TaxServiceInterface` + `taxService` exist. CRUD for declarations/rates/payments/e-invoices/calendar/alerts/audit DONE.
-- `CalculateVAT`/`CalculateCIT`: **hardcoded** rates (10%/20%), naive account classification.
-- `CalculatePIT`: **stub** — returns empty `PITResult{}`.
-- **Zero** `tax_service_test.go` (handler tests only, 610 lines).
-- `MemoryTaxRepo` in `internal/repository/memory.go:1152`; PG in `pg_tax.go`.
-- `TaxRepository` interface in `interfaces.go:194` — no rate-lookup-by-date method.
-- No HTTP client, no XMLDSig anywhere in codebase. `internal/einvoice` = parse/generate only.
-- `DigitalSignature` model = metadata only (no key storage).
-
-## Architecture Decisions
-
-- **Rate table drives everything.** Rates stored in `tax_rates` (TaxRate model exists: tax_type, rate_code, rate_value, brackets, effective_from/to, is_active, applicable_to). New service helper `resolveRate(taxType, applicableTo, onDate)` reads via `TaxRepository.GetRates`. No new migration (table exists — verify 000009_tax_schema).
-- **VAT engine reads explicit VAT accounts first** (Cr 33311 output, Dr 1331/1332 input), falls back to rate × revenue for accounts without explicit VAT line. Replaces hardcoded lists.
-- **CIT rate by company size** — rate table keys: `STANDARD` 20%, `SMALL` 17% (3-50B), `MICRO` 15% (<3B). Company revenue input passed in (no company repo dep in engine).
-- **PIT signature changes** — current `CalculatePIT(ctx, companyID, period, employeeIDs)` carries no salary data. New input struct `PITEmployeeInput` (gross, dependants, residence, months). Breaking change: interface + handler route body. Accepted — stub unusable as-is.
-- **Declaration engine pulls posted journals** — taxService gains journalRepo + periodRepo deps (constructor change, wire in main.go + tests). Generate → compute → map to form lines → validate cross-sums → DRAFT(VALIDATED).
-- **GDT client isolated** — new package `internal/gdtclient` (or `internal/gdt`): interface `GDTClient`, mock HTTP server in tests, retry 1s/5s/30s, timeout 120s. XMLDSig separate package `internal/xmldsig` (C14N + RSA-SHA256). Wiring into IssueEInvoice = Round B.
-- **No new migrations Round A** — all on existing tables.
-
-## Rounds (each = several slices, checkpoint, commit)
-
-### Round A: Calculation + Declaration core (THIS ROUND)
-| # | Slice | Scope | Deps |
-|---|-------|-------|------|
-| A1 | Rate resolver — `resolveRate` helper + tests | S | — |
-| A2 | VAT engine rewrite (rate-table driven, 33311/1331 first) | M | A1 |
-| A3 | CIT engine rewrite (size-based rate, provisional/80% rule) | M | A1 |
-| A4 | PIT engine (brackets, deductions, insurances) + signature change | M | A1 |
-| A5 | Declaration engine — GenerateDeclaration from posted journals + form-line mapping + cross-validation | L | A2, A3 |
-| A6 | Declaration→payment automation (create TaxPayment, due date, late flag) | M | A5 |
-
-### Round B: GDT infrastructure (next)
-| # | Slice | Scope | Deps |
-|---|-------|-------|------|
-| B1 | `internal/xmldsig` — C14N + RSA-SHA256 sign/verify | S | — |
-| B2 | `internal/gdt` client — submit/acknowledge, retry, error map, mock server | M | — |
-| B3 | Wire IssueEInvoice → sign → GDT submit → status transitions | L | B1, B2 |
-
-### Round C: Tax form XML (later)
-GTGT-01/TNDN-01/KK-TNCN per Circular 80 + HTKK wrapper. Depends on A5.
-
-## Checkpoints
-
-- A1-A2: `go vet ./... && go test -count=1 ./...` green, commit each
-- A3-A4: same + commit
-- A5-A6: same + commit — Round A done
-- B: same + commit — Round B done
-- Final: docs + AGENTS.md + todo.md updated
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| PIT signature change breaks handler | Med | Update handler + tests in same slice A4 |
-| NewService constructor growth (journalRepo, periodRepo) | Med | Add 2 params; update main.go ×2 + tests |
-| GDT XML/SOAP format drift | High | Mock server + isolate format in gdt package |
-| VAT account classification edge cases | Med | Explicit-account-first, fallback documented, tests per rule |
-| Rate table empty → calc fails | Med | Seed defaults in memory repo tests; PG: seed migration (Round A checkpoint verifies) |
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| Law changes during development | HIGH | MEDIUM | Config-driven rates, update JSON not code |
+| Complex overtime rules | MEDIUM | HIGH | Rule engine with exhaustive test cases |
+| Multi-region min wage | MEDIUM | LOW | Region-based config, already modeled |
+| Foreign employee edge cases | MEDIUM | MEDIUM | Flag-based branching, separate test suite |
+| I-VAN integration complexity | LOW | HIGH | Defer to Phase 4, XML generation only |
+| GL account code conflicts | LOW | LOW | Use standard Vietnamese COA codes |
+| Performance with 500+ employees | LOW | LOW | Batch processing, indexed queries |
 
 ---
 
-# Sale Module — O2C Gap Closure + Reports (TDD)
+## Success Criteria
 
-**Status: PLANNED (2026-08-04).** Sale module core already built in prior sessions: full domain models (596 lines), PG+memory repos (1637+1220), service (865), handler (773, 46 routes), handler tests (600 lines), AR service tests (18). Baseline `go vet` + full suite green. AGENTS.md "~0%" + BRD "ZERO sale functionality" both STALE — docs update part of final slice.
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Calculation accuracy | 100% | Match HAPRI calculator for 50 test cases |
+| Test coverage | >90% | `go test -cover` |
+| Processing speed | <30s for 100 employees | Benchmark test |
+| GL posting accuracy | 100% | Reconciliation test |
+| Compliance | 100% | Audit against Law 109/2025, Law 41/2024 |
 
-## Scope Decisions (user-confirmed 2026-08-04)
+---
 
-- ✅ COGS on delivery — include (FR-4.7): PostDN posts 632/156 from DNLine.CostPrice
-- ⏸️ Sale e-invoice TXML — DEFER (buyer-side rework of internal/einvoice; GDT push third-party/excluded)
-- ✅ Reports — all five (S01-BH, S02-BH, S03-BH, VAT output, unbilled delivery) + wire /ar/recon route
+## Checkpoint Schedule
 
-## Verified Gaps (code evidence)
+| Checkpoint | After Tasks | Gate Criteria |
+|------------|-------------|---------------|
+| CP-1 | T1.1-T1.5 | Schema + models compile, all tests pass |
+| CP-2 | T1.6-T1.10 | Calc engine produces correct gross-to-net |
+| CP-3 | T2.1-T2.5 | Timekeeping import + OT calc works |
+| CP-4 | T3.1-T3.5 | Full payroll run produces payslips |
+| CP-5 | T4.1-T4.5 | D02-TS + 05/KK-TNCN generate correctly |
+| CP-6 | T4.6-T4.10 | End-to-end flow: import → calc → approve → GL → payslip |
 
-| # | Gap | Evidence |
-|---|-----|----------|
-| G1 | No versioned sale migration — PG backend has zero sale tables | `migrations/` only legacy unused `006_sale_schema.sql` |
-| G2 | AR txn table never populated — PostInvoice/PostReceipt/PostCN write no ARTransaction rows → GetARSummary reads empty table | service PostInvoice:366 etc; arTxns only written by standalone CreateARTransaction |
-| G3 | PostCN doesn't reduce invoice BalanceDue (FR-8.4) — aging/statement stale after CN | PostCN posts GL only |
-| G4 | No over-delivery tolerance check (FR-4.3); SO status never advances (FR-3.5: PROCESSING/DELIVERED/INVOICED never set) | CreateDN/PostDN/PostInvoice don't touch SO status |
-| G5 | No COGS GL on PostDN (FR-4.7) | PostDN = UpdateDNStatus only |
-| G6 | No S01/S02/S03-BH ledgers, no VAT output report (FR-9.6), no unbilled delivery (FR-9.8); GetARGLReconciliation has no route | service has recon; handler lacks route |
-| G7 | Auto-numbering helpers (NextSO/NextDN/NextInv) unexposed — no routes | service methods exist, no handler |
-| G8 | No sale service test suite for CRUD+transitions (Customer/SO/DN/Invoice/Receipt/CN) | only ar_service_test + ar_gl_test |
+---
 
-## Slices (each: RED → GREEN → go vet + test → commit)
+## Resource Allocation
 
-| # | Slice | Files | Deps |
-|---|-------|-------|------|
-| S1 ✅ | Versioned migration `000017_sale_schema.up/down.sql` — 13 tables mirroring models_gorm_sale*.go + legacy 006 | migrations/ | — |
-| S2 ✅ | AR txn auto-population: PostInvoice (invoice), PostReceipt (receipt), PostCN (credit_note) + ARSummary correctness tests | sale_service.go, ar_service_test.go | — |
-| S3 ✅ | CN → BalanceDue reduction on PostCN (cap at balance; invoice → PAID at zero) + tests | sale_service.go + tests | S2 ✅ |
-| S4 ✅ | Delivery integrity: over-delivery tolerance (default 5%, per-DN override), SO status progression (PROCESSING→DELIVERED on PostDN full/partial, DELIVERED→INVOICED on PostInvoice), back-order = partial delivered | models_sale.go, sale_service.go + tests | — |
-| S5 ✅ | COGS on delivery: PostDN GL entry Dr 632 / Cr 156 per DNLine.CostPrice (skip zero-cost), SetDNGLPosted? (add repo method if needed) + tests | sale_service.go, interfaces.go, repos ×2 + tests | S4 ✅ |
-| S6 ✅ | Reports: S01-BH (sales ledger per customer/period), S02-BH (AR subledger per customer), S03-BH (goods sales ledger per item), VAT output tracking, unbilled delivery (posted DN w/o invoice) + routes + /ar/recon route | models_sale.go, sale_service.go, sale_handler.go + tests | S2,S3 |
-| S7 ✅ | Auto-numbering endpoints: GET /sale/orders/next-number, /deliveries/next-number, /invoices/next-number | sale_handler.go + tests | — |
-| S8 | Docs: AGENTS.md module table (Sale → status), BRD "ZERO" note, plan.md checkpoints | docs | all |
+| Role | Allocation | Responsibilities |
+|------|------------|------------------|
+| Backend Dev 1 | 100% | Core payroll engine, GL integration |
+| Backend Dev 2 | 100% | Timekeeping, declarations |
+| QA | 50% | Test cases, compliance verification |
+| BA/Accountant | 25% | Requirements clarification, UAT |
 
-## Architecture Decisions
+---
 
-- **AR txn as derived audit trail**: posting flows create ARTransaction rows (idempotent — only on status transition to POSTED). GetARSummary stays read-of-txn-table; aging stays read-of-invoices.
-- **CN balance reduction**: deduct from original invoice BalanceDue (floor 0); invoice PAID when zero. GL entry unchanged (131 credit).
-- **Tolerance**: `TolerancePercent` on DeliveryNote (0 = use default 5%). Over-tolerance → ErrDNToleranceExceeded at CreateDN.
-- **COGS**: per-line CostPrice × QtyDelivered; zero/absent cost → skip line (service-only COGS for non-inventory, per BRD ASSUMPTION-3). New repo method `SetDNGLPosted` only if needed — prefer `UpdateDN` flag reuse; else add to interface + both repos.
-- **Reports**: new report structs in models_sale.go; service methods read repos directly (no new repos). Report endpoints under /api/v1/sale/reports/*.
-- **No new migrations beyond S1** (all report data derivable).
-- **Constructor**: `NewSaleService` unchanged (all repos present) unless COGS needs GL only — already has gl.
+## Sprint Cadence
 
-## Checkpoints
+| Sprint | Weeks | Focus |
+|--------|-------|-------|
+| Sprint 1 | 1-2 | Schema + Domain models + Repos |
+| Sprint 2 | 3-4 | Calculation engine + Unit tests |
+| Sprint 3 | 5-6 | Timekeeping import + OT calc |
+| Sprint 4 | 7-8 | Leave management + Integration |
+| Sprint 5 | 9-10 | Period mgmt + Payroll run |
+| Sprint 6 | 11-12 | Payslip + GL posting |
+| Sprint 7 | 13-14 | D02-TS + 05/KK-TNCN |
+| Sprint 8 | 15-16 | Approval + Self-service + Polish |
 
-- S1-S7: `go vet ./... && go test -count=1 ./...` green, commit each ✅
-- S8: docs + AGENTS.md + todo.md, commit ✅
-- Final: code-review-and-quality 5-axis pass — APPROVE (2 Required spec gaps noted, no Critical)
-- Benchmark note: SALES_READINESS.md updated; 8 P0 capabilities now ✅ vs MISA/FAST/Bravo
+---
 
-## Risks
+## Appendix: Detailed Task Reference
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Migration drift vs GORM columns | Med | S1 ✅ cross-check field-by-field vs models_gorm_sale*.go |
-| AR txn double-write (post twice) | Med | Guard: only create txn in DRAFT→POSTED transition; tests |
-| CN > BalanceDue | Med | Cap at BalanceDue; leftover → credit balance (ARTransOffset semantics) |
-| Tolerance regression on existing tests | Low | Existing handler tests use exact qty; default 5% allows equal |
+See `tasks/todo.md` for full task list with acceptance criteria.
+See `docs/payroll/` for complete specifications.

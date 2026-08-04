@@ -1,739 +1,858 @@
-# AR Module — Task Tracker v2
+# Payroll Module — Task List
 
-## ✅ Phase 0: Critical Fix (COMPLETE)
-
-### Task 1: Fix AR Aging Report — Bucket by DueDate
-
-**Desc:** `GetARAgingReport` puts all amount in Bucket0. Fix: query invoices by DueDate, calc days overdue, group into proper buckets.
-
-**AC:**
-- [x] Aging report shows correct bucket per invoice BalanceDue
-- [x] Current (<0 days overdue) in Bucket0
-- [x] 1-30 days overdue in Bucket30, 31-60→Bucket60, 61-90→Bucket90, 91-120→Bucket120, 120+→Bucket120
-- [x] Paid invoices excluded
-- [x] 3 tests: validates buckets, no invoices, paid excluded
-
-**Verification:** `go test -v -run TestARAging ./internal/service/`
-
-**Files:** `internal/service/sale_service.go`, `internal/service/ar_service_test.go`
+**Generated:** 2026-08-04
+**Total Tasks:** 40
+**Estimated Duration:** 16 weeks
 
 ---
 
-## ✅ Phase 1: Core AR (COMPLETE)
+## Phase 1: Foundation & Calculation Engine (Weeks 1-4)
 
-### Task 2: GL Auto-Posting on Invoice Post
+### T1.1: Payroll Migration Schema
 
-**Desc:** PostInvoice creates JournalEntry via GL.CreatePostedEntry: Dr 131 (total), Cr revenue accounts (subtotal by line), Cr 3331 (VAT). Set gl_posted=true.
+**Description:** Create PostgreSQL migration for all payroll-related tables: employee_payroll_info, dependants, salary_components, payroll_periods, payroll_runs, timekeeping_records, leave_requests, leave_balances, payslips, payroll_config.
 
-**AC:**
-- [x] PostInvoice creates JournalEntry via GL in service layer (not in repo)
-- [x] GL entry: Dr 131 (AR), Cr revenue account(s), Cr 3331 (VAT)
-- [x] `gl_posted=true`, `gl_posted_at` set
-- [x] nil GL → no crash, GLPosted stays false
-- [x] Test: posted invoice has matching GL entry
+**Acceptance criteria:**
+- [ ] Migration file `000019_payroll_schema.up.sql` created
+- [ ] All tables use UUID primary keys with `gen_random_uuid()`
+- [ ] All tables use `CREATE TABLE IF NOT EXISTS` for idempotency
+- [ ] Foreign keys to employees table properly defined
+- [ ] Indexes on company_id, employee_id, period_id
+- [ ] Down migration `000019_payroll_schema.down.sql` created
+- [ ] `go run .` starts without error on PG backend
 
-**Files:** `internal/service/sale_service.go`, `internal/service/service.go` (CreatePostedEntry), `internal/domain/interfaces.go` (Set*GLPosted methods), `internal/repository/*`
+**Verification:**
+- [ ] `migrate -path migrations -database "$DATABASE_URL" up` succeeds
+- [ ] All tables created: `\dt` shows new tables
+- [ ] Down migration drops all tables cleanly
 
----
-
-### Task 3: GL Auto-Posting on Receipt Post
-
-**Desc:** PostReceipt creates JournalEntry: Dr 1111 (cash) or 1121 (bank), Cr 131 (AR) by amount.
-
-**AC:**
-- [x] PostReceipt creates JournalEntry: Dr cash/bank, Cr 131
-- [x] Payment method mapping: cash→1111, bank_transfer/cheque/credit_card→1121
-- [x] `gl_posted=true`, `gl_posted_at` set
-- [x] Test: bank transfer Dr 1121, cash receipt Dr 1111
-
-**Files:** `internal/service/sale_service.go`, `internal/domain/models_sale.go` (added GLPosted to Receipt)
-
----
-
-### Task 4: GL Auto-Posting on Credit Note Post
-
-**Desc:** PostCN creates reversing JournalEntry: Dr revenue account (from original inv), Dr 3331 (VAT), Cr 131 (total).
-
-**AC:**
-- [x] PostCN creates JournalEntry: Dr 511X, Dr 3331, Cr 131
-- [x] Revenue account resolved from original invoice lines
-- [x] `gl_posted=true`, `gl_posted_at` set
-- [x] Test: CN reduces AR balance
-
-**Files:** `internal/service/sale_service.go`, `internal/repository/*` (stripped GLPosted from PostCN)
-
----
-
-### Task 5: Customer Statement Endpoint
-
-**Desc:** Generate customer statement: opening balance, all transactions (invoices/receipts/CNs) in period with running balance, closing balance.
-
-**AC:**
-- [x] GET `/api/v1/sale/ar/statement?customer_id=X` returns statement
-- [x] All period transactions listed (invoices, receipts, credit notes)
-- [x] Running balance per line item
-- [x] Closing balance = opening + all debits - all credits
-- [x] Handler test: statement matches invoice+receipt totals
-
-**Files:** `internal/handler/sale_handler.go`, `internal/service/sale_service.go`, `internal/domain/models_sale.go` (CustomerStatement structs), `internal/handler/sale_handler_test.go`
-
----
-
-## ✅ VAT Reconciliation: E-Invoice vs GTGT01 (DONE — 6166ac0)
-
-BR-VAT-06: issued e-invoices must reconcile with VAT declaration.
-
-- [x] ReconcileVAT: period-filtered issued invoices vs declaration, per-rate breakdown, cancelled/replaced excluded
-- [x] Reconcile [22] (SUM output VAT from e-invoices, spec §8.1) with [23] fallback + note (20d1428)
-- [x] Per-rate InvoiceCount = distinct invoices per bucket (was global count) (20d1428)
-- [x] POST /api/v1/tax/reconcile/vat; variance + matched flag
-- [ ] Reconciliation report export (deferred)
-
----
-
-## ✅ Post-Review Compliance + Architecture Round (DONE — 20d1428, fa7b4bb, 51357b5, a7f259c)
-
-Review findings from code-review skill over Round B/C + reconciliation, triaged as chief accountant (compliance first):
-
-- [x] Per-rate reconciliation counts + [22] per spec §8.1 (20d1428)
-- [x] P0: HTKK NgayTao date-only (XSD date type rejects time) + MaChiTieu bracketed at wire, domain unbracketed + CreateDeclaration stamps CreatedAt (fa7b4bb)
-- [x] P0: CanCancel only from ISSUED — cancel/replace needs CQT code (Circular 78/2021) (fa7b4bb)
-- [x] P1: GDT response codes 02 duplicate→acknowledge, 10 period-already-declared→amend error, 03 taxcode→422, 99→unavailable, 01→rejected (51357b5)
-- [x] P2: service decoupled from transport — GDT DTOs → domain, gdt maps errors at boundary, pemSigner → einvoice (a7f259c)
-- [ ] Deferred: real-GDT integration (mTLS, ValidateInvoice/IssueInvoice/GetTaxpayerInfo/rates/payment-order) — wire contract is isolated mock
-- [ ] Deferred: LanDau amendment counter — HTKK only distinguishes 1/2, current 2 is compliant
-
----
-
-## ✅ Round C: Declaration XML + GDT Submission (DONE — ea52abe, f8c4408, eb04690)
-
-HTKK form XML per TAX_SPECS §3.1, declaration→GDT submit pipeline.
-
-- [x] C1: `internal/htkk` — BK:BoKe envelope, TTChung header (MST/form/period/LanDau), DuLieu indicators, money type
-- [x] C2: gdt declaration endpoints — `POST /api/submission/declare`, `GET /api/submission/status?id=`
-- [x] C3: SubmitDeclaration (XML→sign→GDT submit, store DeclarationXML/GDTSubmissionID/signature), CheckDeclarationStatus (ack→TaxPayment, reject→resubmit), migration 000016, `POST /:id/check-status`
-- [ ] GDT real endpoint + certificate auth (deferred)
-- [ ] Declaration form PDFs (deferred)
-
----
-
-## ✅ Phase 2: E-Invoice Pipeline (DONE — B1/B2/B3: ce92489, de729c6, 4528214)
-
-Tax-module e-invoice pipeline built under Round B (see `docs/tax/`). TXML generation for the sale/tax side (Task 6), digital signer (Task 7), GDT client (Task 8) complete. Task 9 (auto-pipeline hook) deferred — issue is manual `POST /:id/issue`.
-
-- [x] Task 6: E-Invoice Pipeline Interface + TXML Generator — `internal/einvoice/txml.go` (BKHoaDon per Decree 254/2026, money type)
-- [x] Task 7: E-Invoice Digital Signer — `internal/xmldsig` + `pemSigner` (C14N + RSA-SHA256, BK:ChuKySo)
-- [x] Task 8: GDT API Client — `internal/gdt` (submit/status/cancel, retry 1s/5s/30s, error map)
-- [x] Task 9a: Issue pipeline — DRAFT/VALIDATED→SIGNED→SUBMITTED, status poll→ISSUED, cancel→GDT notify
-- [ ] Task 9b: Auto-pipeline hook — issue on validation approval (deferred)
-
----
-
-## 🔲 Phase 3: Collection Management (P1)
-
-### Task 6 (new numbering): Prepayment/Deposit Workflow
-
-**Desc:** Full prepayment lifecycle. Customer pays deposit → optional deposit e-invoice (deferred) → offset against final invoice. Extend CustomerReceipt with ReceiptType field.
-
-**Foundations exist:**
-- `ARTransPrepayment` type constant defined
-- `CustomerReceipt` model exists with allocation support
-- Receipt allocation/reconciliation workflow exists
-
-**New:**
-- `CustomerReceipt.ReceiptType` field — values: standard, prepayment, refund
-- Receipt create validates: prepayment has no invoice allocation
-- Deposit offset endpoint: apply prepayment to one or more invoices
-- Refund workflow: receipt with type=refund, negative amount, links to original prepayment
-- Refund check: cannot refund more than remaining deposit balance
-
-**AC:**
-- [ ] CustomerReceipt has ReceiptType (standard/prepayment/refund)
-- [ ] CreateReceipt validates prepayment has no invoice allocation (unallocated)
-- [ ] POST `/api/v1/sale/receipts/:id/offset` — apply prepayment to invoice
-- [ ] Offset creates ARTransOffset + reduces invoice BalanceDue
-- [ ] Refund receipt type: negative amount, links to original prepayment
-- [ ] Test: prepayment offsets correctly reduce invoice balance
-
-**Implementation order:**
-1. Add ReceiptType to CustomerReceipt model + Validate()
-2. Add OffsetReceipt to SaleService + repos
-3. Add handler endpoint + route
-4. Write tests
-
+**Dependencies:** None
 **Files:**
-- `internal/domain/models_sale.go` — ReceiptType field, constants
-- `internal/domain/interfaces.go` — maybe new offset methods
-- `internal/repository/memory_sale.go` — OffsetReceipt impl
-- `internal/repository/pg_sale.go` — OffsetReceipt impl
-- `internal/service/sale_service.go` — OffsetReceipt service method
-- `internal/handler/sale_handler.go` — offset endpoint
-- `internal/handler/sale_handler_test.go` — handler test
+- `migrations/000019_payroll_schema.up.sql`
+- `migrations/000019_payroll_schema.down.sql`
 
-**Scope:** M (4-5 files)
+**Estimated scope:** M (3-5 files)
 
 ---
 
-### Task 7: FX Revaluation
+### T1.2: Payroll Domain Models
 
-**Desc:** Realized FX at receipt allocation time + unrealized FX at month-end for outstanding foreign-currency AR.
+**Description:** Create domain model structs for all payroll entities in `internal/domain/models_payroll.go`. Follow existing pattern (all models in `package domain`).
 
-**Foundations exist:**
-- ExchangeRate CRUD exists in GL service
-- CustomerInvoice.Currency + ExchangeRate fields exist
-- CustomerReceipt.Currency + ExchangeRate fields exist
-- Account 515 (Doanh thu tai chinh) and 635 (Chi phi tai chinh) exist
+**Acceptance criteria:**
+- [ ] `EmployeePayrollInfo` struct with all fields from spec
+- [ ] `Dependant` struct
+- [ ] `SalaryComponent` struct
+- [ ] `PayrollPeriod` struct with status enum
+- [ ] `PayrollRun` struct with all calculation fields
+- [ ] `Payslip` struct
+- [ ] JSON tags on all fields
+- [ ] Validate struct tags on required fields
 
-**Realized FX (at receipt allocation):**
-- Compare invoice exchange rate vs receipt exchange rate
-- If receipt rate > invoice rate → Dr 635 (FX loss) Cr 131 (reduce AR)
-- If receipt rate < invoice rate → Dr 131 (increase AR) Cr 515 (FX gain)
-- Post alongside the main receipt GL entry
+**Verification:**
+- [ ] `go build ./...` compiles
+- [ ] `go vet ./...` passes
 
-**Unrealized FX (month-end batch):**
-- Get all open (non-zero BalanceDue) foreign-currency invoices
-- Compute reval at period-end rate from ExchangeRate table
-- Post net adjustment: Dr/Cr 131, Cr/Dr 515/635
-- Store reval journal entry reference for audit trail
-
-**AC:**
-- [ ] Receipt allocation calculates realized FX gain/loss when currencies match but rates differ
-- [ ] Realized FX posted: Dr 635/Cr 131 (loss) or Dr 131/Cr 515 (gain)
-- [ ] Month-end batch endpoint: revalue all open FC invoices
-- [ ] Unrealized FX posted as net adjustment entry
-- [ ] Test: FX gain/loss posted correctly for simple case
-
-**Implementation order:**
-1. Add FX calc to receipt allocation logic in sale_service.go
-2. Add month-end batch endpoint
-3. Write tests
-
+**Dependencies:** T1.1
 **Files:**
-- `internal/service/sale_service.go` — FX in allocation + month-end
-- `internal/handler/sale_handler.go` — month-end endpoint
-- `internal/service/ar_service_test.go` — FX tests
-- `internal/handler/sale_handler_test.go` — handler test
+- `internal/domain/models_payroll.go`
 
-**Scope:** M (4-5 files)
+**Estimated scope:** S (1-2 files)
 
 ---
 
-### Task 8: Dunning Engine
+### T1.3: Payroll Enums and Constants
 
-**Desc:** Multi-level dunning with configurable triggers, reminder generation, promise-to-pay tracking, dunning history.
+**Description:** Define all enum types and constants for payroll module: PayrollStatus, ContractType, SalaryType, LeaveType, etc.
 
-**Foundations exist:**
-- AR aging report calculates overdue buckets
-- Customer model has email field for reminders
-- Invoice and receipt statuses support lifecycle
+**Acceptance criteria:**
+- [ ] `PayrollStatus` enum: DRAFT, PROCESSING, APPROVED, PAID, CLOSED
+- [ ] `ContractType` enum: INDEFINITE, DEFINITE, PROBATION
+- [ ] `SalaryType` enum: TIME_BASED, PIECE_RATE, COMMISSION, COEFFICIENT
+- [ ] `LeaveType` enum: ANNUAL, SICK, MATERNITY, PATERNITY, UNPAID, COMPENSATORY
+- [ ] Insurance rate constants (SI: 8%/17.5%, HI: 1.5%/3%, UI: 1%/1%)
+- [ ] PIT bracket constants (5 brackets with rates and constants)
+- [ ] Regional minimum wage constants
 
-**New models:** `internal/domain/models_collection.go`
+**Verification:**
+- [ ] All constants compile
+- [ ] No duplicate enum values
 
-```go
-type DunningLevel string
-const (
-    DunningL1 DunningLevel = "L1" // 1-30 days overdue — gentle reminder
-    DunningL2 DunningLevel = "L2" // 31-60 days — formal notice
-    DunningL3 DunningLevel = "L3" // 61-90 days — final notice
-    DunningL4 DunningLevel = "L4" // 90+ days — legal action warning
-)
-
-type DunningConfig struct {
-    CompanyID       string
-    Level           DunningLevel
-    DaysOverdueMin  int
-    DaysOverdueMax  int
-    AmountThreshold float64        // 0 = no threshold
-    Active          bool
-}
-
-type DunningQueue struct {
-    ID              string
-    CompanyID       string
-    InvoiceID       string
-    CustomerID      string
-    CurrentLevel    DunningLevel
-    LastReminderAt  *time.Time
-    NextReminderAt  *time.Time
-    PTPDate         *time.Time     // promise-to-pay date (suspends dunning)
-    PTPNotes        string
-    Status          DunningStatus  // pending/escalated/resolved/suspended
-    CreatedAt       time.Time
-    ResolvedAt      *time.Time
-}
-
-type DunningHistory struct {
-    ID          string
-    QueueID     string
-    InvoiceID   string
-    CustomerID  string
-    Level       DunningLevel
-    Action      string           // reminder_sent/ptp_recorded/escalated/resolved
-    Notes       string
-    CreatedAt   time.Time
-}
-```
-
-**Service methods:**
-- `GenerateDunningQueue(ctx, companyID)` — batch: scan overdue invoices, upsert dunning queue
-- `SendReminders(ctx, companyID, level)` — generate reminders for queue items due
-- `RecordPTP(ctx, queueID, date, notes)` — record promise-to-pay, suspend dunning
-- `EscalateLevel(ctx, queueID)` — manually escalate dunning level
-- `ResolveQueue(ctx, queueID)` — mark resolved (invoice paid)
-- `GetDunningQueue(ctx, companyID, level)` — list queue items
-- `GetDunningHistory(ctx, invoiceID)` — dunning history
-
-**Dunning batch logic:**
-1. Full scan of open (non-paid, non-cancelled) invoices past DueDate
-2. Compute days overdue from report date
-3. Match to DunningConfig by days range + threshold
-4. Upsert DunningQueue (update level, next reminder date)
-5. Auto-escalate: if current level < computed level, increment with history
-
-**AC:**
-- [ ] DunningConfig CRUD (create/list/update per company)
-- [ ] GenerateDunningQueue: scans open invoices, creates/updates queue
-- [ ] Correct level assignment based on days overdue
-- [ ] Promise-to-pay records (suspends dunning for that invoice)
-- [ ] Escalation history tracked in DunningHistory
-- [ ] Queue resolved when invoice fully paid
-- [ ] Test: dunning batch processes correct invoices at correct level
-
-**Implementation order:**
-1. Models + repo interface + memory repo
-2. PG schema + PG repo
-3. CollectionService + DunningConfig CRUD
-4. GenerateDunningQueue batch + test
-5. SendReminders (tracking only, no actual email/SMS)
-6. PTP + escalation + resolution
-7. Handler + routes
-8. Handler tests
-
+**Dependencies:** T1.2
 **Files:**
-- `internal/domain/models_collection.go` — new file
-- `internal/domain/interfaces.go` — DunningRepository interface
-- `internal/repository/memory_sale.go` — MemoryDunningRepo
-- `internal/repository/pg_sale.go` — PGDunningRepo
-- `migrations/008_dunning.sql` — dunning tables
-- `internal/service/collection_service.go` — new file
-- `internal/handler/sale_handler.go` — add to SaleHandler
-- `internal/service/ar_service_test.go` — dunning tests
-- `internal/handler/sale_handler_test.go` — handler tests
+- `internal/domain/models_payroll.go` (same file or separate)
 
-**Scope:** L (8-10 files)
+**Estimated scope:** XS (single file addition)
 
 ---
 
-### Task 9: Bad Debt Provision + Write-Off
+### T1.4: Payroll Repository Interfaces
 
-**Desc:** Provision calc per VAS 17 by aging bucket %. Write-off workflow with approval. Recovery tracking.
+**Description:** Define repository interfaces for all payroll entities in `internal/domain/interfaces.go` (or new `interfaces_payroll.go`).
 
-**Foundations exist:**
-- Account 229 (Du phong phai thu kho doi) seeded in tests
-- Account 642 (Chi phi quan ly) exists
-- Account 711 (Doanh thu khac) exists
-- AR aging report gives buckets
-- Customer has CustomerStatus (ACTIVE/SUSPENDED/BLACKLISTED)
+**Acceptance criteria:**
+- [ ] `PayrollInfoRepository` interface: Create, Get, Update, ListByCompany, GetByEmployee
+- [ ] `DependantRepository` interface: Create, Update, Delete, ListByEmployee
+- [ ] `SalaryComponentRepository` interface: Create, Update, ListByCompany
+- [ ] `PayrollPeriodRepository` interface: Create, Update, Get, ListByCompany
+- [ ] `PayrollRunRepository` interface: Create, Update, ListByPeriod, Get
+- [ ] `TimekeepingRepository` interface: Create, Update, Delete, ListByEmployeePeriod, BulkCreate
+- [ ] `LeaveRequestRepository` interface: Create, Update, ListByEmployee, ListPending
+- [ ] `LeaveBalanceRepository` interface: Get, Update, ListByEmployee
+- [ ] `PayslipRepository` interface: Create, Get, ListByPeriod
 
-**Provision calc (VAS 17, R8):**
-```
-- 0-6 months overdue:     0% (no provision) or optional
-- 6-12 months overdue:    30% of balance
-- 1-2 years overdue:      50%
-- 2-3 years overdue:      70%
-- >3 years overdue:      100%
-```
-Configurable percentages per company. Batch calc at month-end.
+**Verification:**
+- [ ] `go build ./...` compiles
+- [ ] Interfaces are minimal (no implementation details)
 
-**Write-off criteria:**
-- Customer bankrupt/dissolved/liquidated
-- Debtor deceased
-- 3+ years overdue with full provision
-- Legal proceedings concluded with no recovery
-- Must be approved (segregation: accountant proposes, chief accountant approves)
-
-**Write-off entry:** Dr 229 (provision) Cr 131 (AR) — if insufficient provision, Dr 642 for remainder.
-Off-balance-sheet: record in monitoring account (Dr 009 "Debt written off" — per Circular 99).
-
-**Recovery (unexpected payment after write-off):**
-- Reinstate receivable: Dr 131 Cr 711
-- Record payment: Dr bank Cr 131
-- Remove from off-balance-sheet: Cr 009
-
-**AC:**
-- [ ] ProvisionConfig CRUD (bucket %, active toggle per company)
-- [ ] `CalculateProvision(ctx, companyID, asOfDate)` — computes provision per customer
-- [ ] `PostProvision(ctx, companyID, asOfDate)` — posts Dr 642 Cr 229
-- [ ] `WriteOff(ctx, invoiceIDs, reason, approvedBy)` — writes off AR
-- [ ] Write-off: Dr 229 Cr 131 (+ Dr 642 if insufficient), Cr 009 if tracked
-- [ ] `RecoverWriteOff(ctx, invoiceID, amount)` — reinstatement + payment
-- [ ] Test: provision calc matches manual calc
-
-**Implementation order:**
-1. Models + repo interface
-2. PG schema + PG repo
-3. Provision calc + post in CollectionService
-4. Write-off + recovery in CollectionService
-5. Handler + routes
-6. Tests
-
+**Dependencies:** T1.2
 **Files:**
-- `internal/domain/models_collection.go` — ProvisionConfig, BadDebtWriteOff models
-- `internal/domain/interfaces.go` — new repository interfaces
-- `internal/repository/memory_sale.go` — memory impl
-- `internal/repository/pg_sale.go` — PG impl
-- `internal/service/collection_service.go` — provision/writeoff methods
-- `internal/handler/sale_handler.go` — endpoints
-- `internal/service/ar_service_test.go` — tests
-- `internal/handler/sale_handler_test.go` — handler tests
+- `internal/domain/interfaces_payroll.go`
 
-**Scope:** L (6-8 files)
+**Estimated scope:** S (1-2 files)
 
 ---
 
-## 🔲 Phase 4: Controls & Monitoring (P1/P2)
+### T1.5: Payroll Repository Implementations (PG + Memory)
 
-### Task 10: Credit Limit Enforcement
+**Description:** Implement PostgreSQL and in-memory repositories for all payroll entities.
 
-**Desc:** Check at SO confirm + invoice create. Configurable action (warn vs block) per company.
+**Acceptance criteria:**
+- [ ] `PGPayrollInfoRepo` implements all interface methods
+- [ ] `MemoryPayrollInfoRepo` implements all interface methods
+- [ ] Same pattern for all 8 repository interfaces
+- [ ] PG repos use GORM (`*gorm.DB`)
+- [ ] Memory repos use `sync.RWMutex` + maps
+- [ ] Memory repos copy structs before mutation
 
-**Foundations exist:**
-- Customer.CreditLimit field exists (float64)
-- SO lifecycle has Confirm → Approved → Confirmed transition
-- Invoice Create checks customer exists
+**Verification:**
+- [ ] `go build ./...` compiles
+- [ ] `go test ./internal/repository/ -count=1` passes
 
-**Logic:**
-```
-outstandingAR = sum(BalanceDue) for customer's open invoices
-if outstandingAR + newAmount > CreditLimit
-    if action == "block" → return error
-    if action == "warn" → add warning to response
-```
-
-**Override:** manager role can pass `?override=true` with reason to bypass limit.
-
-**AC:**
-- [ ] SO confirm checks credit limit (outstanding + SO total ≤ limit)
-- [ ] Invoice create checks credit limit
-- [ ] Config: warn vs block per customer or company
-- [ ] Manager override: `?override=true&reason=...` bypasses block
-- [ ] Test: exceeding limit returns configured action
-
+**Dependencies:** T1.1, T1.4
 **Files:**
-- `internal/service/sale_service.go` — add check to ConfirmSO, CreateInvoice
-- `internal/handler/sale_handler.go` — handle override param
-- `internal/service/ar_service_test.go` — credit limit tests
+- `internal/repository/pg_payroll.go`
+- `internal/repository/memory_payroll.go`
 
-**Scope:** S (2-3 files)
+**Estimated scope:** L (5-8 files)
 
 ---
 
-### Task 11: AR-GL Month-End Reconciliation
+### Checkpoint 1: Foundation Complete
 
-**Desc:** Report comparing AR sub-ledger total vs GL 131 balance. List variances by customer.
+- [ ] Migration runs cleanly on PG
+- [ ] All domain models compile
+- [ ] All repository interfaces defined
+- [ ] Both PG and Memory repos compile
+- [ ] `go vet ./...` passes
+- [ ] **REVIEW GATE: Human reviews schema + models before proceeding**
 
-**Logic:**
-```
-subledger_total = sum(CustomerInvoice.BalanceDue) where status in (posted,paid)
-gl_balance = GL account 131 ending balance for period
-variance = gl_balance - subledger_total
-if variance != 0 → drill-down by customer
-```
+---
 
-**AC:**
-- [ ] GET `/api/v1/sale/ar/reconciliation?period=X` returns report
-- [ ] Report: sub-ledger total, GL 131 balance, variance
-- [ ] Variance drill-down by customer
-- [ ] Test: reconciled when GL matches sub-ledger (variance = 0)
+### T1.6: Salary Calculation Engine — Income Components
 
+**Description:** Implement gross salary calculation: base salary, OT pay, night shift pay, leave pay, holiday pay, allowances, bonuses.
+
+**Acceptance criteria:**
+- [ ] `CalculateBaseSalary(employee, period)` — handles coefficient and fixed types
+- [ ] `CalculateOTPay(timekeeping, hourlyRate, dayType)` — 150%/200%/300% multipliers
+- [ ] `CalculateNightShiftPay(timekeeping, hourlyRate)` — 30% premium
+- [ ] `CalculateLeavePay(baseSalary, leaveDays)` — daily rate calculation
+- [ ] `CalculateHolidayPay(baseSalary, holidayDays)` — daily rate calculation
+- [ ] `CalculateAllowances(employee)` — sum of all allowance components
+- [ ] All functions are pure (no side effects, testable)
+
+**Verification:**
+- [ ] Unit tests for each function
+- [ ] Test cases: normal, edge (zero days, max OT), boundary values
+
+**Dependencies:** T1.2, T1.3
 **Files:**
-- `internal/handler/sale_handler.go` — endpoint
-- `internal/service/sale_service.go` — ARSubledgerTotal calc
-- `internal/service/ar_service_test.go` — test
+- `internal/service/payroll_calculator.go`
+- `internal/service/payroll_calculator_test.go`
 
-**Scope:** M (3-4 files)
+**Estimated scope:** M (3-5 files)
 
 ---
 
-### Task 12: DSO + AR KPI Dashboard
+### T1.7: Salary Calculation Engine — Insurance
 
-**Desc:** Days Sales Outstanding + key AR metrics.
+**Description:** Implement SI/HI/UI contribution calculations for both employee and employer.
 
-**Metrics:**
-- DSO = (Avg AR / Total Revenue) × days in period
-- Avg AR = (opening AR + closing AR) / 2
-- Total AR outstanding (current)
-- Overdue % = overdue AR / total AR × 100
-- Collection Rate = receipts / (invoices - credit notes) in period
-- Avg Days to Pay = avg of payment date - invoice date
+**Acceptance criteria:**
+- [ ] `CalculateEmployeeSI(insuranceBase, isForeign)` — 8% (capped at 20× base salary)
+- [ ] `CalculateEmployeeHI(insuranceBase)` — 1.5% (capped at 20× base salary)
+- [ ] `CalculateEmployeeUI(uiBase, isForeign)` — 1% Vietnamese only (capped at 20× regional min)
+- [ ] `CalculateEmployerSI(insuranceBase, isForeign)` — 17.5% (14% + 3% + 0.5%)
+- [ ] `CalculateEmployerHI(insuranceBase)` — 3%
+- [ ] `CalculateEmployerUI(uiBase, isForeign)` — 1% Vietnamese only
+- [ ] `CalculateInsuranceBase(salary, allowances, cap)` — MIN(income, cap)
+- [ ] `CalculateUIBase(salary, allowances, regionalMin, cap)` — MIN(income, cap)
+- [ ] Trade union: 1% capped at VND 253,000
 
-**AC:**
-- [ ] DSO calc matches manual formula
-- [ ] Total AR outstanding returned
-- [ ] Overdue % correct
-- [ ] Collection rate per period
-- [ ] Test: DSO reasonable (~30-45 for standard terms)
+**Verification:**
+- [ ] Unit tests match official rates from Law 41/2024
+- [ ] Test Vietnamese vs foreign employees
+- [ ] Test cap boundaries (below, at, above cap)
 
+**Dependencies:** T1.6
 **Files:**
-- `internal/handler/sale_handler.go` — endpoint
-- `internal/service/sale_service.go` — KPI calc methods
-- `internal/service/ar_service_test.go` — tests
+- `internal/service/payroll_calculator.go` (add to existing)
+- `internal/service/payroll_calculator_test.go` (add to existing)
 
-**Scope:** M (3-4 files)
+**Estimated scope:** M (3-5 files)
 
 ---
 
-### Task 13: Off-Balance-Sheet Tracking
+### T1.8: Salary Calculation Engine — PIT
 
-**Desc:** Written-off AR tracked in monitoring account (account 009 "Debt written off") for 10 years per Accounting Law.
+**Description:** Implement PIT progressive 5-bracket calculation with new deductions from Law 109/2025/QH15.
 
-**Foundations exist:**
-- Write-off posts Cr 009 (off-BS debit)
-- Recovery removes from 009 (Cr 009)
-- Query: total written-off, by year, by customer
+**Acceptance criteria:**
+- [ ] `CalculatePIT(taxableIncome)` — 5-bracket progressive
+- [ ] `CalculateTaxableIncome(gross, insurance, personalDeduction, dependantDeduction, exemptIncome)` — before PIT
+- [ ] Personal deduction: VND 15,500,000/month
+- [ ] Per dependant deduction: VND 6,200,000/month
+- [ ] OT income exempt from PIT (flag-based)
+- [ ] Night shift income exempt from PIT (flag-based)
+- [ ] Unused leave income exempt from PIT (flag-based)
+- [ ] Quick-deduction shortcut implemented (bracket × rate - constant)
+- [ ] Non-resident: flat 20%
 
-**Note:** Off-balance-sheet accounts in Vietnamese accounting use "account 009" (tai khoan 009 "No kho kho doi da xu ly"). This is tracked as a separate table, not a GL account with Dr/Cr.
+**Verification:**
+- [ ] Unit tests match HAPRI calculator (https://www.hapri.org/tools-financial/personal-income-tax-calc)
+- [ ] Test all 5 brackets
+- [ ] Test zero/negative taxable income
+- [ ] Test with 0, 1, 2, 3 dependants
+- [ ] Test non-resident flat rate
 
-**Model:**
-```go
-type OffBalanceSheetItem struct {
-    ID              string
-    CompanyID       string
-    InvoiceID       string
-    CustomerID      string
-    WrittenOffAt    time.Time
-    WrittenOffAmount float64
-    RecoveredAmount  float64
-    RecoveredAt     *time.Time
-    Status          string    // outstanding/recovered/partial
-    Notes           string
-}
-```
-
-**AC:**
-- [ ] Write-off creates OffBalanceSheetItem
-- [ ] Recovery updates item (recovered_amount, recovered_at)
-- [ ] GET `/api/v1/sale/ar/written-off` lists off-balance-sheet items
-- [ ] Query: filter by year, customer, status
-- [ ] Test: write-off + recovery tracked correctly
-
+**Dependencies:** T1.7
 **Files:**
-- `internal/domain/models_collection.go` — OffBalanceSheetItem
-- `internal/domain/interfaces.go` — OffBalanceSheetRepository
-- `internal/repository/memory_sale.go` — memory impl
-- `internal/repository/pg_sale.go` — PG impl
-- `internal/handler/sale_handler.go` — endpoint
-- `internal/service/collection_service.go` — methods
-- `internal/service/ar_service_test.go` — tests
+- `internal/service/payroll_calculator.go` (add to existing)
+- `internal/service/payroll_calculator_test.go` (add to existing)
 
-**Scope:** M (4-5 files)
+**Estimated scope:** M (3-5 files)
 
 ---
 
-## Progress
+### T1.9: Gross-to-Net Pipeline
 
-- [x] **Phase 0:** Fix AR Aging (COMPLETE)
-- [x] **Phase 1:** Core AR (COMPLETE)
-- [ ] **Phase 2:** E-Invoice Pipeline (DEFERRED)
-- [ ] **Phase 3:** Collection Management (P1)
-- [ ] **Phase 4:** Controls & Monitoring (P1/P2)
+**Description:** Implement complete gross-to-net calculation pipeline that orchestrates all calculator functions.
 
-## Verification Gate
+**Acceptance criteria:**
+- [ ] `CalculatePayrollRun(employee, timekeeping, config)` — full pipeline
+- [ ] Returns complete `PayrollRun` with all fields populated
+- [ ] Handles all edge cases: zero OT, no dependants, foreign employee, etc.
+- [ ] Logs calculation steps for audit trail
+- [ ] Returns warnings (salary below min wage, OT exceeds limit, etc.)
 
-- [ ] All Phases 0-1: `go test ./... && go vet ./...` — PASS
-- [ ] Each Phase 3/4 task: tests at service + handler level
-- [ ] Every GL posting: Dr = Cr (double-entry invariant)
-- [ ] No orphaned test data between runs
-- [ ] Codegraph index up to date after implementation
+**Verification:**
+- [ ] Integration test: create employee → run calculation → verify all fields
+- [ ] Test with 10 employees, verify totals match manual calculation
+- [ ] Performance: <100ms for 100 employees
 
----
+**Dependencies:** T1.6, T1.7, T1.8
+**Files:**
+- `internal/service/payroll_calculator.go` (add to existing)
+- `internal/service/payroll_calculator_test.go` (add to existing)
 
-## ✅ Purchase P2-5: GDT E-Invoice XML (COMPLETE — c3068c8, 8a484a5, 5074d93, 6895977)
-
-### Slice 5.1 — einvoice package (Parse + Generate)
-
-**Desc:** New pure package `internal/einvoice`. XML structs mirror PURCHASE_TEMPLATES §8. `Parse(raw) → *domain.SupplierInvoice`, `Generate(inv) → []byte`. GL defaults 152/1331, VAT rate→type map.
-
-**AC:**
-- [x] Parse valid VND invoice → SupplierInvoice (fields + lines + totals)
-- [x] Parse FC invoice with ExchangeRate
-- [x] Parse credit note (InvoiceType)
-- [x] Parse error: malformed XML, missing required fields
-- [x] Generate→Parse round-trip
-- [x] VAT map: 0/5/8/10/-1
-
-**Verification:** `go vet ./internal/einvoice && go test -count=1 ./internal/einvoice/`
-
-### Slice 5.2 — Service wiring
-
-**Desc:** `ReceiveEInvoiceXML(ctx, companyID, raw)` — parse → auto-create supplier → dedupe → create draft invoice → persist raw XML. `GenerateEInvoiceXML(ctx, id)` — load → XML.
-
-**AC:**
-- [x] ReceiveEInvoiceXML creates draft invoice with supplier auto-created
-- [x] Raw XML stored in EInvoiceData
-- [x] Duplicate invoice number rejected
-- [x] GenerateEInvoiceXML returns parseable XML for posted invoice
-- [x] Generate on missing invoice → ErrInvoiceNotFound
-
-**Verification:** `go test -count=1 -run 'ReceiveEInvoiceXML|GenerateEInvoiceXML|EInvoice' ./internal/service/`
-
-### Slice 5.3 — Handler + routes
-
-**Desc:** `POST /api/v1/purchase/invoices/e-invoice` (raw XML body, company_id query) → 201. `GET /api/v1/purchase/invoices/:id/e-invoice` → 200 XML.
-
-**AC:**
-- [x] POST valid XML → 201, invoice returned, supplier auto-created
-- [x] POST malformed XML → 400
-- [x] GET → 200, content-type application/xml, round-trips through Parse
-- [x] GET missing → 404
-
-**Verification:** `go vet ./... && go test -count=1 ./...`
-
-### Slice 5.4 — Docs + closeout
-
-**Desc:** Readiness 0%→100%, AGENTS.md module table row, plan.md checkpoint.
-
-**AC:**
-- [x] PURCHASE_READINESS.md e-invoice row updated
-- [x] PURCHASE_ANALYSIS_SUMMARY.md updated
-- [x] AGENTS.md purchase row readiness updated
-- [x] plan.md checkpoint P2-5 ✅, P2 closed
-
-**Verification:** `git log` shows per-slice commits; final commit includes docs
+**Estimated scope:** M (3-5 files)
 
 ---
 
-## 🔲 Tax Core Foundations — Round A: Calculation + Declaration (NEXT)
+### T1.10: Net-to-Gross Reverse Calculation
 
-### A1: Rate resolver
-- [ ] `resolveRate(taxType, applicableTo, onDate)` helper in tax service — reads TaxRepository.GetRates, picks active rate for date
-- [ ] Fallback: STANDARD rate if no match; error if no rate at all
-- [ ] Test: active/inactive, effective date window, fallback
-- [ ] `go vet ./... && go test -count=1 ./...`
+**Description:** Implement reverse calculation: given target net pay, find required gross salary.
 
-### A2: VAT engine rewrite
-- [ ] CalculateVAT: explicit 33311 (output) / 1331/1332 (input) accounts first
-- [ ] Fallback: rate-table × revenue/expense for accounts without explicit VAT line
-- [ ] 8% reduced rate honored via rate table (VAT-02)
-- [ ] Tests: payable, refundable, 8% reduced, FA input, zero input
-- [ ] `go vet ./... && go test -count=1 ./...` + commit
+**Acceptance criteria:**
+- [ ] `CalculateNetToGross(targetNet, employee, config)` — iterative approach
+- [ ] Converges within 10 iterations (tolerance: 1 VND)
+- [ ] Returns gross salary that produces target net pay
+- [ ] Handles edge cases (target too low, too high)
 
-### A3: CIT engine rewrite
-- [ ] Rate by company size: STANDARD 20 / SMALL 17 / MICRO 15 (rate table keys)
-- [ ] Provisional vs final; 80% rule flag (CIT-10)
-- [ ] Tests: standard/small/micro, loss (taxable=0), provisional<80% flag
-- [ ] `go vet ./... && go test -count=1 ./...` + commit
+**Verification:**
+- [ ] Round-trip test: gross → net → gross produces original gross
+- [ ] Test with 5 different salary levels
 
-### A4: PIT engine
-- [ ] PITEmployeeInput struct (gross, dependants, residence, months)
-- [ ] Progressive brackets 5-35% from rate table (PROGRESSIVE type)
-- [ ] Deductions: personal 11M, dependant 4.4M, social 8%, health 1.5%, unemployment 1%
-- [ ] CalculatePIT signature change + handler route body update + tests
-- [ ] `go vet ./... && go test -count=1 ./...` + commit
+**Dependencies:** T1.9
+**Files:**
+- `internal/service/payroll_calculator.go` (add to existing)
+- `internal/service/payroll_calculator_test.go` (add to existing)
 
-### A5: Declaration engine
-- [ ] taxService gains journalRepo + periodRepo deps (constructor + main.go + tests)
-- [ ] GenerateDeclaration: pull posted journals for period → VAT/CIT engine → GTGT01/TNDN03 lines
-- [ ] Cross-validation per TAX_RULES §2.1 ([30]=[23]-[16], XOR 31/32)
-- [ ] Duplicate period+type rejection
-- [ ] Tests: generation, validation fail, duplicate
-- [ ] `go vet ./... && go test -count=1 ./...` + commit
-
-### A6: Declaration→payment automation
-- [ ] CreatePaymentFromDeclaration: amount from lines, due date, status PENDING
-- [ ] Late flag: due date passed → calendar OVERDUE + alert
-- [ ] Tests: payment created, late flag
-- [ ] `go vet ./... && go test -count=1 ./...` + commit — Round A DONE
-
-## Verification Gate
-- [ ] Round A: `go vet ./... && go test -count=1 ./...` green
-- [ ] Each slice: RED test → GREEN impl → commit
-- [ ] No migrations added Round A
-
-## ✅ Tax Round A: Calculation + Declaration Core (COMPLETE — c6c3a86)
-
-### A1: Rate resolver (3e84268)
-- [x] `resolveRate(taxType, applicableTo, onDate)` helper — rate table lookup, statutory fallback, suffix matching on RateCode
-- [x] Tests: by-rate-code-suffix, active-window, empty-table-fallback
-
-### A2: Rate-table VAT engine (a06e4db)
-- [x] `CalculateVAT` reads explicit VAT accounts first (Cr 33311 output, Dr 1331/1332 input), rate × revenue fallback
-- [x] OutputVAT/InputVAT/InputVATFA/payable/refundable from rate table
-- [x] Tests per rule incl. zero-rate export, partial-credit purchase
-
-### A3: Size-based CIT engine (9d85d2b)
-- [x] `CalculateCIT` — revenue → size tier (MICRO 15% / SMALL 17% / STANDARD 20%) from rate table
-- [x] Revenue - expenses + other income = taxable income
-- [x] Handler test updated (100M → MICRO 15%)
-
-### A4: Real PIT engine (c3398fd)
-- [x] `CalculatePIT` progressive brackets (5-35%), resident/non-resident, dependants, insurance caps
-- [x] **Breaking change approved**: `[]PITEmployeeInput` replaces `[]string employeeIDs` — interface + handler body
-- [x] Tests: progressive bracket, non-resident flat 20%, insurance cap
-
-### A5: Declaration engine (f57dd9d)
-- [x] `GenerateDeclaration` — posted journals by period date range → CalculateVAT/CIT → form lines (FROM_LEDGER source) → cross-validation (TAX_RULES §2.1) → VALIDATED
-- [x] GTGT01 lines 14/15/16/21/22/23/30/31/32; TNDN03 lines 04/06/12/13/14
-- [x] Duplicate period+type → 409 ErrDuplicateDeclaration; KK_TNCN → 400
-- [x] Zero declaration (no posted journals) supported — VAT-13
-- [x] Company-scoped journal filter (cross-tenant fix)
-- [x] `POST /api/v1/tax/declarations/generate`; NewTaxService + JournalRepository
-
-### A6: Declaration→payment automation (c6c3a86)
-- [x] AcknowledgeDeclaration auto-creates PENDING TaxPayment (payable lines [31]/[14])
-- [x] Statutory due dates: VAT monthly 20th next month / quarterly 30th, CIT annual 31-Mar
-- [x] Refundable/zero → no payment; idempotent per declaration
-- [x] Validation fix: GTGT01 [30] algebraic sum may be negative
+**Estimated scope:** S (1-2 files)
 
 ---
 
-## 🔲 Sale Module: O2C Gap Closure + Reports (PLANNED 2026-08-04)
+### Checkpoint 2: Calculation Engine Complete
 
-### S1: Versioned sale migration + full PG parity ✅
-- [x] `migrations/000017_sale_schema.up.sql` + `.down.sql` — 13 tables
-- [x] Cross-check columns vs GORM structs field-by-field
-- [x] GORM structs aligned to domain (balance_due, cost_price, credit_limit, status, e-invoice fields, child slices)
-- [x] pg_sale.go 68-method rewrite: all CRUD + transactions+preload + nil child slices
-- [x] 9 mapping round-trip tests (sale_mapping_test.go)
-- [x] AllocateToInvoice via GORM Expr (amount_received + ?, GREATEST(balance_due - ?, 0))
+- [ ] All calculator functions implemented
+- [ ] Unit test coverage >90% for calculator
+- [ ] Gross-to-net matches HAPRI calculator for 50 test cases
+- [ ] Performance: <100ms for 100 employees
+- [ ] **REVIEW GATE: Chief Accountant verifies calculation accuracy**
 
-### S2: AR txn auto-population ✅
-- [x] PostInvoice creates ARTransaction (invoice, Amount=TotalAmount)
-- [x] PostReceipt creates ARTransaction (receipt, Amount=Amount)
-- [x] PostCN creates ARTransaction (credit_note, Amount=TotalAmount)
-- [x] Tests: summary correct after post flows; no double-write on re-post
+---
 
-### S3: CN → invoice BalanceDue ✅
-- [x] PostCN reduces original invoice BalanceDue (floor 0), cap at balance
-- [x] Invoice → PAID when BalanceDue zero
-- [x] Tests: full/partial CN, over-CN capped, aging/statement reflect CN
+## Phase 2: Timekeeping & Attendance (Weeks 5-8)
 
-### S4: Delivery integrity ✅
-- [x] Over-delivery tolerance default 5%, per-DN override (TolerancePercent)
-- [x] CreateDN validates QtyDelivered vs SO line qty × tolerance → ErrDNToleranceExceeded
-- [x] SO status: PROCESSING on first DN post, DELIVERED when fully delivered, INVOICED on PostInvoice
-- [x] Back-order: partial delivery → SO stays PROCESSING
-- [x] Tests: tolerance boundary, status transitions, partial delivery
+### T2.1: Timekeeping Domain Models
 
-### S5: COGS on delivery ✅
-- [x] PostDN GL: Dr 632 / Cr 156 per line CostPrice×Qty (skip zero-cost)
-- [x] Repo: GL-posted flag (SetDNGLPosted) — guards partial-failure double-post window
-- [x] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
+**Description:** Add timekeeping-specific fields and models (if not already in T1.2).
 
-### S6: Reports (FR-9) ✅
-- [x] S01-BH sales ledger (per customer/period)
-- [x] S02-BH AR subledger (per customer)
-- [x] S03-BH goods sales ledger (per item)
-- [x] VAT output tracking (per rate)
-- [x] Unbilled delivery report (posted DN, no invoice)
-- [x] Routes /api/v1/sale/reports/* + /ar/recon (GetARGLReconciliation)
-- [x] Tests per report
+**Acceptance criteria:**
+- [ ] `TimekeepingRecord` struct complete
+- [ ] `LeaveRequest` struct with status workflow
+- [ ] `LeaveBalance` struct with entitled/used/remaining
+- [ ] `Holiday` struct for company-specific holidays
 
-### S7: Auto-numbering endpoints ✅
-- [x] GET /orders/next-number, /deliveries/next-number, /invoices/next-number
-- [x] Tests
+**Verification:**
+- [ ] `go build ./...` compiles
 
-### S8: Docs + final review ✅
-- [x] AGENTS.md module table (Sale → PROD P1 closed), BRD status note, plan.md checkpoints
-- [x] code-review-and-quality 5-axis pass — APPROVE, 2 Required spec gaps noted (P1/P2)
-- [x] FAST/MISA/Bravo benchmark note — SALES_READINESS.md: 8 P0 capabilities now ✅
+**Dependencies:** T1.2
+**Files:**
+- `internal/domain/models_payroll.go` (add to existing)
+
+**Estimated scope:** XS
+
+---
+
+### T2.2: Timekeeping CSV Import
+
+**Description:** Implement CSV/Excel import for timekeeping data.
+
+**Acceptance criteria:**
+- [ ] `POST /api/v1/payroll/timekeeping/import` endpoint
+- [ ] Accepts CSV with columns: employee_code, date, clock_in, clock_out, ot_hours, night_hours, leave_type
+- [ ] Validates format, employee existence, date range
+- [ ] Returns import summary (imported count, error count, error details)
+- [ ] Supports bulk insert (efficient for 500+ records)
+- [ ] Handles duplicates (skip or overwrite option)
+
+**Verification:**
+- [ ] Import 100 records, verify all created
+- [ ] Import with errors, verify error log
+- [ ] Import duplicate, verify handling
+
+**Dependencies:** T1.5, T2.1
+**Files:**
+- `internal/handler/payroll_handler.go`
+- `internal/handler/payroll_handler_test.go`
+- `internal/service/payroll_service.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T2.3: Overtime Calculation
+
+**Description:** Implement overtime calculation with rate multipliers and limit validation.
+
+**Acceptance criteria:**
+- [ ] OT rate multiplier: weekday 150%, rest day 200%, holiday 300%
+- [ ] Night OT: additional 20% on top of OT rate
+- [ ] Validate: max 40h/month, max 200h/year (300 for specific industries)
+- [ ] Warning when OT approaches limit (e.g., >35h/month)
+- [ ] OT calculation: hours × hourly_rate × multiplier
+
+**Verification:**
+- [ ] Test each day type (weekday, rest day, holiday)
+- [ ] Test night OT cumulative
+- [ ] Test limit validation (at limit, over limit)
+- [ ] Test hourly rate calculation: base_salary / 26 / 8
+
+**Dependencies:** T1.6
+**Files:**
+- `internal/service/payroll_calculator.go` (add to existing)
+- `internal/service/payroll_calculator_test.go` (add to existing)
+
+**Estimated scope:** S
+
+---
+
+### T2.4: Leave Management
+
+**Description:** Implement leave type configuration, balance tracking, and leave pay calculation.
+
+**Acceptance criteria:**
+- [ ] Leave types: ANNUAL (12 days), SICK (75% pay), MATERNITY (180 days), PATERNITY (5-14 days), UNPAID, COMPENSATORY
+- [ ] Leave balance: entitled, used, remaining, carried over
+- [ ] Annual leave: 12 days/year, +1 day per 5 years of service
+- [ ] Leave pay calculation: (base_salary / 26) × leave_days
+- [ ] Sick leave: requires certificate, paid at 75%
+- [ ] Leave request workflow: PENDING → APPROVED/REJECTED
+
+**Verification:**
+- [ ] Create leave request, approve, verify balance updated
+- [ ] Test annual leave entitlement with different service years
+- [ ] Test sick leave pay at 75%
+- [ ] Test leave pay calculation accuracy
+
+**Dependencies:** T1.5, T2.1
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/service/payroll_service_test.go`
+- `internal/handler/payroll_handler.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T2.5: Holiday Calendar
+
+**Description:** Implement public holiday calendar with company-specific holidays.
+
+**Acceptance criteria:**
+- [ ] Pre-loaded 2026 Vietnamese public holidays
+- [ ] CRUD API for company-specific holidays
+- [ ] Holiday pay calculation: (base_salary / 26) × holiday_days
+- [ ] Holidays flagged in timekeeping records
+- [ ] Holiday detection for OT rate selection
+
+**Verification:**
+- [ ] 2026 holidays pre-loaded correctly
+- [ ] Add company holiday, verify it affects payroll
+- [ ] Test holiday pay calculation
+
+**Dependencies:** T1.5
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/handler/payroll_handler.go`
+
+**Estimated scope:** S
+
+---
+
+### Checkpoint 3: Timekeeping Complete
+
+- [ ] CSV import works for 500+ records
+- [ ] OT calculation matches manual calculation
+- [ ] Leave balance tracking accurate
+- [ ] Holiday calendar loaded
+- [ ] **REVIEW GATE: BA verifies timekeeping rules against Labour Code 2019**
+
+---
+
+## Phase 3: Payroll Processing & GL (Weeks 9-12)
+
+### T3.1: Payroll Period Management
+
+**Description:** Implement payroll period CRUD with status workflow.
+
+**Acceptance criteria:**
+- [ ] Create period (year/month) — auto-check for duplicates
+- [ ] Period statuses: DRAFT → PROCESSING → APPROVED → PAID → CLOSED
+- [ ] Status transitions enforced (can't skip steps)
+- [ ] Period lock after approval (no modifications)
+- [ ] List periods with summary stats
+
+**Verification:**
+- [ ] Create period, verify status is DRAFT
+- [ ] Transition through all statuses
+- [ ] Try to modify approved period, verify rejection
+
+**Dependencies:** T1.5
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/handler/payroll_handler.go`
+- `internal/handler/payroll_handler_test.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T3.2: Payroll Run Engine
+
+**Description:** Implement payroll run calculation for all employees in a period.
+
+**Acceptance criteria:**
+- [ ] `POST /api/v1/payroll/periods/:id/calculate` endpoint
+- [ ] Iterates all active employees for the period
+- [ ] Calls `CalculatePayrollRun()` for each employee
+- [ ] Creates `PayrollRun` records for each employee
+- [ ] Generates period summary (total gross, deductions, net pay)
+- [ ] Returns warnings for each employee (salary below min, OT limit, etc.)
+- [ ] Performance: <30s for 100 employees
+
+**Verification:**
+- [ ] Calculate payroll for 10 employees, verify all runs created
+- [ ] Verify totals match sum of individual runs
+- [ ] Verify warnings generated correctly
+- [ ] Benchmark: 100 employees in <30s
+
+**Dependencies:** T1.9, T3.1
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/service/payroll_service_test.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T3.3: Payslip Generation (PDF)
+
+**Description:** Implement payslip PDF generation using maroto/v2.
+
+**Acceptance criteria:**
+- [ ] Generate PDF payslip per employee
+- [ ] Include all fields: income breakdown, deductions, net pay, employer costs
+- [ ] Vietnamese language support
+- [ ] Company logo placeholder
+- [ ] Payslip number: `{company_code}-{year}-{month}-{sequence}`
+- [ ] Store PDF path in payslips table
+
+**Verification:**
+- [ ] Generate payslip for test employee
+- [ ] Verify PDF opens and displays correctly
+- [ ] Verify all amounts match payroll run
+
+**Dependencies:** T1.5, T3.2
+**Files:**
+- `internal/service/payslip_service.go`
+- `internal/service/payslip_service_test.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T3.4: GL Journal Entry Integration
+
+**Description:** Implement automatic GL journal entry posting when payroll is approved.
+
+**Acceptance criteria:**
+- [ ] On approval, generate journal entries:
+  - Dr. 6421 Salary Expense, Dr. 6422 OT Expense, Cr. 3331 Salary Payable
+  - Dr. 6424 Insurance Expense, Cr. 3332/3333/3334 (ER insurance)
+  - Cr. 3335/3336/3337/3338 (EE insurance + PIT)
+- [ ] Use existing `Service.PostJournalEntry()` from GL module
+- [ ] Reference: `PAYROLL-{year}-{month}`
+- [ ] Validate GL period is open before posting
+- [ ] Rollback on posting failure
+
+**Verification:**
+- [ ] Approve payroll, verify journal entries in GL
+- [ ] Verify GL account balances match payroll summary
+- [ ] Test with closed GL period, verify rejection
+
+**Dependencies:** T3.2, GL module
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/service/payroll_service_test.go`
+
+**Estimated scope:** L (5-8 files)
+
+---
+
+### T3.5: Payroll Approval Workflow
+
+**Description:** Implement multi-level approval: preparer → reviewer → approver.
+
+**Acceptance criteria:**
+- [ ] Submit for review: status → PROCESSING
+- [ ] Approve: status → APPROVED, GL posted, payslips generated
+- [ ] Reject: status → DRAFT, with comments
+- [ ] Lock period after approval (no re-processing)
+- [ ] Audit trail: who, when, what action
+
+**Verification:**
+- [ ] Full workflow: create → calculate → submit → approve
+- [ ] Test rejection flow
+- [ ] Test lock after approval
+
+**Dependencies:** T3.2, T3.3, T3.4
+**Files:**
+- `internal/service/payroll_service.go`
+- `internal/handler/payroll_handler.go`
+- `internal/handler/payroll_handler_test.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### Checkpoint 4: Payroll Processing Complete
+
+- [ ] Full payroll run produces correct payslips
+- [ ] GL journal entries posted correctly
+- [ ] Approval workflow functions
+- [ ] PDF payslips generate correctly
+- [ ] **REVIEW GATE: Chief Accountant verifies GL entries and payslips**
+
+---
+
+## Phase 4: Declarations & Polish (Weeks 13-16)
+
+### T4.1: D02-TS Social Insurance Declaration
+
+**Description:** Generate D02-TS XML for social insurance registration/adjustment.
+
+**Acceptance criteria:**
+- [ ] Auto-detect: new employees (registration), salary changes (adjustment), terminated (reduction)
+- [ ] Generate D02-TS list with all required fields
+- [ ] XML generation in BHXH electronic format
+- [ ] Digital signature support (via existing xmldsig)
+- [ ] Download XML for I-VAN submission
+
+**Verification:**
+- [ ] Generate D02-TS for 5 employees (2 new, 2 adjustments, 1 termination)
+- [ ] Verify XML format matches BHXH spec
+- [ ] Verify all fields populated correctly
+
+**Dependencies:** T1.5, T3.2
+**Files:**
+- `internal/service/declaration_service.go`
+- `internal/service/declaration_service_test.go`
+- `internal/handler/declaration_handler.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T4.2: TK3-TS Employer Registration
+
+**Description:** Generate TK3-TS for employer SI/HI registration.
+
+**Acceptance criteria:**
+- [ ] One-time registration form
+- [ ] Include: enterprise name, tax code, address, employee count
+- [ ] XML generation for electronic submission
+- [ ] Store unit code after BHXH assigns
+
+**Verification:**
+- [ ] Generate TK3-TS for test company
+- [ ] Verify XML format
+
+**Dependencies:** T1.5
+**Files:**
+- `internal/service/declaration_service.go` (add to existing)
+- `internal/handler/declaration_handler.go` (add to existing)
+
+**Estimated scope:** S
+
+---
+
+### T4.3: 05/KK-TNCN Quarterly PIT Declaration
+
+**Description:** Generate quarterly PIT declaration form 05/KK-TNCN per Decision 1109/QD-BTC.
+
+**Acceptance criteria:**
+- [ ] Aggregate quarterly payroll data per employee
+- [ ] Total income, insurance deductions, PIT withheld
+- [ ] Exempt income (OT, night shift, leave)
+- [ ] Generate Form 05/KK-TNCN XML
+- [ ] Support quarterly filing (from Q2/2026)
+
+**Verification:**
+- [ ] Generate 05/KK-TNCN for Q3/2026 (3 months data)
+- [ ] Verify totals match monthly payroll sums
+- [ ] Verify XML format for eTax submission
+
+**Dependencies:** T3.2, T1.8
+**Files:**
+- `internal/service/declaration_service.go` (add to existing)
+- `internal/service/declaration_service_test.go` (add to existing)
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T4.4: Year-End Tax Finalization
+
+**Description:** Support annual PIT finalization for employees.
+
+**Acceptance criteria:**
+- [ ] Aggregate 12 months of payroll data
+- [ ] Calculate annual tax liability
+- [ ] Compare with monthly withholdings
+- [ ] Determine refund/additional payment
+- [ ] Generate annual tax finalization report
+
+**Verification:**
+- [ ] Process year-end for test employee
+- [ ] Verify annual calculation matches sum of monthly
+
+**Dependencies:** T4.3
+**Files:**
+- `internal/service/declaration_service.go` (add to existing)
+- `internal/service/declaration_service_test.go` (add to existing)
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T4.5: Employee Self-Service Portal
+
+**Description:** Implement employee self-service for payslips and leave.
+
+**Acceptance criteria:**
+- [ ] `GET /api/v1/payroll/payslips` — list own payslips
+- [ ] `GET /api/v1/payroll/payslips/:id` — view payslip detail
+- [ ] `GET /api/v1/payroll/payslips/:id/pdf` — download PDF
+- [ ] `GET /api/v1/payroll/leave/balance` — view leave balances
+- [ ] `POST /api/v1/payroll/leave/request` — submit leave request
+- [ ] Auth: employee can only see own data
+
+**Verification:**
+- [ ] Employee logs in, views payslip
+- [ ] Employee downloads PDF
+- [ ] Employee submits leave request
+- [ ] Employee cannot see other employee's data
+
+**Dependencies:** T3.3, T2.4
+**Files:**
+- `internal/handler/payroll_ess_handler.go`
+- `internal/handler/payroll_ess_handler_test.go`
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T4.6: Bank Salary File Generation
+
+**Description:** Generate bank salary file for salary disbursement.
+
+**Acceptance criteria:**
+- [ ] CSV format with: sequence, account number, name, amount, reference
+- [ ] Support multiple bank formats (VCB, CTG, VTB)
+- [ ] Include only approved payroll runs
+- [ ] Total amount matches payroll summary
+
+**Verification:**
+- [ ] Generate bank file, verify format
+- [ ] Verify total matches payroll net pay
+
+**Dependencies:** T3.2
+**Files:**
+- `internal/service/payroll_service.go` (add to existing)
+- `internal/handler/payroll_handler.go` (add to existing)
+
+**Estimated scope:** S
+
+---
+
+### T4.7: Payroll Reports
+
+**Description:** Implement payroll reporting: summary, cost allocation, insurance, PIT, overtime.
+
+**Acceptance criteria:**
+- [ ] `GET /api/v1/payroll/reports/summary` — period summary
+- [ ] `GET /api/v1/payroll/reports/cost-by-department` — cost allocation
+- [ ] `GET /api/v1/payroll/reports/insurance-summary` — SI/HI/UI totals
+- [ ] `GET /api/v1/payroll/reports/pit-summary` — PIT by employee
+- [ ] `GET /api/v1/payroll/reports/overtime` — OT hours by employee
+- [ ] `GET /api/v1/payroll/reports/leave-balance` — leave balances
+
+**Verification:**
+- [ ] Generate each report type
+- [ ] Verify data matches payroll runs
+
+**Dependencies:** T3.2
+**Files:**
+- `internal/handler/payroll_handler.go` (add to existing)
+- `internal/handler/payroll_handler_test.go` (add to existing)
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### T4.8: Payroll Configuration API
+
+**Description:** Implement configuration management for rates, caps, holidays.
+
+**Acceptance criteria:**
+- [ ] `GET /api/v1/payroll/config/rates` — current rates
+- [ ] `PUT /api/v1/payroll/config/rates` — update rates
+- [ ] `GET /api/v1/payroll/config/holidays` — list holidays
+- [ ] `POST /api/v1/payroll/config/holidays` — add holiday
+- [ ] `GET /api/v1/payroll/config/regions` — list regions with min wages
+- [ ] Rate changes effective from date
+
+**Verification:**
+- [ ] Update SI rate, verify new calculation uses updated rate
+- [ ] Add company holiday, verify it affects payroll
+
+**Dependencies:** T1.5
+**Files:**
+- `internal/handler/payroll_handler.go` (add to existing)
+- `internal/handler/payroll_handler_test.go` (add to existing)
+
+**Estimated scope:** S
+
+---
+
+### T4.9: Handler Tests (Comprehensive)
+
+**Description:** Write comprehensive handler tests for all payroll endpoints.
+
+**Acceptance criteria:**
+- [ ] Test all CRUD operations
+- [ ] Test calculation endpoints
+- [ ] Test declaration generation
+- [ ] Test error cases (unauthorized, invalid data, missing employee)
+- [ ] Test with in-memory repos (no DB dependency)
+
+**Verification:**
+- [ ] `go test ./internal/handler/ -count=1 -run TestPayroll` passes
+- [ ] Coverage >80% for payroll handlers
+
+**Dependencies:** T4.1-T4.8
+**Files:**
+- `internal/handler/payroll_handler_test.go`
+
+**Estimated scope:** L (5-8 files)
+
+---
+
+### T4.10: Integration Tests & Documentation
+
+**Description:** End-to-end integration tests and API documentation.
+
+**Acceptance criteria:**
+- [ ] Full flow test: create employee → import timekeeping → calculate → approve → GL → payslip
+- [ ] Declaration generation test
+- [ ] Swagger annotations for all endpoints
+- [ ] `swag init` generates updated docs
+
+**Verification:**
+- [ ] `go test -count=1 ./...` all pass
+- [ ] `swag init --parseDependency --parseInternal` succeeds
+- [ ] Swagger UI shows payroll endpoints
+
+**Dependencies:** T4.9
+**Files:**
+- `internal/handler/payroll_handler.go` (add swagger annotations)
+- `docs/docs.go` (regenerated)
+- `docs/swagger.json` (regenerated)
+- `docs/swagger.yaml` (regenerated)
+
+**Estimated scope:** M (3-5 files)
+
+---
+
+### Checkpoint 5: Declarations Complete
+
+- [ ] D02-TS generates correctly
+- [ ] 05/KK-TNCN generates correctly
+- [ ] Employee self-service works
+- [ ] Bank file generates correctly
+- [ ] **REVIEW GATE: Tax advisor verifies declaration forms**
+
+---
+
+### Checkpoint 6: PROD Ready
+
+- [ ] All 40 tasks complete
+- [ ] All tests pass
+- [ ] Swagger docs updated
+- [ ] AGENTS.md updated with Payroll status = PROD
+- [ ] **FINAL GATE: Chief Accountant + BA sign-off**
+
+---
+
+## Task Summary
+
+| Phase | Tasks | Duration | Key Deliverable |
+|-------|-------|----------|-----------------|
+| 1 | T1.1-T1.10 | Weeks 1-4 | Gross-to-net calculation engine |
+| 2 | T2.1-T2.5 | Weeks 5-8 | Timekeeping import + OT + leave |
+| 3 | T3.1-T3.5 | Weeks 9-12 | Payroll processing + GL integration |
+| 4 | T4.1-T4.10 | Weeks 13-16 | Declarations + self-service + polish |
+| **Total** | **40 tasks** | **16 weeks** | **PROD-ready payroll module** |
