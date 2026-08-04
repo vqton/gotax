@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-GoTax backend has strong accounting foundations (Circular 99/2025/TT-BTC COA, journal lifecycle, period management, basic GL reports) and skeleton tax infrastructure (company tax code, e-invoice pattern CRUD, digital signature CRUD, integration profile CRUD). **Round A (2026-08-03):** rate-table engines for VAT/CIT/PIT, declaration engine (GL→GTGT01/TNDN03 with cross-validation), and declaration→payment automation are now built and tested. **Round B (2026-08-03):** GDT infrastructure — xmldsig (exclusive C14N + RSA-SHA256), GDT API client (submit/status/cancel with retry), and full e-invoice issuance pipeline (TXML generation per Decree 254/2026, digital signing, GDT submit, status polling, cancel notification). **Round C (2026-08-03):** declaration submission — HTKK XML generation (`internal/htkk`, TAX_SPECS §3.1), detached signing, GDT declaration submit + status polling (ack → auto TaxPayment, reject → resubmit). Remaining: GDT real endpoints, adjustment/replacement e-invoices, VAT reconciliation, form PDFs.
+GoTax backend has strong accounting foundations (Circular 99/2025/TT-BTC COA, journal lifecycle, period management, basic GL reports) and skeleton tax infrastructure (company tax code, e-invoice pattern CRUD, digital signature CRUD, integration profile CRUD). **Round A (2026-08-03):** rate-table engines for VAT/CIT/PIT, declaration engine (GL→GTGT01/TNDN03 with cross-validation), and declaration→payment automation are now built and tested. **Round B (2026-08-03):** GDT infrastructure — xmldsig (exclusive C14N + RSA-SHA256), GDT API client (submit/status/cancel with retry), and full e-invoice issuance pipeline (TXML generation per Decree 254/2026, digital signing, GDT submit, status polling, cancel notification). **Round C (2026-08-03):** declaration submission — HTKK XML generation (`internal/htkk`, TAX_SPECS §3.1), detached signing, GDT declaration submit + status polling (ack → auto TaxPayment, reject → resubmit). Remaining: GDT real endpoints, adjustment/replacement e-invoices, form PDFs.
 
 **Verdict: NOT PRODUCTION-READY for tax compliance.**
 
@@ -31,7 +31,7 @@ Estimating 30-40% of work remains for a compliant Vietnamese tax module.
 | **PIT calc** | **DONE** | Progressive brackets, resident/non-resident, dependants, insurance caps | KK-TNCN payroll input, form XML |
 | **Tax rate tables** | **DONE** | tax_rates CRUD + `resolveRate` (suffix matching, active window, statutory fallback) | PG seed data for defaults |
 | **HTKK/GDT integration** | **PARTIAL** | GDT client: invoice submit/status/cancel + declaration submit/status, retry + error map. HTKK XML (`internal/htkk`) | GDT real endpoint, cert auth |
-| **E-invoice pipeline** | **PARTIAL** | TXML gen (Decree 254/2026), XMLDSig sign (C14N+RSA-SHA256), GDT submit/status/cancel, lifecycle DRAFT→SIGNED→SUBMITTED→ISSUED | GDT real endpoint, adjustment invoices, VAT reconciliation |
+| **E-invoice pipeline** | **PARTIAL** | TXML gen (Decree 254/2026), XMLDSig sign (C14N+RSA-SHA256), GDT submit/status/cancel, lifecycle DRAFT→SIGNED→SUBMITTED→ISSUED, VAT reconciliation vs GTGT01 [23] | GDT real endpoint, adjustment invoices |
 | **Tax payment tracking** | **PARTIAL** | TaxPayment CRUD, record payment, auto-create on declaration ACKNOWLEDGED + due dates | Payment journal auto-posting, late-interest wiring |
 | **Tax audit support** | **MISSING** | Zero code | **Full build needed** |
 | **FCT/withholding tax** | **MISSING** | Zero code | **Full build needed** |

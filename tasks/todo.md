@@ -79,6 +79,16 @@
 
 ---
 
+## ✅ VAT Reconciliation: E-Invoice vs GTGT01 (DONE — 6166ac0)
+
+BR-VAT-06: issued e-invoices must reconcile with VAT declaration.
+
+- [x] ReconcileVAT: period-filtered issued invoices vs declaration [23], per-rate breakdown, cancelled/replaced excluded
+- [x] POST /api/v1/tax/reconcile/vat; variance + matched flag
+- [ ] Reconciliation report export (deferred)
+
+---
+
 ## ✅ Round C: Declaration XML + GDT Submission (DONE — ea52abe, f8c4408, eb04690)
 
 HTKK form XML per TAX_SPECS §3.1, declaration→GDT submit pipeline.
