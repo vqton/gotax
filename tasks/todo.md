@@ -733,7 +733,7 @@ type OffBalanceSheetItem struct {
 - [x] GET /orders/next-number, /deliveries/next-number, /invoices/next-number
 - [x] Tests
 
-### S8: Docs + final review
-- [ ] AGENTS.md Sale row updated, BRD "ZERO" note, plan.md checkpoints
-- [ ] code-review-and-quality pass on sale diff
-- [ ] FAST/MISA/Bravo benchmark note
+### S8: Docs + final review ✅
+- [x] AGENTS.md module table (Sale → PROD P1 closed), BRD status note, plan.md checkpoints
+- [x] code-review-and-quality 5-axis pass — APPROVE, 2 Required spec gaps noted (P1/P2)
+- [x] FAST/MISA/Bravo benchmark note — SALES_READINESS.md: 8 P0 capabilities now ✅
