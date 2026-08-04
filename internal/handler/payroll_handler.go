@@ -29,6 +29,7 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.PUT("/employees/:id", h.UpdateEmployeePayrollInfo)
 		pw.GET("/employees/:id/dependants", h.ListDependants)
 		pw.POST("/employees/:id/dependants", h.CreateDependant)
+		pw.PUT("/employees/:id/dependants/:did", h.UpdateDependant)
 		pw.DELETE("/employees/:id/dependants/:did", h.DeleteDependant)
 
 		// Periods
@@ -37,6 +38,8 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.GET("/periods/:id", h.GetPeriod)
 		pw.POST("/periods/:id/submit", h.SubmitPeriod)
 		pw.POST("/periods/:id/approve", h.ApprovePeriod)
+		pw.POST("/periods/:id/reject", h.RejectPeriod)
+		pw.POST("/periods/:id/calculate", h.CalculatePeriod)
 		pw.GET("/periods/:id/runs", h.ListRuns)
 		pw.GET("/periods/:id/summary", h.GetPeriodSummary)
 
@@ -46,6 +49,8 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		// Timekeeping
 		pw.POST("/timekeeping", h.CreateTimekeeping)
 		pw.GET("/timekeeping", h.ListTimekeeping)
+		pw.PUT("/timekeeping/:id", h.UpdateTimekeeping)
+		pw.DELETE("/timekeeping/:id", h.DeleteTimekeeping)
 		pw.POST("/timekeeping/bulk", h.BulkCreateTimekeeping)
 
 		// Leave
@@ -166,6 +171,20 @@ func (h *PayrollHandler) DeleteDependant(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
+func (h *PayrollHandler) UpdateDependant(c *gin.Context) {
+	var d domain.Dependant
+	if err := c.ShouldBindJSON(&d); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	d.ID = c.Param("did")
+	if err := h.svc.UpdateDependant(c.Request.Context(), &d); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, d)
+}
+
 // ─── Periods ────────────────────────────────────────────────────
 
 func (h *PayrollHandler) ListPeriods(c *gin.Context) {
@@ -217,6 +236,23 @@ func (h *PayrollHandler) ApprovePeriod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "approved"})
+}
+
+func (h *PayrollHandler) RejectPeriod(c *gin.Context) {
+	rejectedBy := c.GetString("username")
+	if err := h.svc.RejectPeriod(c.Request.Context(), c.Param("id"), rejectedBy); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "rejected"})
+}
+
+func (h *PayrollHandler) CalculatePeriod(c *gin.Context) {
+	if err := h.svc.CalculatePeriod(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "calculated"})
 }
 
 // ─── Runs ───────────────────────────────────────────────────────
@@ -282,6 +318,28 @@ func (h *PayrollHandler) BulkCreateTimekeeping(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"count": len(records)})
+}
+
+func (h *PayrollHandler) UpdateTimekeeping(c *gin.Context) {
+	var tk domain.TimekeepingRecord
+	if err := c.ShouldBindJSON(&tk); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	tk.ID = c.Param("id")
+	if err := h.svc.UpdateTimekeeping(c.Request.Context(), &tk); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, tk)
+}
+
+func (h *PayrollHandler) DeleteTimekeeping(c *gin.Context) {
+	if err := h.svc.DeleteTimekeeping(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
 }
 
 // ─── Leave ──────────────────────────────────────────────────────

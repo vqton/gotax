@@ -65,6 +65,10 @@ func (r *PGPayrollRepo) DeleteDependant(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.Dependant{}).Error
 }
 
+func (r *PGPayrollRepo) UpdateDependant(ctx context.Context, d *domain.Dependant) error {
+	return r.db.WithContext(ctx).Where("id = ?", d.ID).Updates(d).Error
+}
+
 // ─── Periods ────────────────────────────────────────────────────
 
 func (r *PGPayrollRepo) CreatePeriod(ctx context.Context, p *domain.PayrollPeriod) error {
@@ -180,6 +184,10 @@ func (r *PGPayrollRepo) BulkCreateTimekeeping(ctx context.Context, records []dom
 		records[i].CreatedAt = now
 	}
 	return r.db.WithContext(ctx).Create(&records).Error
+}
+
+func (r *PGPayrollRepo) DeleteTimekeeping(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.TimekeepingRecord{}).Error
 }
 
 // ─── Leave Requests ─────────────────────────────────────────────

@@ -32,6 +32,7 @@ type PayrollRepository interface {
 	// Dependants
 	CreateDependant(ctx context.Context, d *domain.Dependant) error
 	GetDependants(ctx context.Context, employeeID string) ([]domain.Dependant, error)
+	UpdateDependant(ctx context.Context, d *domain.Dependant) error
 	DeleteDependant(ctx context.Context, id string) error
 
 	// Payroll periods
@@ -52,6 +53,7 @@ type PayrollRepository interface {
 	CreateTimekeeping(ctx context.Context, t *domain.TimekeepingRecord) error
 	ListTimekeeping(ctx context.Context, employeeID, startDate, endDate string) ([]domain.TimekeepingRecord, error)
 	BulkCreateTimekeeping(ctx context.Context, records []domain.TimekeepingRecord) error
+	DeleteTimekeeping(ctx context.Context, id string) error
 
 	// Leave requests
 	CreateLeaveRequest(ctx context.Context, lr *domain.LeaveRequest) error
@@ -164,6 +166,52 @@ func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy
 	period.ApprovedAt = &now
 	period.UpdatedAt = now
 
+	return s.repo.UpdatePeriod(ctx, period)
+}
+
+func (s *PayrollService) RejectPeriod(ctx context.Context, periodID, rejectedBy string) error {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	if period.Status != domain.PayrollProcessing {
+		return domain.ErrPayrollPeriodNotDraft
+	}
+	period.Status = domain.PayrollDraft
+	period.ReviewedBy = rejectedBy
+	now := time.Now()
+	period.ReviewedAt = &now
+	period.UpdatedAt = now
+	return s.repo.UpdatePeriod(ctx, period)
+}
+
+func (s *PayrollService) CalculatePeriod(ctx context.Context, periodID string) error {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	infos, err := s.repo.ListEmployeePayrollInfos(ctx, period.CompanyID)
+	if err != nil {
+		return err
+	}
+	if len(infos) == 0 {
+		return domain.ErrPayrollNoEmployees
+	}
+	for _, info := range infos {
+		run := domain.CalculateEmployeePayroll(info, period, nil)
+		run.ID = generateID()
+		run.PeriodID = periodID
+		run.EmployeeID = info.EmployeeID
+		run.CompanyID = period.CompanyID
+		run.Status = "DRAFT"
+		run.CreatedAt = time.Now()
+		run.UpdatedAt = time.Now()
+		if err := s.repo.CreateRun(ctx, &run); err != nil {
+			return err
+		}
+	}
+	period.Status = domain.PayrollProcessing
+	period.UpdatedAt = time.Now()
 	return s.repo.UpdatePeriod(ctx, period)
 }
 
@@ -382,6 +430,10 @@ func (s *PayrollService) DeleteDependant(ctx context.Context, id string) error {
 	return s.repo.DeleteDependant(ctx, id)
 }
 
+func (s *PayrollService) UpdateDependant(ctx context.Context, d *domain.Dependant) error {
+	return s.repo.UpdateDependant(ctx, d)
+}
+
 // ─── Timekeeping ────────────────────────────────────────────────
 
 func (s *PayrollService) CreateTimekeeping(ctx context.Context, t *domain.TimekeepingRecord) error {
@@ -394,6 +446,14 @@ func (s *PayrollService) ListTimekeeping(ctx context.Context, employeeID, startD
 
 func (s *PayrollService) BulkCreateTimekeeping(ctx context.Context, records []domain.TimekeepingRecord) error {
 	return s.repo.BulkCreateTimekeeping(ctx, records)
+}
+
+func (s *PayrollService) UpdateTimekeeping(ctx context.Context, t *domain.TimekeepingRecord) error {
+	return s.repo.CreateTimekeeping(ctx, t) // upsert
+}
+
+func (s *PayrollService) DeleteTimekeeping(ctx context.Context, id string) error {
+	return s.repo.DeleteTimekeeping(ctx, id)
 }
 
 // ─── Runs ───────────────────────────────────────────────────────

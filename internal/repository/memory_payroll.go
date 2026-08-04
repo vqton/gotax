@@ -181,6 +181,17 @@ func (r *MemoryPayrollRepo) DeleteDependant(_ context.Context, id string) error 
 	return nil
 }
 
+func (r *MemoryPayrollRepo) UpdateDependant(_ context.Context, d *domain.Dependant) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.dependants[d.ID]; !ok {
+		return domain.ErrPayrollDependantNotFound
+	}
+	cp := *d
+	r.dependants[d.ID] = &cp
+	return nil
+}
+
 // ─── Periods ────────────────────────────────────────────────────
 
 func (r *MemoryPayrollRepo) CreatePeriod(_ context.Context, p *domain.PayrollPeriod) error {
@@ -354,6 +365,24 @@ func (r *MemoryPayrollRepo) BulkCreateTimekeeping(ctx context.Context, records [
 	for i := range records {
 		if err := r.CreateTimekeeping(ctx, &records[i]); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (r *MemoryPayrollRepo) DeleteTimekeeping(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tk, ok := r.timekeeping[id]
+	if !ok {
+		return domain.ErrPayrollRunNotFound
+	}
+	delete(r.timekeeping, id)
+	ids := r.tkByEmployee[tk.EmployeeID]
+	for i, uid := range ids {
+		if uid == id {
+			r.tkByEmployee[tk.EmployeeID] = append(ids[:i], ids[i+1:]...)
+			break
 		}
 	}
 	return nil
