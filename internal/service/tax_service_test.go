@@ -977,3 +977,103 @@ func TestReconcileVAT_PeriodFilter(t *testing.T) {
 	assert.Equal(t, 0.0, res.InvoiceTotal)
 	assert.Equal(t, 0, res.InvoiceCount)
 }
+
+func rateBucket(res *domain.VATReconciliationResult, rate float64) *domain.VATRateReconciliation {
+	for i := range res.ByRate {
+		if res.ByRate[i].Rate == rate {
+			return &res.ByRate[i]
+		}
+	}
+	return nil
+}
+
+func TestReconcileVAT_PerRateDistinctCounts(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: "c1", DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{{LineCode: "23", LineName: "Tong", Amount: 220000}},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+	// inv A: lines at 10% + 5%; inv B: line at 10% only
+	invA := testEInvoice(domain.EInvStatusISSUED)
+	invA.ID = "EINV-A"
+	invA.VATAmount = 120000
+	invA.Lines = []domain.EInvoiceLine{
+		{LineNumber: 1, Quantity: 1, UnitPrice: 700000, LineTotal: 700000, VATRate: 10, VATAmount: 70000},
+		{LineNumber: 2, Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 5, VATAmount: 50000},
+	}
+	invB := testEInvoice(domain.EInvStatusISSUED)
+	invB.ID = "EINV-B"
+	invB.VATAmount = 100000
+	invB.Lines = []domain.EInvoiceLine{
+		{LineNumber: 1, Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000},
+	}
+	require.NoError(t, repo.CreateEInvoice(ctx, invA))
+	require.NoError(t, repo.CreateEInvoice(ctx, invB))
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.InvoiceCount)
+	r10 := rateBucket(res, 10)
+	require.NotNil(t, r10)
+	assert.Equal(t, 2, r10.InvoiceCount)
+	assert.Equal(t, 170000.0, r10.InvoiceVAT)
+	r5 := rateBucket(res, 5)
+	require.NotNil(t, r5)
+	assert.Equal(t, 1, r5.InvoiceCount)
+	assert.Equal(t, 50000.0, r5.InvoiceVAT)
+}
+
+func TestReconcileVAT_PrefersLine22(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	// [22] reported, [23] = [21]+[22] includes VAT from non-e-invoice sources
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: "c1", DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{
+			{LineCode: "22", LineName: "VAT dau ra (e-invoices)", Amount: 120000},
+			{LineCode: "23", LineName: "Tong VAT dau ra", Amount: 140000},
+		},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+	for i, vat := range []float64{70000, 50000} {
+		inv := testEInvoice(domain.EInvStatusISSUED)
+		inv.ID = fmt.Sprintf("EINV-%d", i+1)
+		inv.VATAmount = vat
+		inv.Lines = []domain.EInvoiceLine{{LineNumber: 1, Quantity: 1, UnitPrice: vat * 10, LineTotal: vat * 10, VATRate: 10, VATAmount: vat}}
+		require.NoError(t, repo.CreateEInvoice(ctx, inv))
+	}
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, 120000.0, res.DeclarationTotal)
+	assert.True(t, res.Matched)
+	assert.Equal(t, 0.0, res.Variance)
+}
+
+func TestReconcileVAT_FallbackLine23Notes(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: "c1", DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{{LineCode: "23", LineName: "Tong", Amount: 70000}},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+	inv := testEInvoice(domain.EInvStatusISSUED)
+	inv.VATAmount = 70000
+	inv.Lines = []domain.EInvoiceLine{{LineNumber: 1, Quantity: 1, UnitPrice: 700000, LineTotal: 700000, VATRate: 10, VATAmount: 70000}}
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.True(t, res.Matched)
+	assert.Equal(t, 70000.0, res.DeclarationTotal)
+	assert.Contains(t, strings.Join(res.Notes, " "), "[22]")
+}

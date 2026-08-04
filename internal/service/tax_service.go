@@ -295,8 +295,9 @@ func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) erro
 }
 
 // ReconcileVAT compares issued e-invoices in the period against the GTGT01
-// declaration's output VAT ([23]) — BR-VAT-06. Cancelled/replaced invoices
-// are excluded and reported. Per-rate breakdown comes from invoice lines.
+// declaration's output VAT — BR-VAT-06. Cancelled/replaced invoices are
+// excluded and reported. Per-rate breakdown comes from invoice lines;
+// InvoiceCount counts distinct invoices per rate bucket.
 func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.VATReconciliationResult, error) {
 	from, to := periodDateRange(period)
 	invoices, err := s.repo.GetEInvoices(ctx, domain.EInvoiceFilter{CompanyID: companyID})
@@ -305,6 +306,7 @@ func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period 
 	}
 	res := &domain.VATReconciliationResult{CompanyID: companyID, Period: period}
 	byRate := map[float64]*domain.VATRateReconciliation{}
+	countByRate := map[float64]map[string]struct{}{}
 	var rateOrder []float64
 	for i := range invoices {
 		inv := &invoices[i]
@@ -330,10 +332,16 @@ func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period 
 			}
 			r.InvoiceVAT += l.VATAmount
 			r.InvoiceAmount += l.LineTotal
+			seen := countByRate[l.VATRate]
+			if seen == nil {
+				seen = map[string]struct{}{}
+				countByRate[l.VATRate] = seen
+			}
+			seen[inv.ID] = struct{}{}
 		}
 	}
 	for _, rate := range rateOrder {
-		byRate[rate].InvoiceCount = res.InvoiceCount
+		byRate[rate].InvoiceCount = len(countByRate[rate])
 		res.ByRate = append(res.ByRate, *byRate[rate])
 	}
 	// pull the GTGT01 declaration for the period
@@ -350,10 +358,23 @@ func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period 
 			continue
 		}
 		res.DeclarationID = d.ID
+		// spec §8.1: e-invoices reconcile to [22] (SUM of output VAT from
+		// e-invoices). When the declaration reports no [22], fall back to
+		// [23] and note it.
+		var l22, l23 float64
 		for _, l := range d.Lines {
-			if l.LineCode == "23" {
-				res.DeclarationTotal = l.Amount
+			switch l.LineCode {
+			case "22":
+				l22 = l.Amount
+			case "23":
+				l23 = l.Amount
 			}
+		}
+		if l22 != 0 {
+			res.DeclarationTotal = l22
+		} else {
+			res.DeclarationTotal = l23
+			res.Notes = append(res.Notes, "declaration reports no [22] — reconciled against [23]")
 		}
 		break
 	}
