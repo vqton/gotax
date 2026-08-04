@@ -689,9 +689,13 @@ type OffBalanceSheetItem struct {
 
 ## 🔲 Sale Module: O2C Gap Closure + Reports (PLANNED 2026-08-04)
 
-### S1: Versioned sale migration
-- [ ] `migrations/000017_sale_schema.up.sql` + `.down.sql` — 13 tables (customers, sales_orders, so_lines, delivery_notes, dn_lines, customer_invoices, invoice_lines, customer_receipts, receipt_allocations, credit_notes, cn_lines, ar_transactions, sales_quotations) mirroring models_gorm_sale*.go
-- [ ] Cross-check columns vs GORM structs field-by-field
+### S1: Versioned sale migration + full PG parity ✅
+- [x] `migrations/000017_sale_schema.up.sql` + `.down.sql` — 13 tables
+- [x] Cross-check columns vs GORM structs field-by-field
+- [x] GORM structs aligned to domain (balance_due, cost_price, credit_limit, status, e-invoice fields, child slices)
+- [x] pg_sale.go 68-method rewrite: all CRUD + transactions+preload + nil child slices
+- [x] 9 mapping round-trip tests (sale_mapping_test.go)
+- [x] AllocateToInvoice via GORM Expr (amount_received + ?, GREATEST(balance_due - ?, 0))
 
 ### S2: AR txn auto-population
 - [ ] PostInvoice creates ARTransaction (invoice, Amount=TotalAmount)
