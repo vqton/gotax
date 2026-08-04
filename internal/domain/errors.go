@@ -412,6 +412,7 @@ var (
 	ErrDNDateRequired     = errors.New("delivery date is required")
 	ErrDNStatusInvalid    = errors.New("invalid delivery note status")
 	ErrDNLinesRequired    = errors.New("delivery note must have at least one line")
+	ErrDNToleranceExceeded = errors.New("delivery exceeds SO quantity + tolerance")
 	ErrDNNotFound         = errors.New("delivery note not found")
 	ErrDNAlreadyPosted    = errors.New("delivery note already posted")
 	ErrDNInvalidTransition = errors.New("invalid delivery note status transition")

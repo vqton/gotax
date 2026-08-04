@@ -15,14 +15,21 @@ Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123
 
 ```
 main.go                     →  entrypoint, DI wiring, backend selection (PG via GORM vs memory)
-internal/domain/            →  models, repository interfaces, errors. Zero external deps.
+internal/domain/            →  models, repository interfaces, errors. Zero external deps. 31 files, all package domain.
 internal/auth/              →  JWT (RS256), TOTP, bcrypt, rate limiter
-internal/service/           →  business rules, validation, orchestration. Pure Go.
-internal/handler/           →  HTTP handlers, authMW, route registration
-internal/repository/        →  per-module PG + memory impls (pg_*.go, memory_*.go)
+internal/authz/             →  Casbin RBAC policies
+internal/config/            →  viper config loader
 internal/db/                →  GORM setup, golang-migrate runner
-internal/validate/          →  go-playground/validator singleton + custom validators
 internal/einvoice/          →  GDT e-invoice XML parse + generate (Decree 254/2026 schema). Pure encoding/xml.
+internal/gdt/               →  GDT API client (e-invoice status, push)
+internal/handler/           →  HTTP handlers, authMW, route registration
+internal/htkk/              →  HTKK tax form XML generation
+internal/i18n/              →  go-i18n translation bundle
+internal/logger/            →  zap logger + gin middleware
+internal/repository/        →  per-module PG + memory impls (pg_*.go, memory_*.go)
+internal/service/           →  business rules, validation, orchestration. Pure Go.
+internal/validate/          →  go-playground/validator singleton + custom validators
+internal/xmldsig/           →  XML digital signature (RSA, for e-invoice)
 ```
 
 **Two backends** controlled by `DATABASE_URL` env var:
@@ -41,7 +48,7 @@ HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Se
 
 ## Domain Models
 
-`internal/domain/models*.go` — all `package domain`. Split by bounded context. 28 files, all same package.
+`internal/domain/models*.go` — all `package domain`. Split by bounded context. 31 files, all same package.
 
 Adding a model = add to correct existing file or create new `models_*.go`. No sub-packages, no import changes.
 
@@ -116,7 +123,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-28 files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000010_fa_schema`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000016_declaration_gdt`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -167,7 +174,7 @@ When adding a new module that uses the validator: register custom validators in 
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
 | Tax | ~40% | Rate resolver + VAT/CIT/PIT engines (rate-table), declaration engine (GL→GTGT01/TNDN03, cross-validation), declaration→payment automation (due dates). Missing: form XML gen, GDT API push, e-invoice engine |
-| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 66 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
+| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 67 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
 | Sale | ~0% | Interface + PG + memory repos. Service incomplete |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
 
@@ -194,4 +201,6 @@ Full tax/purchase/warehouse specs at `docs/`.
 - **Audit logging** via `internal/handler/audit.go` middleware — logs all state-mutating operations.
 - **Web UI** at `web/auth/*.html` (login, 2FA, forgot/reset password). Served by gin. Not a SPA.
 - **PDF** generation with `maroto/v2` for opening balance reports. Not wired to any endpoint yet.
-- **Handler error mapping** uses `errors.Is` to switch on domain errors per module. See `internal/handler/fixed_asset_handler.go:475` for pattern.
+- **Handler error mapping** uses `errors.Is` to switch on domain errors per module. See `internal/handler/fixed_asset_handler.go:79` (the `faError` func) for pattern.
+- **GDT env vars**: `GDT_BASE_URL`, `GDT_TOKEN` — e-invoice API client. Without them, `newGDTClient()` returns nil.
+- **E-invoice signing**: `EINVOICE_SIGNING_KEY` (RSA PEM), `EINVOICE_CERT_SERIAL`. Without key, ephemeral key generated at startup — signatures invalid after restart.

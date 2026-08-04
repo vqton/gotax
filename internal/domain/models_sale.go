@@ -28,6 +28,8 @@ func (s SOStatus) ValidTransition(next SOStatus) bool {
 type DNStatus string
 const (DNDraft DNStatus="DRAFT"; DNPosted DNStatus="POSTED"; DNCancelled DNStatus="CANCELLED")
 
+const DefaultTolerancePct = 5.0
+
 type SaleInvoiceStatus string
 const (SInvDraft SaleInvoiceStatus="DRAFT"; SInvSigned SaleInvoiceStatus="SIGNED"; SInvSubmitted SaleInvoiceStatus="SUBMITTED"; SInvCoded SaleInvoiceStatus="CODED"; SInvIssued SaleInvoiceStatus="ISSUED"; SInvPosted SaleInvoiceStatus="POSTED"; SInvPaid SaleInvoiceStatus="PAID"; SInvCancelled SaleInvoiceStatus="CANCELLED"; SInvReplaced SaleInvoiceStatus="REPLACED")
 
@@ -190,6 +192,7 @@ type DeliveryNote struct {
 	DeliveryAddress string       `json:"delivery_address,omitempty"`
 	Status          DNStatus     `json:"status"`
 	Notes           string       `json:"notes,omitempty"`
+	TolerancePercent float64    `json:"tolerance_percent,omitempty"`
 	CreatedBy       string       `json:"created_by"`
 	CreatedAt       time.Time    `json:"created_at,omitempty"`
 	UpdatedAt       time.Time    `json:"updated_at,omitempty"`
@@ -265,8 +268,8 @@ type CustomerInvoice struct {
 	Status              SaleInvoiceStatus  `json:"status"`
 	GLPosted            bool           `json:"gl_posted"`
 	GLPostedAt          *time.Time     `json:"gl_posted_at,omitempty"`
-	Notes               string         `json:"notes,omitempty"`
-	CreatedBy           string         `json:"created_by"`
+	Notes           string       `json:"notes,omitempty"`
+	CreatedBy       string       `json:"created_by"`
 	CreatedAt           time.Time      `json:"created_at,omitempty"`
 	UpdatedAt           time.Time      `json:"updated_at,omitempty"`
 	Lines               []InvLine      `json:"lines"`

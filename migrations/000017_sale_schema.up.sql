@@ -118,6 +118,7 @@ CREATE TABLE delivery_notes (
     delivery_address TEXT,
     status           VARCHAR(20) DEFAULT 'DRAFT',
     notes            TEXT,
+    tolerance_percent NUMERIC NOT NULL DEFAULT 5,
     created_by       VARCHAR(36),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),

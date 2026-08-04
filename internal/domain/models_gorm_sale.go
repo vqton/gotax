@@ -98,6 +98,7 @@ type DeliveryNoteGORM struct {
 	DeliveryAddress string       `gorm:"column:delivery_address;type:text" json:"deliveryAddress"`
 	Status          string       `gorm:"column:status;size:20;default:DRAFT;index" json:"status"`
 	Notes           string       `gorm:"column:notes;type:text" json:"notes"`
+	TolerancePercent float64    `gorm:"column:tolerance_percent;not null;default:5" json:"tolerancePercent"`
 	CreatedBy       string       `gorm:"column:created_by;size:36" json:"createdBy"`
 	CreatedAt       time.Time    `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 	UpdatedAt       time.Time    `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`

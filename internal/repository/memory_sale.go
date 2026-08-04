@@ -188,7 +188,11 @@ func (r *MemorySaleRepo) CreateSO(_ context.Context, so *domain.SalesOrder) erro
 	r.soByNumber[cp.CompanyID][cp.SONumber] = r.sos[cp.ID]
 	if len(cp.Lines) > 0 {
 		r.soLines[cp.ID] = make([]domain.SOLine, len(cp.Lines))
-		copy(r.soLines[cp.ID], cp.Lines)
+		for i := range cp.Lines {
+			cp.Lines[i].ID = saleID("SL-")
+			cp.Lines[i].SOID = cp.ID
+			r.soLines[cp.ID][i] = cp.Lines[i]
+		}
 	}
 	so.ID = cp.ID
 	return nil

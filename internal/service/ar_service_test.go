@@ -741,3 +741,131 @@ func TestPostCN_BalanceDueFloorZero(t *testing.T) {
 	assert.Equal(t, 0.0, invAfter.BalanceDue) // floored
 	assert.Equal(t, domain.SInvPaid, invAfter.Status)
 }
+
+// ─── S4: Delivery integrity + SO status ────────────────────────────────
+
+func seedSO(t *testing.T, svc *SaleService, ctx context.Context, soNum string, qty float64) *domain.SalesOrder {
+	t.Helper()
+	so := &domain.SalesOrder{
+		CompanyID: "co1", SONumber: soNum, CustomerID: "c1",
+		OrderDate: time.Now().UTC(), Currency: "VND",
+		Status: domain.SOApproved,
+		Lines: []domain.SOLine{{
+			ItemCode: "ITM1", ItemName: "Widget", Unit: "pcs",
+			Quantity: qty, UnitPrice: 100, VATRate: 10,
+			RevenueAccount: "5111", VATAccountID: "33311",
+		}},
+	}
+	require.NoError(t, svc.CreateSO(ctx, so))
+	return so
+}
+
+func TestCreateDN_ToleranceBoundary(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-TOL-1", 100)
+
+	// within tolerance (5% default): 105 OK
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-TOL-1", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 105, UnitPrice: 100, LineTotal: 10500,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+
+	// exceeds tolerance: 106 rejected
+	dn2 := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-TOL-2", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 106, UnitPrice: 100, LineTotal: 10600,
+		}},
+	}
+	err := svc.CreateDN(ctx, dn2)
+	require.ErrorIs(t, err, domain.ErrDNToleranceExceeded)
+
+	// custom tolerance: 10% → 110 OK
+	dn3 := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-TOL-3", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		TolerancePercent: 10,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 110, UnitPrice: 100, LineTotal: 11000,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn3))
+}
+
+func TestPostDN_SOStatusProgression(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-STAT-1", 100)
+
+	// partial delivery → PROCESSING
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-STAT-1", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 40, UnitPrice: 100, LineTotal: 4000,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+	require.NoError(t, svc.PostDN(ctx, dn.ID))
+	soAfter, _ := svc.soRepo.GetSO(ctx, so.ID)
+	assert.Equal(t, domain.SOProcessing, soAfter.Status)
+
+	// complete delivery → DELIVERED
+	dn2 := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-STAT-2", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 60, UnitPrice: 100, LineTotal: 6000,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn2))
+	require.NoError(t, svc.PostDN(ctx, dn2.ID))
+	soAfter2, _ := svc.soRepo.GetSO(ctx, so.ID)
+	assert.Equal(t, domain.SODelivered, soAfter2.Status)
+}
+
+func TestPostInvoice_SOSetInvoiced(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-INV-1", 100)
+
+	// Deliver fully → DELIVERED
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-INV-1", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 100, UnitPrice: 100, LineTotal: 10000,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+	require.NoError(t, svc.PostDN(ctx, dn.ID))
+
+	// Invoice against SO → SO INVOICED
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-SO-1",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		SOID: so.ID, Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 100, UnitPrice: 100, VATRate: 10,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+
+	soAfter, _ := svc.soRepo.GetSO(ctx, so.ID)
+	assert.Equal(t, domain.SOInvoiced, soAfter.Status)
+}

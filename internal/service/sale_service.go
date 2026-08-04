@@ -210,6 +210,31 @@ func (s *SaleService) CreateDN(ctx context.Context, dn *domain.DeliveryNote) err
 	if _, err := s.soRepo.GetSO(ctx, dn.SOID); err != nil {
 		return domain.ErrDNSORequired
 	}
+	if dn.TolerancePercent == 0 {
+		dn.TolerancePercent = domain.DefaultTolerancePct
+	}
+	// S4: over-delivery tolerance check vs SO line quantities
+	so, err := s.soRepo.GetSO(ctx, dn.SOID)
+	if err != nil {
+		return domain.ErrDNSORequired
+	}
+	soQty := make(map[string]float64)
+	for _, l := range so.Lines {
+		soQty[l.ID] = l.Quantity
+	}
+	tol := dn.TolerancePercent / 100.0
+	for _, l := range dn.Lines {
+		if l.SOLineID == "" {
+			continue
+		}
+		maxQty, ok := soQty[l.SOLineID]
+		if !ok {
+			continue
+		}
+		if l.QtyDelivered > maxQty*(1+tol) {
+			return domain.ErrDNToleranceExceeded
+		}
+	}
 	if dn.Status == "" {
 		dn.Status = domain.DNDraft
 	}
@@ -244,7 +269,46 @@ func (s *SaleService) PostDN(ctx context.Context, id string) error {
 	if dn.Status != domain.DNDraft {
 		return domain.ErrDNInvalidTransition
 	}
-	return s.dnRepo.UpdateDNStatus(ctx, id, domain.DNPosted)
+	if err := s.dnRepo.UpdateDNStatus(ctx, id, domain.DNPosted); err != nil {
+		return err
+	}
+	// S4: SO status progression on DN post
+	so, err := s.soRepo.GetSO(ctx, dn.SOID)
+	if err != nil {
+		return nil
+	}
+	// Sum already-delivered quantities for SO lines
+	delivered := make(map[string]float64)
+	if dns, _, err := s.dnRepo.ListDNs(ctx, domain.DeliveryNoteFilter{SOID: dn.SOID}); err == nil {
+		for _, d := range dns {
+			if d.Status != domain.DNPosted || d.ID == id {
+				continue
+			}
+			for _, l := range d.Lines {
+				delivered[l.SOLineID] += l.QtyDelivered
+			}
+		}
+	}
+	for _, l := range dn.Lines {
+		delivered[l.SOLineID] += l.QtyDelivered
+	}
+	allDelivered := true
+	for _, l := range so.Lines {
+		if delivered[l.ID] < l.Quantity {
+			allDelivered = false
+			break
+		}
+	}
+	// SO was delivered before → stays DELIVERED; else PROCESSING (or DELIVERED if complete)
+	switch so.Status {
+	case domain.SOApproved, domain.SOConfirmed, domain.SOProcessing, domain.SODraft:
+		if allDelivered {
+			_ = s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SODelivered)
+		} else {
+			_ = s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SOProcessing)
+		}
+	}
+	return nil
 }
 
 func (s *SaleService) CancelDN(ctx context.Context, id string) error {
@@ -365,6 +429,10 @@ func (s *SaleService) PostInvoice(ctx context.Context, id string) error {
 	}
 	if err := s.invRepo.PostInvoice(ctx, id, now); err != nil {
 		return err
+	}
+	// S4: SO status → INVOICED when invoiced
+	if inv.SOID != "" {
+		_ = s.soRepo.UpdateSOStatus(ctx, inv.SOID, domain.SOInvoiced)
 	}
 	// S2: auto-create AR transaction on invoice post
 	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
