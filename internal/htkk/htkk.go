@@ -7,6 +7,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	"gotax/internal/domain"
 )
@@ -68,6 +70,29 @@ func periodKey(p domain.TaxPeriod) string {
 	}
 }
 
+// declarationDate renders the creation timestamp as a date-only value, per
+// spec §3.1 the HTKK XSD `date` type rejects time components.
+func declarationDate(createdAt string) (string, error) {
+	for _, layout := range []string{time.RFC3339, time.DateOnly} {
+		t, err := time.Parse(layout, createdAt)
+		if err == nil {
+			return t.Format(time.DateOnly), nil
+		}
+	}
+	return "", fmt.Errorf("unrecognized timestamp %q", createdAt)
+}
+
+// indicatorCode renders an indicator code as bracketed ([10], [23]) per the
+// form layout. Domain LineCodes are stored unbracketed; idempotent for input
+// that already carries brackets.
+func indicatorCode(code string) string {
+	c := strings.Trim(code, "[]")
+	if c == "" {
+		return c
+	}
+	return "[" + c + "]"
+}
+
 // Generate renders the declaration file. Header taxpayer data comes from the
 // company profile; indicator values from declaration lines ([10], [20a], …).
 func Generate(d *domain.TaxDeclaration, c *domain.Company) ([]byte, error) {
@@ -78,6 +103,10 @@ func Generate(d *domain.TaxDeclaration, c *domain.Company) ([]byte, error) {
 	if c == nil || c.TaxCode == "" {
 		return nil, fmt.Errorf("htkk: company tax code required")
 	}
+	ngayTao, err := declarationDate(d.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("htkk: invalid declaration CreatedAt: %w", err)
+	}
 	f := BoKe{
 		XmlnsBK: "http://gdt.gov.vn/BoKe",
 		ThongTinChung: BKThongTinChung{
@@ -86,17 +115,19 @@ func Generate(d *domain.TaxDeclaration, c *domain.Company) ([]byte, error) {
 			LoaiToKhai:      code,
 			KyTinhThue:      periodKey(d.TaxPeriod),
 			LanDau:          1,
-			NgayTao:         d.CreatedAt,
+			NgayTao:         ngayTao,
 		},
 	}
 	if d.AdjustmentType != domain.AdjTypeNONE {
 		f.ThongTinChung.LanDau = 2 // supplemental/amended filing
 	}
 	for _, l := range d.Lines {
-		f.DuLieu.ChiTieu = append(f.DuLieu.ChiTieu, BKChiTieu{
-			MaChiTieu: l.LineCode,
-			GiaTri:    money(l.Amount),
-		})
+		if mc := indicatorCode(l.LineCode); mc != "" {
+			f.DuLieu.ChiTieu = append(f.DuLieu.ChiTieu, BKChiTieu{
+				MaChiTieu: mc,
+				GiaTri:    money(l.Amount),
+			})
+		}
 	}
 	return xml.MarshalIndent(f, "", "  ")
 }

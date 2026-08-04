@@ -105,8 +105,11 @@ func (s EInvLifecycleStatus) Valid() bool {
 	}
 	return false
 }
+// CanCancel reports whether the invoice may be cancelled. Per spec §2.2 only
+// an ISSUED invoice can be cancelled (Circular 78/2021: cancel/replace
+// applies to invoices already carrying the CQT code).
 func (s EInvLifecycleStatus) CanCancel() bool {
-	return s == EInvStatusISSUED || s == EInvStatusSUBMITTED
+	return s == EInvStatusISSUED
 }
 
 type CalendarStatus string

@@ -55,10 +55,10 @@ func testDecl(t domain.DeclarationType) *domain.TaxDeclaration {
 		AdjustmentType:  domain.AdjTypeNONE,
 		CreatedAt:       "2026-04-15T10:00:00+07:00",
 		Lines: []domain.TaxDeclarationLine{
-			{LineCode: "[10]", LineName: "Hang hoa, dich vu ban ra", Amount: 500000000},
-			{LineCode: "[25]", LineName: "Thue GTGT dau ra", Amount: 50000000},
-			{LineCode: "[33]", LineName: "Thue GTGT dau vao", Amount: 30000000},
-			{LineCode: "[40]", LineName: "Thue GTGT phai nop", Amount: 20000000},
+			{LineCode: "10", LineName: "Hang hoa, dich vu ban ra", Amount: 500000000},
+			{LineCode: "25", LineName: "Thue GTGT dau ra", Amount: 50000000},
+			{LineCode: "33", LineName: "Thue GTGT dau vao", Amount: 30000000},
+			{LineCode: "40", LineName: "Thue GTGT phai nop", Amount: 20000000},
 		},
 	}
 }
@@ -74,9 +74,28 @@ func TestGenerate_GTGT01(t *testing.T) {
 	assert.Equal(t, "01/GTGT", f.TTChung.LoaiToKhai)
 	assert.Equal(t, "2026Q1", f.TTChung.KyTinhThue)
 	assert.Equal(t, 1, f.TTChung.LanDau)
+	// spec §3.1: NgayTao is a date-only field, indicator codes are bracketed
+	assert.Equal(t, "2026-04-15", f.TTChung.NgayTao)
 	assert.Len(t, f.DuLieu.ChiTieu, 4)
 	assert.Equal(t, "[10]", f.DuLieu.ChiTieu[0].MaChiTieu)
 	assert.Equal(t, 500000000.0, f.DuLieu.ChiTieu[0].GiaTri)
+}
+
+func TestGenerate_BracketedInputIdempotent(t *testing.T) {
+	d := testDecl(domain.DeclTypeGTGT01)
+	d.Lines = []domain.TaxDeclarationLine{{LineCode: "[10]", Amount: 1000000}}
+	out, err := Generate(d, testCompany())
+	require.NoError(t, err)
+	f := parse(t, out)
+	require.Len(t, f.DuLieu.ChiTieu, 1)
+	assert.Equal(t, "[10]", f.DuLieu.ChiTieu[0].MaChiTieu)
+}
+
+func TestGenerate_InvalidNgayTao(t *testing.T) {
+	d := testDecl(domain.DeclTypeGTGT01)
+	d.CreatedAt = "not-a-timestamp"
+	_, err := Generate(d, testCompany())
+	assert.Error(t, err)
 }
 
 func TestGenerate_TNDN03(t *testing.T) {

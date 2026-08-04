@@ -739,6 +739,22 @@ func TestCancelEInvoice_NotifiesGDT(t *testing.T) {
 	assert.Equal(t, "buyer request", updated.CancelReason)
 }
 
+// spec §2.2: cancellation only from ISSUED — a SUBMITTED invoice has no CQT
+// code yet (Circular 78/2021).
+func TestCancelEInvoice_NotCancellableBeforeIssued(t *testing.T) {
+	g := &stubGDT{}
+	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	for _, st := range []domain.EInvLifecycleStatus{
+		domain.EInvStatusDRAFT, domain.EInvStatusSIGNED, domain.EInvStatusSUBMITTED, domain.EInvStatusVALIDATED,
+	} {
+		inv := testEInvoice(st)
+		require.NoError(t, repo.CreateEInvoice(ctx, inv))
+		err := svc.CancelEInvoice(ctx, inv.ID, "reason")
+		assert.ErrorIs(t, err, domain.ErrInvoiceStatusInvalid, "status %s", st)
+	}
+}
+
 func TestPEMSigner_SignsAndVerifies(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)

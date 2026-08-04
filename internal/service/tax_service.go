@@ -203,6 +203,9 @@ func (s *taxService) CreateDeclaration(ctx context.Context, d *domain.TaxDeclara
 	if err := d.Validate(); err != nil {
 		return err
 	}
+	if d.CreatedAt == "" {
+		d.CreatedAt = s.now().Format(time.RFC3339)
+	}
 	return s.repo.CreateDeclaration(ctx, d)
 }
 
