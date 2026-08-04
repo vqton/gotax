@@ -363,7 +363,22 @@ func (s *SaleService) PostInvoice(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return s.invRepo.PostInvoice(ctx, id, now)
+	if err := s.invRepo.PostInvoice(ctx, id, now); err != nil {
+		return err
+	}
+	// S2: auto-create AR transaction on invoice post
+	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+		CompanyID:       inv.CompanyID,
+		CustomerID:      inv.CustomerID,
+		InvoiceID:       inv.ID,
+		TransactionType: domain.ARTransInvoice,
+		TransactionDate: now,
+		Amount:          inv.TotalAmount,
+		Currency:        inv.Currency,
+		ReferenceType:   "customer_invoices",
+		ReferenceID:     inv.ID,
+	})
+	return nil
 }
 
 func (s *SaleService) CancelInvoice(ctx context.Context, id string) error {
@@ -445,7 +460,21 @@ func (s *SaleService) PostReceipt(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return s.rcptRepo.UpdateReceiptStatus(ctx, id, domain.RcpPosted)
+	if err := s.rcptRepo.UpdateReceiptStatus(ctx, id, domain.RcpPosted); err != nil {
+		return err
+	}
+	// S2: auto-create AR transaction on receipt post
+	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+		CompanyID:       rcpt.CompanyID,
+		CustomerID:      rcpt.CustomerID,
+		TransactionType: domain.ARTransReceipt,
+		TransactionDate: now,
+		Amount:          rcpt.Amount,
+		Currency:        rcpt.Currency,
+		ReferenceType:   "customer_receipts",
+		ReferenceID:     rcpt.ID,
+	})
+	return nil
 }
 
 func (s *SaleService) CancelReceipt(ctx context.Context, id string) error {
@@ -581,7 +610,22 @@ func (s *SaleService) PostCN(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return s.cnRepo.PostCN(ctx, id, now)
+	if err := s.cnRepo.PostCN(ctx, id, now); err != nil {
+		return err
+	}
+	// S2: auto-create AR transaction on CN post
+	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+		CompanyID:       cn.CompanyID,
+		CustomerID:      cn.CustomerID,
+		InvoiceID:       cn.OriginalInvoiceID,
+		TransactionType: domain.ARTransCreditNote,
+		TransactionDate: now,
+		Amount:          cn.TotalAmount,
+		Currency:        "VND",
+		ReferenceType:   "credit_notes",
+		ReferenceID:     cn.ID,
+	})
+	return nil
 }
 
 func (s *SaleService) CancelCN(ctx context.Context, id string) error {

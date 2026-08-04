@@ -503,3 +503,123 @@ func TestPrepayment_AllocCannotExceedUnallocated(t *testing.T) {
 	err = svc.AllocateReceipt(ctx, rcpt.ID, inv.ID, 100)
 	require.Error(t, err)
 }
+
+// ─── S2: AR txn auto-population ────────────────────────────────────────
+
+func seedCust(t *testing.T, svc *SaleService, ctx context.Context, id, companyID string) {
+	t.Helper()
+	cust := &domain.Customer{
+		ID: id, CompanyID: companyID, Code: "C-" + id, Name: "TestCo",
+		TaxCode: "1234567890", Currency: "VND",
+	}
+	require.NoError(t, svc.CreateCustomer(ctx, cust))
+}
+
+func TestPostInvoice_CreatesARTransaction(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-2026-0001",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 10, UnitPrice: 200, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.PostInvoice(ctx, inv.ID))
+
+	arTxns, err := svc.artRepo.ListARTransactions(ctx, "co1", "c1")
+	require.NoError(t, err)
+	require.NotEmpty(t, arTxns)
+
+	found := false
+	for _, txn := range arTxns {
+		if txn.TransactionType == domain.ARTransInvoice && txn.InvoiceID == inv.ID {
+			assert.Equal(t, 2000.0, txn.Amount)
+			assert.Equal(t, "VND", txn.Currency)
+			assert.Equal(t, "customer_invoices", txn.ReferenceType)
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected AR transaction for invoice")
+}
+
+func TestPostReceipt_CreatesARTransaction(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	rcpt := &domain.CustomerReceipt{
+		CompanyID: "co1", ReceiptNumber: "RC-2026-0001",
+		CustomerID: "c1", ReceiptDate: time.Now().UTC(),
+		PaymentMethod: "bank_transfer", Currency: "VND",
+		Amount: 500, Status: domain.RcpDraft,
+	}
+	require.NoError(t, svc.CreateReceipt(ctx, rcpt))
+	require.NoError(t, svc.PostReceipt(ctx, rcpt.ID))
+
+	arTxns, err := svc.artRepo.ListARTransactions(ctx, "co1", "c1")
+	require.NoError(t, err)
+	require.NotEmpty(t, arTxns)
+
+	found := false
+	for _, txn := range arTxns {
+		if txn.TransactionType == domain.ARTransReceipt && txn.ReferenceID == rcpt.ID {
+			assert.Equal(t, 500.0, txn.Amount)
+			assert.Equal(t, "VND", txn.Currency)
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected AR transaction for receipt")
+}
+
+func TestPostCN_CreatesARTransaction(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-2026-0010",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 10, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.invRepo.PostInvoice(ctx, inv.ID, time.Now().UTC()))
+
+	cn := &domain.CreditNote{
+		CompanyID: "co1", CNNumber: "CN-2026-0001",
+		OriginalInvoiceID: inv.ID, CustomerID: "c1",
+		ReturnDate: time.Now().UTC(), ReturnType: domain.RetPartial,
+		Status: domain.CNDraft,
+		Lines: []domain.CNLine{{
+			ItemName: "Widget", Unit: "pcs",
+			Quantity: 2, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateCN(ctx, cn))
+	require.NoError(t, svc.PostCN(ctx, cn.ID))
+
+	arTxns, err := svc.artRepo.ListARTransactions(ctx, "co1", "c1")
+	require.NoError(t, err)
+	require.NotEmpty(t, arTxns)
+
+	found := false
+	for _, txn := range arTxns {
+		if txn.TransactionType == domain.ARTransCreditNote && txn.ReferenceID == cn.ID {
+			assert.Equal(t, 1000.0, txn.Amount)
+			assert.Equal(t, inv.ID, txn.InvoiceID)
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected AR transaction for credit note")
+}

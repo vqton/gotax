@@ -697,11 +697,11 @@ type OffBalanceSheetItem struct {
 - [x] 9 mapping round-trip tests (sale_mapping_test.go)
 - [x] AllocateToInvoice via GORM Expr (amount_received + ?, GREATEST(balance_due - ?, 0))
 
-### S2: AR txn auto-population
-- [ ] PostInvoice creates ARTransaction (invoice, Amount=TotalAmount)
-- [ ] PostReceipt creates ARTransaction (receipt, Amount=Amount)
-- [ ] PostCN creates ARTransaction (credit_note, Amount=TotalAmount)
-- [ ] Tests: summary correct after post flows; no double-write on re-post
+### S2: AR txn auto-population ✅
+- [x] PostInvoice creates ARTransaction (invoice, Amount=TotalAmount)
+- [x] PostReceipt creates ARTransaction (receipt, Amount=Amount)
+- [x] PostCN creates ARTransaction (credit_note, Amount=TotalAmount)
+- [x] Tests: summary correct after post flows; no double-write on re-post
 
 ### S3: CN → invoice BalanceDue
 - [ ] PostCN reduces original invoice BalanceDue (floor 0), cap at balance
