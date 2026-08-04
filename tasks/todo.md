@@ -684,3 +684,52 @@ type OffBalanceSheetItem struct {
 - [x] Statutory due dates: VAT monthly 20th next month / quarterly 30th, CIT annual 31-Mar
 - [x] Refundable/zero → no payment; idempotent per declaration
 - [x] Validation fix: GTGT01 [30] algebraic sum may be negative
+
+---
+
+## 🔲 Sale Module: O2C Gap Closure + Reports (PLANNED 2026-08-04)
+
+### S1: Versioned sale migration
+- [ ] `migrations/000017_sale_schema.up.sql` + `.down.sql` — 13 tables (customers, sales_orders, so_lines, delivery_notes, dn_lines, customer_invoices, invoice_lines, customer_receipts, receipt_allocations, credit_notes, cn_lines, ar_transactions, sales_quotations) mirroring models_gorm_sale*.go
+- [ ] Cross-check columns vs GORM structs field-by-field
+
+### S2: AR txn auto-population
+- [ ] PostInvoice creates ARTransaction (invoice, Amount=TotalAmount)
+- [ ] PostReceipt creates ARTransaction (receipt, Amount=Amount)
+- [ ] PostCN creates ARTransaction (credit_note, Amount=TotalAmount)
+- [ ] Tests: summary correct after post flows; no double-write on re-post
+
+### S3: CN → invoice BalanceDue
+- [ ] PostCN reduces original invoice BalanceDue (floor 0), cap at balance
+- [ ] Invoice → PAID when BalanceDue zero
+- [ ] Tests: full/partial CN, over-CN capped, aging/statement reflect CN
+
+### S4: Delivery integrity
+- [ ] Over-delivery tolerance default 5%, per-DN override (TolerancePercent)
+- [ ] CreateDN validates QtyDelivered vs SO line qty × tolerance → ErrDNToleranceExceeded
+- [ ] SO status: PROCESSING on first DN post, DELIVERED when fully delivered, INVOICED on PostInvoice
+- [ ] Back-order: partial delivery → SO stays PROCESSING
+- [ ] Tests: tolerance boundary, status transitions, partial delivery
+
+### S5: COGS on delivery
+- [ ] PostDN GL: Dr 632 / Cr 156 per line CostPrice×Qty (skip zero-cost)
+- [ ] Repo: GL-posted flag if needed
+- [ ] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
+
+### S6: Reports (FR-9)
+- [ ] S01-BH sales ledger (per customer/period)
+- [ ] S02-BH AR subledger (per customer)
+- [ ] S03-BH goods sales ledger (per item)
+- [ ] VAT output tracking (per rate)
+- [ ] Unbilled delivery report (posted DN, no invoice)
+- [ ] Routes /api/v1/sale/reports/* + /ar/recon (GetARGLReconciliation)
+- [ ] Tests per report
+
+### S7: Auto-numbering endpoints
+- [ ] GET /orders/next-number, /deliveries/next-number, /invoices/next-number
+- [ ] Tests
+
+### S8: Docs + final review
+- [ ] AGENTS.md Sale row updated, BRD "ZERO" note, plan.md checkpoints
+- [ ] code-review-and-quality pass on sale diff
+- [ ] FAST/MISA/Bravo benchmark note

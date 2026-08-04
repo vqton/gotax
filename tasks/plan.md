@@ -221,3 +221,67 @@ GTGT-01/TNDN-01/KK-TNCN per Circular 80 + HTKK wrapper. Depends on A5.
 | GDT XML/SOAP format drift | High | Mock server + isolate format in gdt package |
 | VAT account classification edge cases | Med | Explicit-account-first, fallback documented, tests per rule |
 | Rate table empty → calc fails | Med | Seed defaults in memory repo tests; PG: seed migration (Round A checkpoint verifies) |
+
+---
+
+# Sale Module — O2C Gap Closure + Reports (TDD)
+
+**Status: PLANNED (2026-08-04).** Sale module core already built in prior sessions: full domain models (596 lines), PG+memory repos (1637+1220), service (865), handler (773, 46 routes), handler tests (600 lines), AR service tests (18). Baseline `go vet` + full suite green. AGENTS.md "~0%" + BRD "ZERO sale functionality" both STALE — docs update part of final slice.
+
+## Scope Decisions (user-confirmed 2026-08-04)
+
+- ✅ COGS on delivery — include (FR-4.7): PostDN posts 632/156 from DNLine.CostPrice
+- ⏸️ Sale e-invoice TXML — DEFER (buyer-side rework of internal/einvoice; GDT push third-party/excluded)
+- ✅ Reports — all five (S01-BH, S02-BH, S03-BH, VAT output, unbilled delivery) + wire /ar/recon route
+
+## Verified Gaps (code evidence)
+
+| # | Gap | Evidence |
+|---|-----|----------|
+| G1 | No versioned sale migration — PG backend has zero sale tables | `migrations/` only legacy unused `006_sale_schema.sql` |
+| G2 | AR txn table never populated — PostInvoice/PostReceipt/PostCN write no ARTransaction rows → GetARSummary reads empty table | service PostInvoice:366 etc; arTxns only written by standalone CreateARTransaction |
+| G3 | PostCN doesn't reduce invoice BalanceDue (FR-8.4) — aging/statement stale after CN | PostCN posts GL only |
+| G4 | No over-delivery tolerance check (FR-4.3); SO status never advances (FR-3.5: PROCESSING/DELIVERED/INVOICED never set) | CreateDN/PostDN/PostInvoice don't touch SO status |
+| G5 | No COGS GL on PostDN (FR-4.7) | PostDN = UpdateDNStatus only |
+| G6 | No S01/S02/S03-BH ledgers, no VAT output report (FR-9.6), no unbilled delivery (FR-9.8); GetARGLReconciliation has no route | service has recon; handler lacks route |
+| G7 | Auto-numbering helpers (NextSO/NextDN/NextInv) unexposed — no routes | service methods exist, no handler |
+| G8 | No sale service test suite for CRUD+transitions (Customer/SO/DN/Invoice/Receipt/CN) | only ar_service_test + ar_gl_test |
+
+## Slices (each: RED → GREEN → go vet + test → commit)
+
+| # | Slice | Files | Deps |
+|---|-------|-------|------|
+| S1 | Versioned migration `000017_sale_schema.up/down.sql` — 13 tables mirroring models_gorm_sale*.go + legacy 006 | migrations/ | — |
+| S2 | AR txn auto-population: PostInvoice (invoice), PostReceipt (receipt), PostCN (credit_note) + ARSummary correctness tests | sale_service.go, ar_service_test.go | — |
+| S3 | CN → BalanceDue reduction on PostCN (cap at balance; invoice → PAID at zero) + tests | sale_service.go + tests | S2 |
+| S4 | Delivery integrity: over-delivery tolerance (default 5%, per-DN override), SO status progression (PROCESSING→DELIVERED on PostDN full/partial, DELIVERED→INVOICED on PostInvoice), back-order = partial delivered | models_sale.go, sale_service.go + tests | — |
+| S5 | COGS on delivery: PostDN GL entry Dr 632 / Cr 156 per DNLine.CostPrice (skip zero-cost), SetDNGLPosted? (add repo method if needed) + tests | sale_service.go, interfaces.go, repos ×2 + tests | S4 |
+| S6 | Reports: S01-BH (sales ledger per customer/period), S02-BH (AR subledger per customer), S03-BH (goods sales ledger per item), VAT output tracking, unbilled delivery (posted DN w/o invoice) + routes + /ar/recon route | models_sale.go, sale_service.go, sale_handler.go + tests | S2,S3 |
+| S7 | Auto-numbering endpoints: GET /sale/orders/next-number, /deliveries/next-number, /invoices/next-number | sale_handler.go + tests | — |
+| S8 | Docs: AGENTS.md module table (Sale → status), BRD "ZERO" note, plan.md checkpoints | docs | all |
+
+## Architecture Decisions
+
+- **AR txn as derived audit trail**: posting flows create ARTransaction rows (idempotent — only on status transition to POSTED). GetARSummary stays read-of-txn-table; aging stays read-of-invoices.
+- **CN balance reduction**: deduct from original invoice BalanceDue (floor 0); invoice PAID when zero. GL entry unchanged (131 credit).
+- **Tolerance**: `TolerancePercent` on DeliveryNote (0 = use default 5%). Over-tolerance → ErrDNToleranceExceeded at CreateDN.
+- **COGS**: per-line CostPrice × QtyDelivered; zero/absent cost → skip line (service-only COGS for non-inventory, per BRD ASSUMPTION-3). New repo method `SetDNGLPosted` only if needed — prefer `UpdateDN` flag reuse; else add to interface + both repos.
+- **Reports**: new report structs in models_sale.go; service methods read repos directly (no new repos). Report endpoints under /api/v1/sale/reports/*.
+- **No new migrations beyond S1** (all report data derivable).
+- **Constructor**: `NewSaleService` unchanged (all repos present) unless COGS needs GL only — already has gl.
+
+## Checkpoints
+
+- S1: migration file consistency check vs GORM structs (no unit test — manual verify), commit
+- S2-S7: `go vet ./... && go test -count=1 ./...` green, commit each
+- S8: docs + AGENTS.md + todo.md, commit
+- Final: code-review-and-quality skill pass over sale diff; benchmark note vs FAST/MISA/Bravo in docs
+
+## Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Migration drift vs GORM columns | Med | S1 cross-check field-by-field vs models_gorm_sale*.go |
+| AR txn double-write (post twice) | Med | Guard: only create txn in DRAFT→POSTED transition; tests |
+| CN > BalanceDue | Med | Cap at BalanceDue; leftover → credit balance (ARTransOffset semantics) |
+| Tolerance regression on existing tests | Low | Existing handler tests use exact qty; default 5% allows equal |
