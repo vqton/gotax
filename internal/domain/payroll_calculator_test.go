@@ -371,7 +371,14 @@ func TestCalculateEmployeePayroll(t *testing.T) {
 
 func TestEdgeCases(t *testing.T) {
 	t.Run("zero salary", func(t *testing.T) {
-		emp := makeTestEmployee(0, RegionI)
+		emp := EmployeePayrollInfo{
+			ID:           "emp-001",
+			EmployeeID:   "NV001",
+			ContractType: ContractIndefinite,
+			SalaryType:   SalaryTimeBased,
+			BaseSalary:   0,
+			Region:       RegionI,
+		}
 		period := &PayrollPeriod{Year: 2026, Month: 7}
 		run := CalculateEmployeePayroll(emp, period, nil)
 		assert.Equal(t, float64(0), run.GrossSalary)
@@ -383,8 +390,9 @@ func TestEdgeCases(t *testing.T) {
 		period := &PayrollPeriod{Year: 2026, Month: 7}
 		run := CalculateEmployeePayroll(emp, period, nil)
 
-		// SI capped at 50,600,000
-		assert.Equal(t, float64(50_600_000), run.InsuranceBase)
+		// InsuranceBase stores raw base salary; capping happens in Calc functions
+		assert.Equal(t, float64(100_000_000), run.InsuranceBase)
+		// SI capped at 50,600,000 × 8% = 4,048,000
 		assert.Equal(t, float64(4_048_000), run.SIDeduction)
 	})
 

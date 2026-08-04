@@ -213,7 +213,10 @@ r.GET("/reset-password", func(c *gin.Context) {
 		whH := handler.NewWarehouseHandler(whSvc)
 	faSvc := service.NewFAService(faRepo)
 	faH := handler.NewFAHandler(faSvc)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faH, authMW, adminMW)
+	pwRepo := repository.NewPGPayrollRepo(gormDB)
+	pwSvc := service.NewPayrollService(pwRepo)
+	pwH := handler.NewPayrollHandler(pwSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)
 	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
 		r.Run(cfg.ServerPort)
 		return
@@ -276,7 +279,10 @@ r.GET("/reset-password", func(c *gin.Context) {
 	memFARepo := repository.NewMemoryFARepo()
 	faSvcMem := service.NewFAService(memFARepo)
 	faHMem := handler.NewFAHandler(faSvcMem)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, authMW, adminMW)
+	memPWRepo := repository.NewMemoryPayrollRepo()
+	pwSvcMem := service.NewPayrollService(memPWRepo)
+	pwHMem := handler.NewPayrollHandler(pwSvcMem)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, pwHMem, authMW, adminMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
 	r.Run(cfg.ServerPort)
 }

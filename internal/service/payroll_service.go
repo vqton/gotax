@@ -247,6 +247,50 @@ func (s *PayrollService) GetPeriodSummary(ctx context.Context, periodID string) 
 	return summary, nil
 }
 
+// ─── Dependants ─────────────────────────────────────────────────
+
+func (s *PayrollService) ListDependants(ctx context.Context, employeeID string) ([]domain.Dependant, error) {
+	return s.repo.GetDependants(ctx, employeeID)
+}
+
+func (s *PayrollService) CreateDependant(ctx context.Context, d *domain.Dependant) error {
+	return s.repo.CreateDependant(ctx, d)
+}
+
+func (s *PayrollService) DeleteDependant(ctx context.Context, id string) error {
+	return s.repo.DeleteDependant(ctx, id)
+}
+
+// ─── Timekeeping ────────────────────────────────────────────────
+
+func (s *PayrollService) CreateTimekeeping(ctx context.Context, t *domain.TimekeepingRecord) error {
+	return s.repo.CreateTimekeeping(ctx, t)
+}
+
+func (s *PayrollService) ListTimekeeping(ctx context.Context, employeeID, startDate, endDate string) ([]domain.TimekeepingRecord, error) {
+	return s.repo.ListTimekeeping(ctx, employeeID, startDate, endDate)
+}
+
+func (s *PayrollService) BulkCreateTimekeeping(ctx context.Context, records []domain.TimekeepingRecord) error {
+	return s.repo.BulkCreateTimekeeping(ctx, records)
+}
+
+// ─── Runs ───────────────────────────────────────────────────────
+
+func (s *PayrollService) UpdateRun(ctx context.Context, run *domain.PayrollRun) error {
+	return s.repo.UpdateRun(ctx, run)
+}
+
+// ─── Config ─────────────────────────────────────────────────────
+
+func (s *PayrollService) GetConfig(ctx context.Context, companyID, key string) (*domain.PayrollConfig, error) {
+	return s.repo.GetConfig(ctx, companyID, key)
+}
+
+func (s *PayrollService) SetConfig(ctx context.Context, c *domain.PayrollConfig) error {
+	return s.repo.SetConfig(ctx, c)
+}
+
 // ─── Helpers ────────────────────────────────────────────────────
 
 func generateID() string {

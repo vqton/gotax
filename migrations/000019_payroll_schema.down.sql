@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS payroll_config;
+DROP TABLE IF EXISTS payslips;
+DROP TABLE IF EXISTS leave_balances;
+DROP TABLE IF EXISTS leave_requests;
+DROP TABLE IF EXISTS timekeeping_records;
+DROP TABLE IF EXISTS payroll_runs;
+DROP TABLE IF EXISTS payroll_periods;
+DROP TABLE IF EXISTS salary_components;
+DROP TABLE IF EXISTS dependants;
+DROP TABLE IF EXISTS employee_payroll_info;
