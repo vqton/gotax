@@ -47,6 +47,14 @@ type MemoryPayrollRepo struct {
 
 	// Config
 	configs map[string]*domain.PayrollConfig
+
+	// Salary components
+	components   map[string]*domain.SalaryComponent
+	compByCompany map[string][]string
+
+	// Salary templates
+	templates   map[string]*domain.SalaryTemplate
+	tmplByCompany map[string][]string
 }
 
 func NewMemoryPayrollRepo() *MemoryPayrollRepo {
@@ -68,7 +76,11 @@ func NewMemoryPayrollRepo() *MemoryPayrollRepo {
 		payslips:       make(map[string]*domain.Payslip),
 		payslipByRun:   make(map[string]string),
 		payslipByPeriod: make(map[string][]string),
-		configs:        make(map[string]*domain.PayrollConfig),
+		configs:         make(map[string]*domain.PayrollConfig),
+		components:      make(map[string]*domain.SalaryComponent),
+		compByCompany:   make(map[string][]string),
+		templates:       make(map[string]*domain.SalaryTemplate),
+		tmplByCompany:   make(map[string][]string),
 	}
 }
 
@@ -493,5 +505,133 @@ func (r *MemoryPayrollRepo) SetConfig(_ context.Context, c *domain.PayrollConfig
 	k := fmt.Sprintf("%s:%s", c.CompanyID, c.ConfigKey)
 	cp := *c
 	r.configs[k] = &cp
+	return nil
+}
+
+// ─── Salary Components ──────────────────────────────────────────
+
+func (r *MemoryPayrollRepo) CreateComponent(_ context.Context, sc *domain.SalaryComponent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *sc
+	r.components[cp.ID] = &cp
+	r.compByCompany[cp.CompanyID] = append(r.compByCompany[cp.CompanyID], cp.ID)
+	return nil
+}
+
+func (r *MemoryPayrollRepo) GetComponent(_ context.Context, id string) (*domain.SalaryComponent, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	c, ok := r.components[id]
+	if !ok {
+		return nil, domain.ErrPayrollComponentNotFound
+	}
+	cp := *c
+	return &cp, nil
+}
+
+func (r *MemoryPayrollRepo) UpdateComponent(_ context.Context, sc *domain.SalaryComponent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.components[sc.ID]; !ok {
+		return domain.ErrPayrollComponentNotFound
+	}
+	cp := *sc
+	r.components[sc.ID] = &cp
+	return nil
+}
+
+func (r *MemoryPayrollRepo) ListComponents(_ context.Context, companyID string) ([]domain.SalaryComponent, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.compByCompany[companyID]
+	var result []domain.SalaryComponent
+	for _, id := range ids {
+		if c, ok := r.components[id]; ok {
+			result = append(result, *c)
+		}
+	}
+	return result, nil
+}
+
+func (r *MemoryPayrollRepo) DeleteComponent(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, ok := r.components[id]
+	if !ok {
+		return domain.ErrPayrollComponentNotFound
+	}
+	delete(r.components, id)
+	ids := r.compByCompany[c.CompanyID]
+	for i, uid := range ids {
+		if uid == id {
+			r.compByCompany[c.CompanyID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+// ─── Salary Templates ───────────────────────────────────────────
+
+func (r *MemoryPayrollRepo) CreateTemplate(_ context.Context, t *domain.SalaryTemplate) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tp := *t
+	r.templates[tp.ID] = &tp
+	r.tmplByCompany[tp.CompanyID] = append(r.tmplByCompany[tp.CompanyID], tp.ID)
+	return nil
+}
+
+func (r *MemoryPayrollRepo) GetTemplate(_ context.Context, id string) (*domain.SalaryTemplate, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.templates[id]
+	if !ok {
+		return nil, domain.ErrPayrollTemplateNotFound
+	}
+	tp := *t
+	return &tp, nil
+}
+
+func (r *MemoryPayrollRepo) UpdateTemplate(_ context.Context, t *domain.SalaryTemplate) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.templates[t.ID]; !ok {
+		return domain.ErrPayrollTemplateNotFound
+	}
+	tp := *t
+	r.templates[t.ID] = &tp
+	return nil
+}
+
+func (r *MemoryPayrollRepo) ListTemplates(_ context.Context, companyID string) ([]domain.SalaryTemplate, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.tmplByCompany[companyID]
+	var result []domain.SalaryTemplate
+	for _, id := range ids {
+		if t, ok := r.templates[id]; ok {
+			result = append(result, *t)
+		}
+	}
+	return result, nil
+}
+
+func (r *MemoryPayrollRepo) DeleteTemplate(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.templates[id]
+	if !ok {
+		return domain.ErrPayrollTemplateNotFound
+	}
+	delete(r.templates, id)
+	ids := r.tmplByCompany[t.CompanyID]
+	for i, uid := range ids {
+		if uid == id {
+			r.tmplByCompany[t.CompanyID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
 	return nil
 }

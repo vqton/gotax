@@ -382,3 +382,246 @@ func TestPayrollDeleteDependant_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// ─── Salary Components ──────────────────────────────────────────
+
+func TestPayrollCreateComponent_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"company_id":"CMP001","code":"BS","name":"Lương cơ bản","type":"INCOME","calculation":"FIXED","default_value":10000000,"is_taxable":true,"is_insurable":true}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/components", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var comp domain.SalaryComponent
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &comp))
+	assert.Equal(t, "BS", comp.Code)
+	assert.Equal(t, "INCOME", comp.Type)
+}
+
+func TestPayrollCreateComponent_Duplicate(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"company_id":"CMP001","code":"BS","name":"Lương cơ bản","type":"INCOME","calculation":"FIXED"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/components", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/payroll/components", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusConflict, w2.Code)
+}
+
+func TestPayrollListComponents_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	_ = svc.CreateComponent(testContext(), &domain.SalaryComponent{
+		CompanyID: "CMP001", Code: "BS", Name: "Lương cơ bản",
+		Type: "INCOME", Calculation: "FIXED", DefaultValue: 10_000_000,
+	})
+	_ = svc.CreateComponent(testContext(), &domain.SalaryComponent{
+		CompanyID: "CMP001", Code: "TA", Name: "Phụ cấp ăn trưa",
+		Type: "INCOME", Calculation: "FIXED", DefaultValue: 1_000_000,
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/components?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var comps []domain.SalaryComponent
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &comps))
+	assert.Len(t, comps, 2)
+}
+
+func TestPayrollUpdateComponent_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	comp := &domain.SalaryComponent{
+		CompanyID: "CMP001", Code: "BS", Name: "Lương cơ bản",
+		Type: "INCOME", Calculation: "FIXED", DefaultValue: 10_000_000,
+	}
+	_ = svc.CreateComponent(testContext(), comp)
+
+	body := `{"name":"Lương CB updated","default_value":12000000}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/payroll/components/"+comp.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestPayrollDeleteComponent_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	comp := &domain.SalaryComponent{
+		CompanyID: "CMP001", Code: "BS", Name: "Lương cơ bản",
+		Type: "INCOME", Calculation: "FIXED",
+	}
+	_ = svc.CreateComponent(testContext(), comp)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/components/"+comp.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestPayrollDeleteComponent_NotFound(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/components/nonexistent", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ─── Salary Templates ───────────────────────────────────────────
+
+func TestPayrollCreateTemplate_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"company_id":"CMP001","name":"Office Staff"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/templates", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var tmpl domain.SalaryTemplate
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tmpl))
+	assert.Equal(t, "Office Staff", tmpl.Name)
+}
+
+func TestPayrollCreateTemplate_Duplicate(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"company_id":"CMP001","name":"Office Staff"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/templates", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/payroll/templates", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusConflict, w2.Code)
+}
+
+func TestPayrollListTemplates_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	_ = svc.CreateTemplate(testContext(), &domain.SalaryTemplate{
+		CompanyID: "CMP001", Name: "Office Staff",
+	})
+	_ = svc.CreateTemplate(testContext(), &domain.SalaryTemplate{
+		CompanyID: "CMP001", Name: "Factory Worker",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/templates?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var tmpls []domain.SalaryTemplate
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tmpls))
+	assert.Len(t, tmpls, 2)
+}
+
+func TestPayrollUpdateTemplate_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	tmpl := &domain.SalaryTemplate{CompanyID: "CMP001", Name: "Office Staff"}
+	_ = svc.CreateTemplate(testContext(), tmpl)
+
+	body := `{"name":"Office Staff v2"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/payroll/templates/"+tmpl.ID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestPayrollDeleteTemplate_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	tmpl := &domain.SalaryTemplate{CompanyID: "CMP001", Name: "Office Staff"}
+	_ = svc.CreateTemplate(testContext(), tmpl)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/templates/"+tmpl.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestPayrollDeleteTemplate_NotFound(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/templates/nonexistent", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ─── Payslip PDF + Send ─────────────────────────────────────────
+
+func TestPayrollGetPayslipPDF_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	run := &domain.PayrollRun{
+		PeriodID:   period.ID,
+		EmployeeID: "NV001",
+		CompanyID:  "CMP001",
+		BaseSalary: 10_000_000,
+		NetPay:     8_500_000,
+	}
+	_ = svc.CreateRun(testContext(), run)
+	payslip, _ := svc.GeneratePayslip(testContext(), run.ID)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/payslips/"+payslip.RunID+"/pdf", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/pdf", w.Header().Get("Content-Type"))
+	assert.True(t, w.Body.Len() > 100) // PDF has content
+}
+
+func TestPayrollGetPayslipPDF_NotFound(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/payslips/nonexistent/pdf", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPayrollSendPayslip_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	run := &domain.PayrollRun{
+		PeriodID:   period.ID,
+		EmployeeID: "NV001",
+		CompanyID:  "CMP001",
+		BaseSalary: 10_000_000,
+	}
+	_ = svc.CreateRun(testContext(), run)
+	payslip, _ := svc.GeneratePayslip(testContext(), run.ID)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/payslips/"+payslip.RunID+"/send", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "payslip sent")
+}
+
+func TestPayrollSendPayslip_NotFound(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/payslips/nonexistent/send", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

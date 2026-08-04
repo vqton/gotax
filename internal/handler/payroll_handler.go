@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -57,6 +58,20 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		// Payslips
 		pw.GET("/payslips", h.ListPayslipsByPeriod)
 		pw.GET("/payslips/:id", h.GetPayslip)
+		pw.GET("/payslips/:id/pdf", h.GetPayslipPDF)
+		pw.POST("/payslips/:id/send", h.SendPayslip)
+
+		// Salary components
+		pw.GET("/components", h.ListComponents)
+		pw.POST("/components", h.CreateComponent)
+		pw.PUT("/components/:id", h.UpdateComponent)
+		pw.DELETE("/components/:id", h.DeleteComponent)
+
+		// Salary templates
+		pw.GET("/templates", h.ListTemplates)
+		pw.POST("/templates", h.CreateTemplate)
+		pw.PUT("/templates/:id", h.UpdateTemplate)
+		pw.DELETE("/templates/:id", h.DeleteTemplate)
 
 		// Config
 		pw.GET("/config", h.GetConfig)
@@ -72,9 +87,14 @@ func (h *PayrollHandler) payrollError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrPayrollDependantNotFound),
 		errors.Is(err, domain.ErrPayrollLeaveNotFound),
 		errors.Is(err, domain.ErrPayrollPayslipNotFound),
-		errors.Is(err, domain.ErrPayrollConfigNotFound):
+		errors.Is(err, domain.ErrPayrollConfigNotFound),
+		errors.Is(err, domain.ErrPayrollComponentNotFound),
+		errors.Is(err, domain.ErrPayrollTemplateNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodExists):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrPayrollComponentExists),
+		errors.Is(err, domain.ErrPayrollTemplateExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodNotDraft),
 		errors.Is(err, domain.ErrPayrollLeaveAlreadyProcessed):
@@ -340,6 +360,25 @@ func (h *PayrollHandler) GetPayslip(c *gin.Context) {
 	c.JSON(http.StatusOK, payslip)
 }
 
+func (h *PayrollHandler) GetPayslipPDF(c *gin.Context) {
+	pdfBytes, err := h.svc.GeneratePayslipPDF(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=payslip-%s.pdf", c.Param("id")))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func (h *PayrollHandler) SendPayslip(c *gin.Context) {
+	if err := h.svc.SendPayslip(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "payslip sent"})
+}
+
 // ─── Summary ────────────────────────────────────────────────────
 
 func (h *PayrollHandler) GetPeriodSummary(c *gin.Context) {
@@ -375,4 +414,98 @@ func (h *PayrollHandler) SetConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, cfg)
+}
+
+// ─── Salary Components ──────────────────────────────────────────
+
+func (h *PayrollHandler) ListComponents(c *gin.Context) {
+	companyID := c.Query("company_id")
+	components, err := h.svc.ListComponents(c.Request.Context(), companyID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, components)
+}
+
+func (h *PayrollHandler) CreateComponent(c *gin.Context) {
+	var sc domain.SalaryComponent
+	if err := c.ShouldBindJSON(&sc); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.CreateComponent(c.Request.Context(), &sc); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, sc)
+}
+
+func (h *PayrollHandler) UpdateComponent(c *gin.Context) {
+	var sc domain.SalaryComponent
+	if err := c.ShouldBindJSON(&sc); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sc.ID = c.Param("id")
+	if err := h.svc.UpdateComponent(c.Request.Context(), &sc); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, sc)
+}
+
+func (h *PayrollHandler) DeleteComponent(c *gin.Context) {
+	if err := h.svc.DeleteComponent(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
+}
+
+// ─── Salary Templates ───────────────────────────────────────────
+
+func (h *PayrollHandler) ListTemplates(c *gin.Context) {
+	companyID := c.Query("company_id")
+	templates, err := h.svc.ListTemplates(c.Request.Context(), companyID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, templates)
+}
+
+func (h *PayrollHandler) CreateTemplate(c *gin.Context) {
+	var t domain.SalaryTemplate
+	if err := c.ShouldBindJSON(&t); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.CreateTemplate(c.Request.Context(), &t); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, t)
+}
+
+func (h *PayrollHandler) UpdateTemplate(c *gin.Context) {
+	var t domain.SalaryTemplate
+	if err := c.ShouldBindJSON(&t); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	t.ID = c.Param("id")
+	if err := h.svc.UpdateTemplate(c.Request.Context(), &t); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, t)
+}
+
+func (h *PayrollHandler) DeleteTemplate(c *gin.Context) {
+	if err := h.svc.DeleteTemplate(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
 }

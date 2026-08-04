@@ -304,3 +304,67 @@ func (r *PGPayrollRepo) SetConfig(ctx context.Context, c *domain.PayrollConfig) 
 	c.CreatedAt = time.Now()
 	return r.db.WithContext(ctx).Create(c).Error
 }
+
+// ─── Salary Components ──────────────────────────────────────────
+
+func (r *PGPayrollRepo) CreateComponent(ctx context.Context, sc *domain.SalaryComponent) error {
+	sc.CreatedAt = time.Now()
+	return r.db.WithContext(ctx).Create(sc).Error
+}
+
+func (r *PGPayrollRepo) GetComponent(ctx context.Context, id string) (*domain.SalaryComponent, error) {
+	var c domain.SalaryComponent
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (r *PGPayrollRepo) UpdateComponent(ctx context.Context, sc *domain.SalaryComponent) error {
+	return r.db.WithContext(ctx).Where("id = ?", sc.ID).Updates(sc).Error
+}
+
+func (r *PGPayrollRepo) ListComponents(ctx context.Context, companyID string) ([]domain.SalaryComponent, error) {
+	var components []domain.SalaryComponent
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).
+		Order("code").Find(&components).Error; err != nil {
+		return nil, err
+	}
+	return components, nil
+}
+
+func (r *PGPayrollRepo) DeleteComponent(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.SalaryComponent{}).Error
+}
+
+// ─── Salary Templates ───────────────────────────────────────────
+
+func (r *PGPayrollRepo) CreateTemplate(ctx context.Context, t *domain.SalaryTemplate) error {
+	t.CreatedAt = time.Now()
+	return r.db.WithContext(ctx).Create(t).Error
+}
+
+func (r *PGPayrollRepo) GetTemplate(ctx context.Context, id string) (*domain.SalaryTemplate, error) {
+	var t domain.SalaryTemplate
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&t).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (r *PGPayrollRepo) UpdateTemplate(ctx context.Context, t *domain.SalaryTemplate) error {
+	return r.db.WithContext(ctx).Where("id = ?", t.ID).Updates(t).Error
+}
+
+func (r *PGPayrollRepo) ListTemplates(ctx context.Context, companyID string) ([]domain.SalaryTemplate, error) {
+	var templates []domain.SalaryTemplate
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).
+		Order("name").Find(&templates).Error; err != nil {
+		return nil, err
+	}
+	return templates, nil
+}
+
+func (r *PGPayrollRepo) DeleteTemplate(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.SalaryTemplate{}).Error
+}

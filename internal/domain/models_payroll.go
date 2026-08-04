@@ -262,3 +262,38 @@ type PayrollSummary struct {
 	TotalUI           float64 `json:"total_ui"`
 	TotalPIT          float64 `json:"total_pit"`
 }
+
+// SalaryComponent defines a pay/deduction component.
+type SalaryComponent struct {
+	ID           string    `json:"id"`
+	CompanyID    string    `json:"company_id"`
+	Code         string    `json:"code"`
+	Name         string    `json:"name"`
+	Type         string    `json:"type"`       // INCOME, DEDUCTION, EMPLOYER_COST
+	Calculation  string    `json:"calculation"` // FIXED, PERCENTAGE, FORMULA
+	Formula      string    `json:"formula,omitempty"`
+	DefaultValue float64   `json:"default_value"`
+	IsTaxable    bool      `json:"is_taxable"`
+	IsInsurable  bool      `json:"is_insurable"`
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// SalaryTemplate groups components for a role/department.
+type SalaryTemplate struct {
+	ID          string                    `json:"id"`
+	CompanyID   string                    `json:"company_id"`
+	Name        string                    `json:"name"`
+	Components  []SalaryTemplateComponent `json:"components,omitempty"`
+	CreatedAt   time.Time                 `json:"created_at"`
+}
+
+// SalaryTemplateComponent links a template to a component with defaults.
+type SalaryTemplateComponent struct {
+	ID               string  `json:"id"`
+	SalaryTemplateID string  `json:"salary_template_id"`
+	ComponentID      string  `json:"component_id"`
+	DefaultValue     float64 `json:"default_value"`
+	Formula          string  `json:"formula,omitempty"`
+	Order            int     `json:"order"`
+}

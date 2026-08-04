@@ -19,4 +19,8 @@ var (
 	ErrPayrollInvalidPeriod      = errors.New("invalid payroll period")
 	ErrPayrollNoEmployees        = errors.New("no employees to process")
 	ErrPayrollConfigNotFound     = errors.New("payroll config not found")
+	ErrPayrollComponentNotFound  = errors.New("salary component not found")
+	ErrPayrollComponentExists    = errors.New("salary component code already exists")
+	ErrPayrollTemplateNotFound   = errors.New("salary template not found")
+	ErrPayrollTemplateExists     = errors.New("salary template name already exists")
 )

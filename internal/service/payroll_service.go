@@ -3,7 +3,18 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"time"
+
+	"github.com/johnfercher/maroto/v2"
+	"github.com/johnfercher/maroto/v2/pkg/components/col"
+	"github.com/johnfercher/maroto/v2/pkg/components/row"
+	"github.com/johnfercher/maroto/v2/pkg/components/text"
+	"github.com/johnfercher/maroto/v2/pkg/config"
+	"github.com/johnfercher/maroto/v2/pkg/consts/align"
+	"github.com/johnfercher/maroto/v2/pkg/consts/fontstyle"
+	"github.com/johnfercher/maroto/v2/pkg/core"
+	"github.com/johnfercher/maroto/v2/pkg/props"
 
 	"gotax/internal/domain"
 )
@@ -60,6 +71,20 @@ type PayrollRepository interface {
 	// Config
 	GetConfig(ctx context.Context, companyID, key string) (*domain.PayrollConfig, error)
 	SetConfig(ctx context.Context, c *domain.PayrollConfig) error
+
+	// Salary components
+	CreateComponent(ctx context.Context, sc *domain.SalaryComponent) error
+	GetComponent(ctx context.Context, id string) (*domain.SalaryComponent, error)
+	UpdateComponent(ctx context.Context, sc *domain.SalaryComponent) error
+	ListComponents(ctx context.Context, companyID string) ([]domain.SalaryComponent, error)
+	DeleteComponent(ctx context.Context, id string) error
+
+	// Salary templates
+	CreateTemplate(ctx context.Context, t *domain.SalaryTemplate) error
+	GetTemplate(ctx context.Context, id string) (*domain.SalaryTemplate, error)
+	UpdateTemplate(ctx context.Context, t *domain.SalaryTemplate) error
+	ListTemplates(ctx context.Context, companyID string) ([]domain.SalaryTemplate, error)
+	DeleteTemplate(ctx context.Context, id string) error
 }
 
 // ─── Service ────────────────────────────────────────────────────
@@ -290,6 +315,193 @@ func (s *PayrollService) GetConfig(ctx context.Context, companyID, key string) (
 
 func (s *PayrollService) SetConfig(ctx context.Context, c *domain.PayrollConfig) error {
 	return s.repo.SetConfig(ctx, c)
+}
+
+// ─── Salary Components ──────────────────────────────────────────
+
+func (s *PayrollService) CreateComponent(ctx context.Context, sc *domain.SalaryComponent) error {
+	components, _ := s.repo.ListComponents(ctx, sc.CompanyID)
+	for _, c := range components {
+		if c.Code == sc.Code {
+			return domain.ErrPayrollComponentExists
+		}
+	}
+	sc.ID = generateID()
+	sc.IsActive = true
+	sc.CreatedAt = time.Now()
+	return s.repo.CreateComponent(ctx, sc)
+}
+
+func (s *PayrollService) GetComponent(ctx context.Context, id string) (*domain.SalaryComponent, error) {
+	return s.repo.GetComponent(ctx, id)
+}
+
+func (s *PayrollService) UpdateComponent(ctx context.Context, sc *domain.SalaryComponent) error {
+	existing, err := s.repo.GetComponent(ctx, sc.ID)
+	if err != nil {
+		return err
+	}
+	_ = existing
+	return s.repo.UpdateComponent(ctx, sc)
+}
+
+func (s *PayrollService) ListComponents(ctx context.Context, companyID string) ([]domain.SalaryComponent, error) {
+	return s.repo.ListComponents(ctx, companyID)
+}
+
+func (s *PayrollService) DeleteComponent(ctx context.Context, id string) error {
+	_, err := s.repo.GetComponent(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteComponent(ctx, id)
+}
+
+// ─── Salary Templates ───────────────────────────────────────────
+
+func (s *PayrollService) CreateTemplate(ctx context.Context, t *domain.SalaryTemplate) error {
+	templates, _ := s.repo.ListTemplates(ctx, t.CompanyID)
+	for _, existing := range templates {
+		if existing.Name == t.Name {
+			return domain.ErrPayrollTemplateExists
+		}
+	}
+	t.ID = generateID()
+	t.CreatedAt = time.Now()
+	return s.repo.CreateTemplate(ctx, t)
+}
+
+func (s *PayrollService) GetTemplate(ctx context.Context, id string) (*domain.SalaryTemplate, error) {
+	return s.repo.GetTemplate(ctx, id)
+}
+
+func (s *PayrollService) UpdateTemplate(ctx context.Context, t *domain.SalaryTemplate) error {
+	_, err := s.repo.GetTemplate(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateTemplate(ctx, t)
+}
+
+func (s *PayrollService) ListTemplates(ctx context.Context, companyID string) ([]domain.SalaryTemplate, error) {
+	return s.repo.ListTemplates(ctx, companyID)
+}
+
+func (s *PayrollService) DeleteTemplate(ctx context.Context, id string) error {
+	_, err := s.repo.GetTemplate(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteTemplate(ctx, id)
+}
+
+// ─── Payslip PDF ────────────────────────────────────────────────
+
+func (s *PayrollService) GeneratePayslipPDF(ctx context.Context, runID string) ([]byte, error) {
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	payslip, err := s.repo.GetPayslipByRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := config.NewBuilder().
+		WithPageSize("A4").
+		WithLeftMargin(15).
+		WithTopMargin(15).
+		WithRightMargin(15).
+		WithBottomMargin(15).
+		Build()
+
+	m := maroto.New(cfg)
+
+	// Header
+	m.AddRows(
+		row.New(10).Add(
+			text.NewCol(12, fmt.Sprintf("PAYSLIP — %s", payslip.PayslipNo),
+				props.Text{Style: fontstyle.Bold, Size: 16, Align: align.Center}),
+		),
+		row.New(1).Add(col.New(12)),
+	)
+
+	// Employee info
+	m.AddRows(
+		row.New(6).Add(
+			text.NewCol(4, "Employee:", props.Text{Style: fontstyle.Bold, Size: 9}),
+			text.NewCol(8, run.EmployeeID, props.Text{Size: 9}),
+		),
+		row.New(6).Add(
+			text.NewCol(4, "Period:", props.Text{Style: fontstyle.Bold, Size: 9}),
+			text.NewCol(8, fmt.Sprintf("%d/%d", 0, 0), props.Text{Size: 9}),
+		),
+		row.New(1).Add(col.New(12)),
+	)
+
+	// Income section
+	m.AddRows(
+		row.New(6).Add(
+			text.NewCol(12, "INCOME", props.Text{Style: fontstyle.Bold, Size: 10}),
+		),
+		payslipLine("Base Salary", run.BaseSalary),
+		payslipLine("Overtime Pay", run.OTPay),
+		payslipLine("Night Shift Pay", run.NightShiftPay),
+		payslipLine("Leave Pay", run.LeavePay),
+		payslipLine("Holiday Pay", run.HolidayPay),
+		payslipLine("Allowances", run.Allowances),
+		payslipLine("Bonuses", run.Bonuses),
+		payslipLine("Other Income", run.OtherIncome),
+		payslipLine("GROSS SALARY", run.GrossSalary),
+		row.New(1).Add(col.New(12)),
+	)
+
+	// Deductions section
+	m.AddRows(
+		row.New(6).Add(
+			text.NewCol(12, "DEDUCTIONS", props.Text{Style: fontstyle.Bold, Size: 10}),
+		),
+		payslipLine("Social Insurance", run.SIDeduction),
+		payslipLine("Health Insurance", run.HIDeduction),
+		payslipLine("Unemployment Insurance", run.UIDeduction),
+		payslipLine("Trade Union Dues", run.TradeUnionDues),
+		payslipLine("Personal Income Tax", run.PITAmount),
+		payslipLine("Other Deductions", run.OtherDeductions),
+		payslipLine("TOTAL DEDUCTIONS", run.TotalDeductions),
+		row.New(1).Add(col.New(12)),
+	)
+
+	// Net pay
+	m.AddRows(
+		row.New(8).Add(
+			text.NewCol(12, fmt.Sprintf("NET PAY: %.0f VND", run.NetPay),
+				props.Text{Style: fontstyle.Bold, Size: 14, Align: align.Center}),
+		),
+	)
+
+	doc, err := m.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate payslip pdf: %w", err)
+	}
+	return doc.GetBytes(), nil
+}
+
+func payslipLine(label string, amount float64) core.Row {
+	return row.New(5).Add(
+		text.NewCol(8, label, props.Text{Size: 9}),
+		text.NewCol(4, fmt.Sprintf("%.0f", amount), props.Text{Size: 9, Align: align.Right}),
+	)
+}
+
+func (s *PayrollService) SendPayslip(ctx context.Context, runID string) error {
+	payslip, err := s.repo.GetPayslipByRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	payslip.SentAt = &now
+	return s.repo.CreatePayslip(ctx, payslip)
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
