@@ -625,6 +625,15 @@ func (s *SaleService) PostCN(ctx context.Context, id string) error {
 		ReferenceType:   "credit_notes",
 		ReferenceID:     cn.ID,
 	})
+	// S3: reduce original invoice BalanceDue
+	if cn.OriginalInvoiceID != "" {
+		if err := s.invRepo.ReduceInvoiceBalance(ctx, cn.OriginalInvoiceID, cn.TotalAmount); err == nil {
+			origInv, err2 := s.invRepo.GetInvoice(ctx, cn.OriginalInvoiceID)
+			if err2 == nil && origInv.BalanceDue <= 0 {
+				_ = s.invRepo.UpdateInvoiceStatus(ctx, cn.OriginalInvoiceID, domain.SInvPaid)
+			}
+		}
+	}
 	return nil
 }
 

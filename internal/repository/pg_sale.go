@@ -1028,6 +1028,12 @@ func (r *PGCustomerInvoiceRepo) AllocateToInvoice(ctx context.Context, invoiceID
 	}).Error
 }
 
+func (r *PGCustomerInvoiceRepo) ReduceInvoiceBalance(ctx context.Context, invoiceID string, amount float64) error {
+	return r.db.WithContext(ctx).Model(&domain.CustomerInvoiceGORM{}).Where("id = ?", invoiceID).Updates(map[string]interface{}{
+		"balance_due": gorm.Expr("GREATEST(balance_due - ?, 0)", amount),
+	}).Error
+}
+
 func (r *PGCustomerInvoiceRepo) GetInvoiceLines(ctx context.Context, invoiceID string) ([]domain.InvLine, error) {
 	var gs []domain.InvLineGORM
 	if err := r.db.WithContext(ctx).Where("invoice_id = ?", invoiceID).Find(&gs).Error; err != nil {

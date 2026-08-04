@@ -623,3 +623,121 @@ func TestPostCN_CreatesARTransaction(t *testing.T) {
 	}
 	assert.True(t, found, "expected AR transaction for credit note")
 }
+
+// ─── S3: CN → invoice BalanceDue ───────────────────────────────────────
+
+func TestPostCN_ReducesInvoiceBalanceDue_Full(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-2026-0020",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 10, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.invRepo.PostInvoice(ctx, inv.ID, time.Now().UTC()))
+
+	// Verify BalanceDue = 5000
+	invFresh, _ := svc.invRepo.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, 5000.0, invFresh.BalanceDue)
+
+	// Full CN (entire amount)
+	cn := &domain.CreditNote{
+		CompanyID: "co1", CNNumber: "CN-2026-0010",
+		OriginalInvoiceID: inv.ID, CustomerID: "c1",
+		ReturnDate: time.Now().UTC(), ReturnType: domain.RetFull,
+		Status: domain.CNDraft,
+		Lines: []domain.CNLine{{
+			ItemName: "Widget", Unit: "pcs",
+			Quantity: 10, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateCN(ctx, cn))
+	require.NoError(t, svc.PostCN(ctx, cn.ID))
+
+	invAfter, _ := svc.invRepo.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, 0.0, invAfter.BalanceDue)
+	assert.Equal(t, domain.SInvPaid, invAfter.Status)
+}
+
+func TestPostCN_ReducesInvoiceBalanceDue_Partial(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-2026-0021",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 10, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.invRepo.PostInvoice(ctx, inv.ID, time.Now().UTC()))
+
+	cn := &domain.CreditNote{
+		CompanyID: "co1", CNNumber: "CN-2026-0011",
+		OriginalInvoiceID: inv.ID, CustomerID: "c1",
+		ReturnDate: time.Now().UTC(), ReturnType: domain.RetPartial,
+		Status: domain.CNDraft,
+		Lines: []domain.CNLine{{
+			ItemName: "Widget", Unit: "pcs",
+			Quantity: 2, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateCN(ctx, cn))
+	require.NoError(t, svc.PostCN(ctx, cn.ID))
+
+	invAfter, _ := svc.invRepo.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, 4000.0, invAfter.BalanceDue) // 5000 - 1000
+	assert.NotEqual(t, domain.SInvPaid, invAfter.Status)
+}
+
+func TestPostCN_BalanceDueFloorZero(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-2026-0022",
+		CustomerID: "c1", InvoiceDate: time.Now().UTC(),
+		CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		Currency: "VND", Status: domain.SInvDraft,
+		Lines: []domain.InvLine{{
+			RevenueAccount: "5111", VATAccountID: "33311",
+			Quantity: 5, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateInvoice(ctx, inv))
+	require.NoError(t, svc.invRepo.PostInvoice(ctx, inv.ID, time.Now().UTC()))
+
+	// Partial payment reduces to 2000
+	require.NoError(t, svc.invRepo.AllocateToInvoice(ctx, inv.ID, 500))
+	invPart, _ := svc.invRepo.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, 2000.0, invPart.BalanceDue)
+
+	// CN for 5000 (exceeds balance) → floor at 0
+	cn := &domain.CreditNote{
+		CompanyID: "co1", CNNumber: "CN-2026-0012",
+		OriginalInvoiceID: inv.ID, CustomerID: "c1",
+		ReturnDate: time.Now().UTC(), ReturnType: domain.RetFull,
+		Status: domain.CNDraft,
+		Lines: []domain.CNLine{{
+			ItemName: "Widget", Unit: "pcs",
+			Quantity: 10, UnitPrice: 500, VATRate: 0,
+		}},
+	}
+	require.NoError(t, svc.CreateCN(ctx, cn))
+	require.NoError(t, svc.PostCN(ctx, cn.ID))
+
+	invAfter, _ := svc.invRepo.GetInvoice(ctx, inv.ID)
+	assert.Equal(t, 0.0, invAfter.BalanceDue) // floored
+	assert.Equal(t, domain.SInvPaid, invAfter.Status)
+}

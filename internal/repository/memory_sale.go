@@ -690,6 +690,23 @@ func (r *MemorySaleRepo) AllocateToInvoice(_ context.Context, invoiceID string, 
 	}
 	inv.AmountReceived += amount
 	inv.BalanceDue -= amount
+	if inv.BalanceDue < 0 {
+		inv.BalanceDue = 0
+	}
+	return nil
+}
+
+func (r *MemorySaleRepo) ReduceInvoiceBalance(_ context.Context, invoiceID string, amount float64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inv, ok := r.invoices[invoiceID]
+	if !ok {
+		return domain.ErrInvNotFound
+	}
+	inv.BalanceDue -= amount
+	if inv.BalanceDue < 0 {
+		inv.BalanceDue = 0
+	}
 	return nil
 }
 
