@@ -251,13 +251,13 @@ GTGT-01/TNDN-01/KK-TNCN per Circular 80 + HTKK wrapper. Depends on A5.
 
 | # | Slice | Files | Deps |
 |---|-------|-------|------|
-| S1 | Versioned migration `000017_sale_schema.up/down.sql` — 13 tables mirroring models_gorm_sale*.go + legacy 006 | migrations/ | — |
-| S2 | AR txn auto-population: PostInvoice (invoice), PostReceipt (receipt), PostCN (credit_note) + ARSummary correctness tests | sale_service.go, ar_service_test.go | — |
-| S3 | CN → BalanceDue reduction on PostCN (cap at balance; invoice → PAID at zero) + tests | sale_service.go + tests | S2 |
-| S4 | Delivery integrity: over-delivery tolerance (default 5%, per-DN override), SO status progression (PROCESSING→DELIVERED on PostDN full/partial, DELIVERED→INVOICED on PostInvoice), back-order = partial delivered | models_sale.go, sale_service.go + tests | — |
-| S5 | COGS on delivery: PostDN GL entry Dr 632 / Cr 156 per DNLine.CostPrice (skip zero-cost), SetDNGLPosted? (add repo method if needed) + tests | sale_service.go, interfaces.go, repos ×2 + tests | S4 |
-| S6 | Reports: S01-BH (sales ledger per customer/period), S02-BH (AR subledger per customer), S03-BH (goods sales ledger per item), VAT output tracking, unbilled delivery (posted DN w/o invoice) + routes + /ar/recon route | models_sale.go, sale_service.go, sale_handler.go + tests | S2,S3 |
-| S7 | Auto-numbering endpoints: GET /sale/orders/next-number, /deliveries/next-number, /invoices/next-number | sale_handler.go + tests | — |
+| S1 ✅ | Versioned migration `000017_sale_schema.up/down.sql` — 13 tables mirroring models_gorm_sale*.go + legacy 006 | migrations/ | — |
+| S2 ✅ | AR txn auto-population: PostInvoice (invoice), PostReceipt (receipt), PostCN (credit_note) + ARSummary correctness tests | sale_service.go, ar_service_test.go | — |
+| S3 ✅ | CN → BalanceDue reduction on PostCN (cap at balance; invoice → PAID at zero) + tests | sale_service.go + tests | S2 ✅ |
+| S4 ✅ | Delivery integrity: over-delivery tolerance (default 5%, per-DN override), SO status progression (PROCESSING→DELIVERED on PostDN full/partial, DELIVERED→INVOICED on PostInvoice), back-order = partial delivered | models_sale.go, sale_service.go + tests | — |
+| S5 ✅ | COGS on delivery: PostDN GL entry Dr 632 / Cr 156 per DNLine.CostPrice (skip zero-cost), SetDNGLPosted? (add repo method if needed) + tests | sale_service.go, interfaces.go, repos ×2 + tests | S4 ✅ |
+| S6 ✅ | Reports: S01-BH (sales ledger per customer/period), S02-BH (AR subledger per customer), S03-BH (goods sales ledger per item), VAT output tracking, unbilled delivery (posted DN w/o invoice) + routes + /ar/recon route | models_sale.go, sale_service.go, sale_handler.go + tests | S2,S3 |
+| S7 ✅ | Auto-numbering endpoints: GET /sale/orders/next-number, /deliveries/next-number, /invoices/next-number | sale_handler.go + tests | — |
 | S8 | Docs: AGENTS.md module table (Sale → status), BRD "ZERO" note, plan.md checkpoints | docs | all |
 
 ## Architecture Decisions
@@ -272,16 +272,16 @@ GTGT-01/TNDN-01/KK-TNCN per Circular 80 + HTKK wrapper. Depends on A5.
 
 ## Checkpoints
 
-- S1: migration file consistency check vs GORM structs (no unit test — manual verify), commit
-- S2-S7: `go vet ./... && go test -count=1 ./...` green, commit each
-- S8: docs + AGENTS.md + todo.md, commit
-- Final: code-review-and-quality skill pass over sale diff; benchmark note vs FAST/MISA/Bravo in docs
+- S1-S7: `go vet ./... && go test -count=1 ./...` green, commit each ✅
+- S8: docs + AGENTS.md + todo.md, commit ✅
+- Final: code-review-and-quality 5-axis pass — APPROVE (2 Required spec gaps noted, no Critical)
+- Benchmark note: SALES_READINESS.md updated; 8 P0 capabilities now ✅ vs MISA/FAST/Bravo
 
 ## Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Migration drift vs GORM columns | Med | S1 cross-check field-by-field vs models_gorm_sale*.go |
+| Migration drift vs GORM columns | Med | S1 ✅ cross-check field-by-field vs models_gorm_sale*.go |
 | AR txn double-write (post twice) | Med | Guard: only create txn in DRAFT→POSTED transition; tests |
 | CN > BalanceDue | Med | Cap at BalanceDue; leftover → credit balance (ARTransOffset semantics) |
 | Tolerance regression on existing tests | Low | Existing handler tests use exact qty; default 5% allows equal |

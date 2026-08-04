@@ -25,29 +25,29 @@ Existing related code that can be leveraged:
 
 | Capability | MISA | FAST | Bravo ERP | GoTax (Current) | Priority |
 |------------|------|------|-----------|-----------------|----------|
-| Customer master | ✅ | ✅ | ✅ | ❌ | P0 |
+| Customer master | ✅ | ✅ | ✅ | ✅ | P0 |
 | Customer classification | ✅ | ✅ | ✅ | ❌ | P0 |
-| Sales quotation | ✅ | ✅ | ✅ | ❌ | P2 |
-| Sales order | ✅ | ✅ | ✅ | ❌ | P0 |
-| SO approval workflow | ✅ | ✅ | ✅ | ❌ | P0 |
-| Credit limit check | ✅ | ✅ | ✅ | ❌ | P1 |
+| Sales quotation | ✅ | ✅ | ✅ | ✅ | P2 |
+| Sales order | ✅ | ✅ | ✅ | ✅ | P0 |
+| SO approval workflow | ✅ | ✅ | ✅ | ✅ | P0 |
+| Credit limit check | ✅ | ✅ | ✅ | ✅ | P1 |
 | Inventory availability | ✅ | ✅ | ✅ | ❌ | P1 |
-| Delivery note | ✅ | ✅ | ✅ | ❌ | P0 |
-| COGS auto-posting | ✅ | ✅ | ✅ | ❌ | P0 |
+| Delivery note | ✅ | ✅ | ✅ | ✅ | P0 |
+| COGS auto-posting | ✅ | ✅ | ✅ | ✅ | P0 |
 | E-invoice (TXML + GDT) | ✅ | ✅ | ✅ | ❌ | P0 |
 | E-invoice signing (XMLDSig) | ✅ | ✅ | ✅ | ❌ | P0 |
-| VAT output tracking | ✅ | ✅ | ✅ | ❌ | P0 |
-| AR management | ✅ | ✅ | ✅ | ❌ | P0 |
-| AR aging report | ✅ | ✅ | ✅ | ❌ | P0 |
-| Customer receipt | ✅ | ✅ | ✅ | ❌ | P0 |
-| Payment allocation | ✅ | ✅ | ✅ | ❌ | P0 |
-| Credit note / sales return | ✅ | ✅ | ✅ | ❌ | P0 |
+| VAT output tracking | ✅ | ✅ | ✅ | ✅ | P0 |
+| AR management | ✅ | ✅ | ✅ | ✅ | P0 |
+| AR aging report | ✅ | ✅ | ✅ | ✅ | P0 |
+| Customer receipt | ✅ | ✅ | ✅ | ✅ | P0 |
+| Payment allocation | ✅ | ✅ | ✅ | ✅ | P0 |
+| Credit note / sales return | ✅ | ✅ | ✅ | ✅ | P0 |
 | Corrective invoice | ✅ | ✅ | ✅ | ❌ | P0 |
 | Prepayment / deposit | ✅ | ✅ | ✅ | ❌ | P0 |
 | Dunning / reminder | ✅ | ✅ | ✅ | ❌ | P2 |
-| Customer statement | ✅ | ✅ | ✅ | ❌ | P1 |
-| S01-BH / S02-BH / S03-BH | ✅ | ✅ | ✅ | ❌ | P0 |
-| Sales by item / customer | ✅ | ✅ | ✅ | ❌ | P1 |
+| Customer statement | ✅ | ✅ | ✅ | ✅ | P1 |
+| S01-BH / S02-BH / S03-BH | ✅ | ✅ | ✅ | ✅ | P0 |
+| Sales by item / customer | ✅ | ✅ | ✅ | ✅ | P1 |
 | Price list / tiered pricing | ✅ | ✅ | ✅ | ❌ | P1 |
 | Sales commission | ✅ | ✅ | ✅ | ❌ | P2 |
 | DSO calculation | ✅ | ✅ | ✅ | ❌ | P2 |

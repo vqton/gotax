@@ -123,7 +123,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000016_declaration_gdt`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000018_sale_dn_gl_posted`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -175,7 +175,7 @@ When adding a new module that uses the validator: register custom validators in 
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
 | Tax | ~40% | Rate resolver + VAT/CIT/PIT engines (rate-table), declaration engine (GL→GTGT01/TNDN03, cross-validation), declaration→payment automation (due dates). Missing: form XML gen, GDT API push, e-invoice engine |
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 67 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
-| Sale | ~0% | Interface + PG + memory repos. Service incomplete |
+| Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn + aging/summary/statement/recon. GL auto-posting (invoice/receipt/CN/COGS), delivery tolerance, SO status progression, FR-9 reports (S01/S02/S03-BH, VAT output, unbilled), auto-numbering, migration 000017+000018. Missing: e-invoice TXML (deferred), GDT push |
 | Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
 
 Full tax/purchase/warehouse specs at `docs/`.

@@ -11,7 +11,7 @@
 
 Sale module manages the complete Order-to-Cash (O2C) cycle: from customer inquiry through sales order, delivery, invoicing, AR tracking, and customer payment collection. Vietnamese tax compliance requires strict e-invoice issuance (Decree 123 + Decree 254), VAT output tracking, and revenue recognition per Circular 99 accounts (511, 131, 3331, 521, 632).
 
-**GoTax currently has ZERO sale functionality.** This BRD defines requirements for building P0 (must-have) features for PROD launch.
+**Implementation status (2026-08-04):** P0 scope implemented (S1-S7, see tasks/plan.md) — GL auto-posting, delivery tolerance, AR/reports, auto-numbering. Remaining P1/P2: sale e-invoice TXML (deferred), GDT API push.
 
 ---
 
