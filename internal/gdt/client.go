@@ -9,9 +9,13 @@
 //	POST {base}/api/invoice/cancel   {"transaction_id": "...", "reason": "..."}
 //	      200 → 200
 //	POST {base}/api/submission/declare   {"xml": "...", "cert_id": "..."}
-//	      200 → {"submission_id","status","ack_ref","message"}
+//	      200 → {"submission_id","status","code","ack_ref","message"}
 //	GET  {base}/api/submission/status?id=...
-//	      200 → {"status","ack_ref","message"}
+//	      200 → {"status","code","ack_ref","message"}
+//
+// Errors are mapped to domain errors at this boundary so callers never see
+// transport details: 401/403 → ErrGDTUnauthorized, 404/4xx → ErrGDTRejected,
+// 5xx/network → ErrGDTUnavailable.
 //
 // Retry policy: 5xx and network errors are retried with backoff
 // (1s/5s/30s by default, max 3 attempts). 4xx are terminal.
@@ -21,23 +25,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
-)
 
-var (
-	// ErrUpstream — GDT unreachable or persistently failing (5xx/network).
-	ErrUpstream = errors.New("gdt: upstream error")
-	// ErrUnauthorized — 401, no retry.
-	ErrUnauthorized = errors.New("gdt: unauthorized")
-	// ErrInvalidRequest — 400/422, no retry.
-	ErrInvalidRequest = errors.New("gdt: invalid request")
-	// ErrNotFound — 404, no retry.
-	ErrNotFound = errors.New("gdt: not found")
+	"gotax/internal/domain"
 )
 
 // Client is a GDT API client.
@@ -89,25 +83,10 @@ type SubmitRequest struct {
 	CertID string `json:"cert_id"`
 }
 
-// SubmitResponse is the GDT acknowledgement of a submission.
-type SubmitResponse struct {
-	TransactionID string `json:"transaction_id"`
-	Status        string `json:"status"`
-	GDTRef        string `json:"gdt_ref"`
-	Message       string `json:"message,omitempty"`
-}
-
-// StatusResponse is the invoice status payload.
-type StatusResponse struct {
-	Status  string `json:"status"`
-	GDTRef  string `json:"gdt_ref,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
 // SubmitInvoice submits a signed invoice XML to GDT.
-func (c *Client) SubmitInvoice(ctx context.Context, invoiceXML, certID string) (*SubmitResponse, error) {
+func (c *Client) SubmitInvoice(ctx context.Context, invoiceXML, certID string) (*domain.GDTSubmitResponse, error) {
 	body, _ := json.Marshal(SubmitRequest{XML: invoiceXML, CertID: certID})
-	var out SubmitResponse
+	var out domain.GDTSubmitResponse
 	if err := c.do(ctx, http.MethodPost, "/api/invoice/submit", body, &out); err != nil {
 		return nil, err
 	}
@@ -115,8 +94,8 @@ func (c *Client) SubmitInvoice(ctx context.Context, invoiceXML, certID string) (
 }
 
 // GetInvoiceStatus polls GDT for invoice status.
-func (c *Client) GetInvoiceStatus(ctx context.Context, transactionID string) (*StatusResponse, error) {
-	var out StatusResponse
+func (c *Client) GetInvoiceStatus(ctx context.Context, transactionID string) (*domain.GDTStatusResponse, error) {
+	var out domain.GDTStatusResponse
 	if err := c.do(ctx, http.MethodGet,
 		"/api/invoice/status?transaction_id="+url.QueryEscape(transactionID), nil, &out); err != nil {
 		return nil, err
@@ -130,32 +109,10 @@ func (c *Client) CancelInvoice(ctx context.Context, transactionID, reason string
 	return c.do(ctx, http.MethodPost, "/api/invoice/cancel", body, nil)
 }
 
-// DeclarationSubmitResponse is the GDT acknowledgement of a declaration
-// submission.
-type DeclarationSubmitResponse struct {
-	SubmissionID string `json:"submission_id"`
-	Status       string `json:"status"`
-	// Code is the GDT response code (spec §4.2): 00 acknowledged, 01 schema
-	// failure, 02 duplicate, 03 tax code not found, 10 period already
-	// declared, 99 system error.
-	Code    string `json:"code,omitempty"`
-	AckRef  string `json:"ack_ref,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-// DeclarationStatusResponse is the declaration status payload.
-type DeclarationStatusResponse struct {
-	Status string `json:"status"`
-	// Code carries the same GDT response codes as DeclarationSubmitResponse.
-	Code    string `json:"code,omitempty"`
-	AckRef  string `json:"ack_ref,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
 // SubmitDeclaration submits a signed declaration XML (HTKK file) to GDT.
-func (c *Client) SubmitDeclaration(ctx context.Context, declarationXML, certID string) (*DeclarationSubmitResponse, error) {
+func (c *Client) SubmitDeclaration(ctx context.Context, declarationXML, certID string) (*domain.GDTDeclarationSubmitResponse, error) {
 	body, _ := json.Marshal(SubmitRequest{XML: declarationXML, CertID: certID})
-	var out DeclarationSubmitResponse
+	var out domain.GDTDeclarationSubmitResponse
 	if err := c.do(ctx, http.MethodPost, "/api/submission/declare", body, &out); err != nil {
 		return nil, err
 	}
@@ -163,8 +120,8 @@ func (c *Client) SubmitDeclaration(ctx context.Context, declarationXML, certID s
 }
 
 // QueryDeclarationStatus polls GDT for declaration status.
-func (c *Client) QueryDeclarationStatus(ctx context.Context, submissionID string) (*DeclarationStatusResponse, error) {
-	var out DeclarationStatusResponse
+func (c *Client) QueryDeclarationStatus(ctx context.Context, submissionID string) (*domain.GDTDeclarationStatusResponse, error) {
+	var out domain.GDTDeclarationStatusResponse
 	if err := c.do(ctx, http.MethodGet,
 		"/api/submission/status?id="+url.QueryEscape(submissionID), nil, &out); err != nil {
 		return nil, err
@@ -195,7 +152,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
-			lastErr = ErrUpstream // network error → retry
+			lastErr = domain.ErrGDTUnavailable // network error → retry
 		} else {
 			respBody, readErr := io.ReadAll(resp.Body)
 			resp.Body.Close()
@@ -211,13 +168,11 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 				}
 				return nil
 			case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-				return ErrUnauthorized
-			case resp.StatusCode == http.StatusNotFound:
-				return ErrNotFound
+				return domain.ErrGDTUnauthorized
 			case resp.StatusCode >= 400 && resp.StatusCode < 500:
-				return ErrInvalidRequest
+				return domain.ErrGDTRejected
 			default: // 5xx → retry
-				lastErr = ErrUpstream
+				lastErr = domain.ErrGDTUnavailable
 			}
 		}
 		if i < len(c.retries) {

@@ -40,6 +40,7 @@ import (
 	"gotax/internal/config"
 	"gotax/internal/db"
 	"gotax/internal/domain"
+	"gotax/internal/einvoice"
 	"gotax/internal/gdt"
 	"gotax/internal/handler"
 	gotaxi18n "gotax/internal/i18n"
@@ -320,5 +321,5 @@ func newEInvoiceSigner() service.TXMLSigner {
 	if serial == "" {
 		serial = "GOTAX-DEV"
 	}
-	return service.NewPEMSigner(key, serial, time.Now)
+	return einvoice.NewPEMSigner(key, serial, time.Now)
 }

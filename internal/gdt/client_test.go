@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gotax/internal/domain"
 )
 
 // mockServer implements the GDT wire contract with configurable failures.
@@ -48,14 +50,14 @@ func newMockServer(t *testing.T) *mockServer {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		resp := SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-REF-1"}
+		resp := domain.GDTSubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-REF-1"}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("/api/invoice/status", func(w http.ResponseWriter, r *http.Request) {
 		m.statusCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(StatusResponse{Status: "ACKNOWLEDGED", GDTRef: "GDT-REF-1"})
+		json.NewEncoder(w).Encode(domain.GDTStatusResponse{Status: "ACKNOWLEDGED", GDTRef: "GDT-REF-1"})
 	})
 	mux.HandleFunc("/api/invoice/cancel", func(w http.ResponseWriter, r *http.Request) {
 		m.cancelCalls.Add(1)
@@ -70,12 +72,12 @@ func newMockServer(t *testing.T) *mockServer {
 		}
 		m.declSubmitBody.Store(req.XML)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED", Code: "00", AckRef: "ACK-REF-1"})
+		json.NewEncoder(w).Encode(domain.GDTDeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED", Code: "00", AckRef: "ACK-REF-1"})
 	})
 	mux.HandleFunc("/api/submission/status", func(w http.ResponseWriter, r *http.Request) {
 		m.declStatusCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeclarationStatusResponse{Status: "ACKNOWLEDGED", Code: "00", AckRef: "ACK-REF-1"})
+		json.NewEncoder(w).Encode(domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", Code: "00", AckRef: "ACK-REF-1"})
 	})
 	m.server = httptest.NewServer(mux)
 	return m
@@ -123,7 +125,7 @@ func TestSubmitRetriesExhausted(t *testing.T) {
 	c := testClient(t, m.URL())
 
 	_, err := c.SubmitInvoice(context.Background(), "<invoice/>", "sig-1")
-	assert.ErrorIs(t, err, ErrUpstream)
+	assert.ErrorIs(t, err, domain.ErrGDTUnavailable)
 	assert.Equal(t, int32(3), m.submitCalls.Load()) // max 3 attempts
 }
 
@@ -134,7 +136,7 @@ func TestSubmitUnauthorized(t *testing.T) {
 	c := testClient(t, m.URL())
 
 	_, err := c.SubmitInvoice(context.Background(), "<invoice/>", "sig-1")
-	assert.ErrorIs(t, err, ErrUnauthorized)
+	assert.ErrorIs(t, err, domain.ErrGDTUnauthorized)
 	assert.Equal(t, int32(1), m.submitCalls.Load()) // no retry on 401
 }
 
@@ -146,7 +148,7 @@ func TestSubmitBadRequest(t *testing.T) {
 	c := testClient(t, srv.URL)
 
 	_, err := c.SubmitInvoice(context.Background(), "<invoice/>", "sig-1")
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	assert.ErrorIs(t, err, domain.ErrGDTRejected)
 }
 
 func TestSubmitMalformedJSON(t *testing.T) {
@@ -159,18 +161,18 @@ func TestSubmitMalformedJSON(t *testing.T) {
 
 	_, err := c.SubmitInvoice(context.Background(), "<invoice/>", "sig-1")
 	assert.Error(t, err)
-	assert.NotErrorIs(t, err, ErrUpstream)
+	assert.NotErrorIs(t, err, domain.ErrGDTUnavailable)
 }
 
 func TestSubmitNetworkError(t *testing.T) {
-	// closed server → connection refused; retried then ErrUpstream
+	// closed server → connection refused; retried then domain.ErrGDTUnavailable
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
 	srv.Close()
 	c := testClient(t, url)
 
 	_, err := c.SubmitInvoice(context.Background(), "<invoice/>", "sig-1")
-	assert.ErrorIs(t, err, ErrUpstream)
+	assert.ErrorIs(t, err, domain.ErrGDTUnavailable)
 }
 
 func TestSubmitContextCancel(t *testing.T) {

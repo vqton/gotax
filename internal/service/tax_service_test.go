@@ -15,7 +15,6 @@ import (
 
 	"gotax/internal/domain"
 	"gotax/internal/einvoice"
-	"gotax/internal/gdt"
 	"gotax/internal/repository"
 	"gotax/internal/xmldsig"
 )
@@ -559,10 +558,10 @@ func TestAcknowledgeDeclaration_CITAnnualDueDate(t *testing.T) {
 // ─── B3: E-Invoice Issuance Pipeline ────────────────────────────────────
 
 type stubGDT struct {
-	submitResp     *gdt.SubmitResponse
-	statusResp     *gdt.StatusResponse
-	declSubmitResp *gdt.DeclarationSubmitResponse
-	declStatusResp *gdt.DeclarationStatusResponse
+	submitResp     *domain.GDTSubmitResponse
+	statusResp     *domain.GDTStatusResponse
+	declSubmitResp *domain.GDTDeclarationSubmitResponse
+	declStatusResp *domain.GDTDeclarationStatusResponse
 	submitErr      error
 	statusErr      error
 	cancelErr      error
@@ -570,14 +569,14 @@ type stubGDT struct {
 	cancelled      bool
 }
 
-func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*gdt.SubmitResponse, error) {
+func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*domain.GDTSubmitResponse, error) {
 	g.submittedXML = xml
 	if g.submitErr != nil {
 		return nil, g.submitErr
 	}
 	return g.submitResp, nil
 }
-func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*gdt.StatusResponse, error) {
+func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*domain.GDTStatusResponse, error) {
 	if g.statusErr != nil {
 		return nil, g.statusErr
 	}
@@ -588,7 +587,7 @@ func (g *stubGDT) CancelInvoice(_ context.Context, _, _ string) error {
 	return g.cancelErr
 }
 
-func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*gdt.DeclarationSubmitResponse, error) {
+func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*domain.GDTDeclarationSubmitResponse, error) {
 	g.submittedXML = xml
 	if g.submitErr != nil {
 		return nil, g.submitErr
@@ -596,10 +595,10 @@ func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*gdt
 	if g.declSubmitResp != nil {
 		return g.declSubmitResp, nil
 	}
-	return &gdt.DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
+	return &domain.GDTDeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
 }
 
-func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*gdt.DeclarationStatusResponse, error) {
+func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*domain.GDTDeclarationStatusResponse, error) {
 	if g.statusErr != nil {
 		return nil, g.statusErr
 	}
@@ -607,9 +606,9 @@ func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*gdt.Decl
 		return g.declStatusResp, nil
 	}
 	if g.statusResp == nil {
-		return &gdt.DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
+		return &domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
 	}
-	return &gdt.DeclarationStatusResponse{Status: g.statusResp.Status, AckRef: "ACK-REF-1"}, nil
+	return &domain.GDTDeclarationStatusResponse{Status: g.statusResp.Status, AckRef: "ACK-REF-1"}, nil
 }
 
 type stubSigner struct{ err error }
@@ -621,11 +620,11 @@ func (s *stubSigner) SignTXML(xmlBody, _ string) (string, error) {
 	return "signed:" + xmlBody, nil
 }
 
-func (s *stubSigner) SignDocument(xmlBody string) (SignResult, error) {
+func (s *stubSigner) SignDocument(xmlBody string) (einvoice.SignResult, error) {
 	if s.err != nil {
-		return SignResult{}, s.err
+		return einvoice.SignResult{}, s.err
 	}
-	return SignResult{SignatureBase64: "BASE64SIG:" + xmlBody, SignedAt: "2026-04-15T10:00:00+07:00"}, nil
+	return einvoice.SignResult{SignatureBase64: "BASE64SIG:" + xmlBody, SignedAt: "2026-04-15T10:00:00+07:00"}, nil
 }
 
 func newTaxTestSvcIssuer(g *stubGDT, signer TXMLSigner) (*taxService, domain.TaxRepository, domain.JournalRepository) {
@@ -645,7 +644,7 @@ func testEInvoice(status domain.EInvLifecycleStatus) *domain.EInvoice {
 }
 
 func TestIssueEInvoice_SubmitsToGDT(t *testing.T) {
-	g := &stubGDT{submitResp: &gdt.SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-1"}}
+	g := &stubGDT{submitResp: &domain.GDTSubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-1"}}
 	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusDRAFT)
@@ -665,7 +664,7 @@ func TestIssueEInvoice_SubmitsToGDT(t *testing.T) {
 }
 
 func TestIssueEInvoice_WrongStatus(t *testing.T) {
-	g := &stubGDT{submitResp: &gdt.SubmitResponse{}}
+	g := &stubGDT{submitResp: &domain.GDTSubmitResponse{}}
 	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusISSUED)
@@ -686,7 +685,7 @@ func TestIssueEInvoice_NoGDTConfigured(t *testing.T) {
 }
 
 func TestIssueEInvoice_GDTErrorMapped(t *testing.T) {
-	g := &stubGDT{submitErr: gdt.ErrUnauthorized}
+	g := &stubGDT{submitErr: domain.ErrGDTUnauthorized}
 	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusDRAFT)
@@ -697,7 +696,7 @@ func TestIssueEInvoice_GDTErrorMapped(t *testing.T) {
 }
 
 func TestCheckInvoiceStatus_Acknowledged(t *testing.T) {
-	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "ACKNOWLEDGED"}}
+	g := &stubGDT{statusResp: &domain.GDTStatusResponse{Status: "ACKNOWLEDGED"}}
 	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusSUBMITTED)
@@ -710,7 +709,7 @@ func TestCheckInvoiceStatus_Acknowledged(t *testing.T) {
 }
 
 func TestCheckInvoiceStatus_Rejected(t *testing.T) {
-	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "REJECTED"}}
+	g := &stubGDT{statusResp: &domain.GDTStatusResponse{Status: "REJECTED"}}
 	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusSUBMITTED)
@@ -766,7 +765,7 @@ func TestCancelEInvoice_NotCancellableBeforeIssued(t *testing.T) {
 func TestPEMSigner_SignsAndVerifies(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	signer := NewPEMSigner(key, "CERT-123", func() time.Time {
+	signer := einvoice.NewPEMSigner(key, "CERT-123", func() time.Time {
 		return time.Date(2026, 4, 15, 14, 30, 5, 0, time.FixedZone("+07", 7*3600))
 	})
 	body, err := einvoice.GenerateTXML(testEInvoice(domain.EInvStatusDRAFT))
@@ -789,7 +788,7 @@ func TestPEMSigner_SignsAndVerifies(t *testing.T) {
 func TestPEMSigner_MissingKyThuat(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	signer := NewPEMSigner(key, "CERT-123", time.Now)
+	signer := einvoice.NewPEMSigner(key, "CERT-123", time.Now)
 	_, err = signer.SignTXML("<Invoice/>", "sig-1")
 	assert.Error(t, err)
 }
@@ -848,7 +847,7 @@ func TestSubmitDeclaration_CompanyMissing(t *testing.T) {
 }
 
 func TestSubmitDeclaration_GDTDown(t *testing.T) {
-	g := &stubGDT{submitErr: gdt.ErrUpstream}
+	g := &stubGDT{submitErr: domain.ErrGDTUnavailable}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -873,7 +872,7 @@ func TestSubmitDeclaration_LocalOnlyNoGDT(t *testing.T) {
 }
 
 func TestCheckDeclarationStatus_AcknowledgedCreatesPayment(t *testing.T) {
-	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "ACKNOWLEDGED"}}
+	g := &stubGDT{statusResp: &domain.GDTStatusResponse{Status: "ACKNOWLEDGED"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -889,7 +888,7 @@ func TestCheckDeclarationStatus_AcknowledgedCreatesPayment(t *testing.T) {
 }
 
 func TestCheckDeclarationStatus_Rejected(t *testing.T) {
-	g := &stubGDT{statusResp: &gdt.StatusResponse{Status: "REJECTED"}}
+	g := &stubGDT{statusResp: &domain.GDTStatusResponse{Status: "REJECTED"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, nil)
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -915,7 +914,7 @@ func TestCheckDeclarationStatus_NotSubmitted(t *testing.T) {
 // GDT response code 02 = duplicate submission — the earlier filing stands;
 // acknowledge it and auto-create the payable, never a second one.
 func TestCheckDeclarationStatus_DuplicateAcknowledges(t *testing.T) {
-	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "02", Status: "REJECTED", AckRef: "ACK-REF-1"}}
+	g := &stubGDT{declStatusResp: &domain.GDTDeclarationStatusResponse{Code: "02", Status: "REJECTED", AckRef: "ACK-REF-1"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -933,7 +932,7 @@ func TestCheckDeclarationStatus_DuplicateAcknowledges(t *testing.T) {
 // GDT response code 10 = period already declared — filing must be an
 // amendment (LanDau=2), never treated as a plain rejection.
 func TestCheckDeclarationStatus_AlreadyDeclared(t *testing.T) {
-	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "10", Status: "REJECTED"}}
+	g := &stubGDT{declStatusResp: &domain.GDTDeclarationStatusResponse{Code: "10", Status: "REJECTED"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, nil)
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -948,7 +947,7 @@ func TestCheckDeclarationStatus_AlreadyDeclared(t *testing.T) {
 // GDT response code 03 = taxpayer code unknown at GDT — profile problem,
 // not a declaration defect.
 func TestCheckDeclarationStatus_TaxCodeNotFound(t *testing.T) {
-	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "03", Status: "REJECTED"}}
+	g := &stubGDT{declStatusResp: &domain.GDTDeclarationStatusResponse{Code: "03", Status: "REJECTED"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, nil)
 	ctx := context.Background()
 	d := newDeclTestDecl()
@@ -963,7 +962,7 @@ func TestCheckDeclarationStatus_TaxCodeNotFound(t *testing.T) {
 // Synchronous rejection on submit must surface the business error and leave
 // the declaration un-submitted (no partial SUBMITTED persist).
 func TestSubmitDeclaration_RejectCode(t *testing.T) {
-	g := &stubGDT{declSubmitResp: &gdt.DeclarationSubmitResponse{Code: "10", Status: "REJECTED"}}
+	g := &stubGDT{declSubmitResp: &domain.GDTDeclarationSubmitResponse{Code: "10", Status: "REJECTED"}}
 	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
 	ctx := context.Background()
 	d := newDeclTestDecl()

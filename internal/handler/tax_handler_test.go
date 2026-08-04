@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
-	"gotax/internal/gdt"
+	"gotax/internal/einvoice"
 	"gotax/internal/repository"
 	"gotax/internal/service"
 )
@@ -29,42 +29,42 @@ type taxTestSetup struct {
 }
 
 type stubGDT struct {
-	submitResp *gdt.SubmitResponse
+	submitResp *domain.GDTSubmitResponse
 	submitErr  error
 	submitted  bool
 }
 
-func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*gdt.SubmitResponse, error) {
+func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*domain.GDTSubmitResponse, error) {
 	g.submitted = true
 	if g.submitErr != nil {
 		return nil, g.submitErr
 	}
 	return g.submitResp, nil
 }
-func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*gdt.StatusResponse, error) {
-	return &gdt.StatusResponse{Status: "ACKNOWLEDGED"}, nil
+func (g *stubGDT) GetInvoiceStatus(_ context.Context, _ string) (*domain.GDTStatusResponse, error) {
+	return &domain.GDTStatusResponse{Status: "ACKNOWLEDGED"}, nil
 }
 func (g *stubGDT) CancelInvoice(_ context.Context, _, _ string) error { return nil }
-func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*gdt.DeclarationSubmitResponse, error) {
+func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*domain.GDTDeclarationSubmitResponse, error) {
 	g.submitted = true
 	if g.submitErr != nil {
 		return nil, g.submitErr
 	}
-	return &gdt.DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
+	return &domain.GDTDeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
 }
-func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*gdt.DeclarationStatusResponse, error) {
-	return &gdt.DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
+func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*domain.GDTDeclarationStatusResponse, error) {
+	return &domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
 }
 
 type stubSigner struct{}
 
 func (s *stubSigner) SignTXML(xmlBody, _ string) (string, error) { return "signed:" + xmlBody, nil }
-func (s *stubSigner) SignDocument(xmlBody string) (service.SignResult, error) {
-	return service.SignResult{SignatureBase64: "BASE64:" + xmlBody, SignedAt: "2026-04-15T10:00:00+07:00"}, nil
+func (s *stubSigner) SignDocument(xmlBody string) (einvoice.SignResult, error) {
+	return einvoice.SignResult{SignatureBase64: "BASE64:" + xmlBody, SignedAt: "2026-04-15T10:00:00+07:00"}, nil
 }
 
 func newTaxTestSvcIssuerH() (*stubGDT, service.TXMLSigner) {
-	return &stubGDT{submitResp: &gdt.SubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED"}}, &stubSigner{}
+	return &stubGDT{submitResp: &domain.GDTSubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED"}}, &stubSigner{}
 }
 
 func setupTaxTest(t *testing.T) *taxTestSetup {
@@ -541,7 +541,7 @@ func TestCheckEInvoiceStatus(t *testing.T) {
 
 func TestIssueEInvoice_GDTDown(t *testing.T) {
 	ts := setupTaxTest(t)
-	ts.gdt.submitErr = gdt.ErrUpstream
+	ts.gdt.submitErr = domain.ErrGDTUnavailable
 	inv := &domain.EInvoice{
 		CompanyID:   ts.compID,
 		Pattern:     "01GTKT0/001",
