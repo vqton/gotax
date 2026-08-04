@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"time"
 
 	"gotax/internal/domain"
@@ -300,9 +301,15 @@ func generateID() string {
 func randomHex(n int) string {
 	const hex = "0123456789abcdef"
 	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based (should never happen)
+		for i := range b {
+			b[i] = hex[time.Now().UnixNano()%16]
+			time.Sleep(1)
+		}
+	}
 	for i := range b {
-		b[i] = hex[time.Now().UnixNano()%16]
-		time.Sleep(1)
+		b[i] = hex[b[i]%16]
 	}
 	return string(b)
 }

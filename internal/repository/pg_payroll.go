@@ -40,7 +40,7 @@ func (r *PGPayrollRepo) UpdateEmployeePayrollInfo(ctx context.Context, info *dom
 
 func (r *PGPayrollRepo) ListEmployeePayrollInfos(ctx context.Context, companyID string) ([]domain.EmployeePayrollInfo, error) {
 	var infos []domain.EmployeePayrollInfo
-	if err := r.db.WithContext(ctx).Find(&infos).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Find(&infos).Error; err != nil {
 		return nil, err
 	}
 	return infos, nil
@@ -191,19 +191,33 @@ func (r *PGPayrollRepo) CreateLeaveRequest(ctx context.Context, lr *domain.Leave
 
 func (r *PGPayrollRepo) ApproveLeaveRequest(ctx context.Context, id, approvedBy string) error {
 	now := time.Now()
-	return r.db.WithContext(ctx).Model(&domain.LeaveRequest{}).
+	result := r.db.WithContext(ctx).Model(&domain.LeaveRequest{}).
 		Where("id = ? AND status = ?", id, domain.LeavePending).
 		Updates(map[string]interface{}{
 			"status":      domain.LeaveApproved,
 			"approved_by": approvedBy,
 			"approved_at": now,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrPayrollLeaveNotFound
+	}
+	return nil
 }
 
 func (r *PGPayrollRepo) RejectLeaveRequest(ctx context.Context, id, _ string) error {
-	return r.db.WithContext(ctx).Model(&domain.LeaveRequest{}).
+	result := r.db.WithContext(ctx).Model(&domain.LeaveRequest{}).
 		Where("id = ? AND status = ?", id, domain.LeavePending).
-		Update("status", domain.LeaveRejected).Error
+		Update("status", domain.LeaveRejected)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrPayrollLeaveNotFound
+	}
+	return nil
 }
 
 func (r *PGPayrollRepo) ListPendingLeaveRequests(ctx context.Context, companyID string) ([]domain.LeaveRequest, error) {
