@@ -703,22 +703,22 @@ type OffBalanceSheetItem struct {
 - [x] PostCN creates ARTransaction (credit_note, Amount=TotalAmount)
 - [x] Tests: summary correct after post flows; no double-write on re-post
 
-### S3: CN → invoice BalanceDue
-- [ ] PostCN reduces original invoice BalanceDue (floor 0), cap at balance
-- [ ] Invoice → PAID when BalanceDue zero
-- [ ] Tests: full/partial CN, over-CN capped, aging/statement reflect CN
+### S3: CN → invoice BalanceDue ✅
+- [x] PostCN reduces original invoice BalanceDue (floor 0), cap at balance
+- [x] Invoice → PAID when BalanceDue zero
+- [x] Tests: full/partial CN, over-CN capped, aging/statement reflect CN
 
-### S4: Delivery integrity
-- [ ] Over-delivery tolerance default 5%, per-DN override (TolerancePercent)
-- [ ] CreateDN validates QtyDelivered vs SO line qty × tolerance → ErrDNToleranceExceeded
-- [ ] SO status: PROCESSING on first DN post, DELIVERED when fully delivered, INVOICED on PostInvoice
-- [ ] Back-order: partial delivery → SO stays PROCESSING
-- [ ] Tests: tolerance boundary, status transitions, partial delivery
+### S4: Delivery integrity ✅
+- [x] Over-delivery tolerance default 5%, per-DN override (TolerancePercent)
+- [x] CreateDN validates QtyDelivered vs SO line qty × tolerance → ErrDNToleranceExceeded
+- [x] SO status: PROCESSING on first DN post, DELIVERED when fully delivered, INVOICED on PostInvoice
+- [x] Back-order: partial delivery → SO stays PROCESSING
+- [x] Tests: tolerance boundary, status transitions, partial delivery
 
-### S5: COGS on delivery
-- [ ] PostDN GL: Dr 632 / Cr 156 per line CostPrice×Qty (skip zero-cost)
-- [ ] Repo: GL-posted flag if needed
-- [ ] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
+### S5: COGS on delivery ✅
+- [x] PostDN GL: Dr 632 / Cr 156 per line CostPrice×Qty (skip zero-cost)
+- [x] Repo: GL-posted flag if needed (not needed — DRAFT→POSTED guard idempotent)
+- [x] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
 
 ### S6: Reports (FR-9)
 - [ ] S01-BH sales ledger (per customer/period)

@@ -52,6 +52,8 @@ func seedGLAccounts(t *testing.T, gl Service, ctx context.Context) {
 		{Code: "635", Name: "Chi phi tai chinh", Type: domain.AccountTypeExpense, IsActive: true},
 		{Code: "642", Name: "Chi phi quan ly doanh nghiep", Type: domain.AccountTypeExpense, IsActive: true},
 		{Code: "229", Name: "Du phong phai thu kho doi", Type: domain.AccountTypeLiability, IsActive: true},
+		{Code: "632", Name: "Gia von hang ban", Type: domain.AccountTypeExpense, IsActive: true},
+		{Code: "156", Name: "Hang hoa", Type: domain.AccountTypeAsset, IsActive: true},
 	} {
 		err := gl.CreateAccount(ctx, &acc)
 		require.NoError(t, err)
@@ -458,4 +460,99 @@ func TestARGLReconciliation_Variance(t *testing.T) {
 	assert.InDelta(t, 300, recon.SubledgerTotal, 0.001)
 	assert.InDelta(t, 0, recon.GLBalance, 0.001) // no GL posting → balance is 0
 	assert.InDelta(t, -300, recon.Variance, 0.001)
+}
+
+// ─── S5: COGS GL on delivery ───────────────────────────────────────────
+
+func TestPostDN_CreatesCOGSGLEntry(t *testing.T) {
+	svc, gl, ctx := setupGLEnabled(t)
+	seedGLAccounts(t, gl, ctx)
+	seedPeriod(t, gl, ctx)
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-COGS-1", 100)
+
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-COGS-1", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 100, UnitPrice: 100, LineTotal: 10000, CostPrice: 60,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+	require.NoError(t, svc.PostDN(ctx, dn.ID))
+
+	entries, err := gl.GetEntriesByDateRange(ctx, time.Now().Add(-24*time.Hour), time.Now().Add(24*time.Hour))
+	require.NoError(t, err)
+	var entry *domain.JournalEntry
+	for i := range entries {
+		if entries[i].EntryNumber == "DN-COGS-1" {
+			entry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, entry, "COGS entry not found")
+	require.Len(t, entry.Lines, 2)
+	assert.Equal(t, "632", entry.Lines[0].AccountCode)
+	assert.Equal(t, 6000.0, entry.Lines[0].DebitAmount) // 60×100
+	assert.Equal(t, "156", entry.Lines[1].AccountCode)
+	assert.Equal(t, 6000.0, entry.Lines[1].CreditAmount)
+}
+
+func TestPostDN_SkipsZeroCostLines(t *testing.T) {
+	svc, gl, ctx := setupGLEnabled(t)
+	seedGLAccounts(t, gl, ctx)
+	seedPeriod(t, gl, ctx)
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-COGS-2", 100)
+
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-COGS-2", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{
+			{SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+				QtyDelivered: 50, UnitPrice: 100, LineTotal: 5000, CostPrice: 0},
+			{SOLineID: so.Lines[0].ID, ItemName: "Widget2", Unit: "pcs",
+				QtyDelivered: 50, UnitPrice: 200, LineTotal: 10000, CostPrice: 120},
+		},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+	require.NoError(t, svc.PostDN(ctx, dn.ID))
+
+	entries, err := gl.GetEntriesByDateRange(ctx, time.Now().Add(-24*time.Hour), time.Now().Add(24*time.Hour))
+	require.NoError(t, err)
+	var entry *domain.JournalEntry
+	for i := range entries {
+		if entries[i].EntryNumber == "DN-COGS-2" {
+			entry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, entry, "COGS entry not found")
+	require.Len(t, entry.Lines, 2) // only costed line
+	assert.Equal(t, 6000.0, entry.Lines[0].DebitAmount) // 120×50
+}
+
+func TestPostDN_NoGLWhenNil(t *testing.T) {
+	repo := repository.NewMemorySaleRepo()
+	svc := NewSaleService(repo, repo, repo, repo, repo, repo, repo, repo, nil)
+	ctx := context.Background()
+	seedCust(t, svc, ctx, "c1", "co1")
+	so := seedSO(t, svc, ctx, "SO-COGS-3", 100)
+
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-COGS-3", SOID: so.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 100, UnitPrice: 100, LineTotal: 10000, CostPrice: 60,
+		}},
+	}
+	require.NoError(t, svc.CreateDN(ctx, dn))
+	require.NoError(t, svc.PostDN(ctx, dn.ID))
+
+	// no GL → no journal entry, but DN still posted
+	dnAfter, err := svc.dnRepo.GetDN(ctx, dn.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.DNPosted, dnAfter.Status)
 }

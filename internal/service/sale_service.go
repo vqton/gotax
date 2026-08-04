@@ -269,6 +269,33 @@ func (s *SaleService) PostDN(ctx context.Context, id string) error {
 	if dn.Status != domain.DNDraft {
 		return domain.ErrDNInvalidTransition
 	}
+	// S5: COGS GL — Dr 632 / Cr 156 per line CostPrice×QtyDelivered (skip zero-cost)
+	if s.gl != nil {
+		lines := []domain.JournalLine{}
+		for _, l := range dn.Lines {
+			if l.CostPrice <= 0 || l.QtyDelivered <= 0 {
+				continue
+			}
+			amt := l.CostPrice * l.QtyDelivered
+			lines = append(lines,
+				domain.JournalLine{AccountCode: "632", DebitAmount: amt, CreditAmount: 0, Description: "COGS: " + dn.DNNumber},
+				domain.JournalLine{AccountCode: "156", DebitAmount: 0, CreditAmount: amt, Description: "Inventory: " + dn.DNNumber},
+			)
+		}
+		if len(lines) > 0 {
+			entry := &domain.JournalEntry{
+				CompanyID:   dn.CompanyID,
+				EntryNumber: dn.DNNumber,
+				VoucherType: domain.VoucherTypeSale,
+				EntryDate:   dn.DeliveryDate,
+				Description: "COGS delivery " + dn.DNNumber,
+				Lines:       lines,
+			}
+			if err := s.gl.CreatePostedEntry(ctx, entry, dn.CreatedBy); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.dnRepo.UpdateDNStatus(ctx, id, domain.DNPosted); err != nil {
 		return err
 	}
