@@ -556,3 +556,62 @@ func TestPostDN_NoGLWhenNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.DNPosted, dnAfter.Status)
 }
+
+// failOnceDNRepo wraps MemorySaleRepo: UpdateDNStatus fails once, then works.
+type failOnceDNRepo struct {
+	*repository.MemorySaleRepo
+	fail bool
+}
+
+func (r *failOnceDNRepo) UpdateDNStatus(ctx context.Context, id string, status domain.DNStatus) error {
+	if r.fail {
+		r.fail = false
+		return domain.ErrDNInvalidTransition
+	}
+	return r.MemorySaleRepo.UpdateDNStatus(ctx, id, status)
+}
+
+// ─── Bug fix: no duplicate COGS GL on partial failure ────────────────
+
+func TestPostDN_NoDuplicateCOGSGLOnStatusFailure(t *testing.T) {
+	_, gl, ctx := setupGLEnabled(t)
+	seedGLAccounts(t, gl, ctx)
+	seedPeriod(t, gl, ctx)
+
+	repo := &failOnceDNRepo{MemorySaleRepo: repository.NewMemorySaleRepo()}
+	svc2 := NewSaleService(repo, repo, repo, repo, repo, repo, repo, repo, gl)
+	seedCust(t, svc2, ctx, "c1", "co1")
+	so2 := seedSO(t, svc2, ctx, "SO-FAIL-1", 100)
+
+	dn := &domain.DeliveryNote{
+		CompanyID: "co1", DNNumber: "DN-FAIL-1", SOID: so2.ID,
+		DeliveryDate: time.Now().UTC(), Status: domain.DNDraft,
+		Lines: []domain.DNLine{{
+			SOLineID: so2.Lines[0].ID, ItemName: "Widget", Unit: "pcs",
+			QtyDelivered: 100, UnitPrice: 100, LineTotal: 10000, CostPrice: 60,
+		}},
+	}
+	require.NoError(t, svc2.CreateDN(ctx, dn))
+
+	// first post: GL written, then status write fails
+	repo.fail = true
+	err := svc2.PostDN(ctx, dn.ID)
+	require.Error(t, err)
+
+	// retry: GL must NOT be written twice; DN reaches POSTED
+	require.NoError(t, svc2.PostDN(ctx, dn.ID))
+
+	entries, err := gl.GetEntriesByDateRange(ctx, time.Now().Add(-24*time.Hour), time.Now().Add(24*time.Hour))
+	require.NoError(t, err)
+	cogs := 0
+	for i := range entries {
+		if entries[i].EntryNumber == "DN-FAIL-1" {
+			cogs++
+		}
+	}
+	assert.Equal(t, 1, cogs, "COGS entry written exactly once across retry")
+
+	dnAfter, err := svc2.dnRepo.GetDN(ctx, dn.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.DNPosted, dnAfter.Status)
+}

@@ -99,6 +99,8 @@ type DeliveryNoteGORM struct {
 	Status          string       `gorm:"column:status;size:20;default:DRAFT;index" json:"status"`
 	Notes           string       `gorm:"column:notes;type:text" json:"notes"`
 	TolerancePercent float64    `gorm:"column:tolerance_percent;not null;default:5" json:"tolerancePercent"`
+	GLPosted        bool         `gorm:"column:gl_posted;not null;default:false" json:"glPosted"`
+	GLPostedAt      *time.Time   `gorm:"column:gl_posted_at" json:"glPostedAt"`
 	CreatedBy       string       `gorm:"column:created_by;size:36" json:"createdBy"`
 	CreatedAt       time.Time    `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 	UpdatedAt       time.Time    `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`

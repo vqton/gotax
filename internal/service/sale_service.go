@@ -269,8 +269,10 @@ func (s *SaleService) PostDN(ctx context.Context, id string) error {
 	if dn.Status != domain.DNDraft {
 		return domain.ErrDNInvalidTransition
 	}
-	// S5: COGS GL — Dr 632 / Cr 156 per line CostPrice×QtyDelivered (skip zero-cost)
-	if s.gl != nil {
+	// S5: COGS GL — Dr 632 / Cr 156 per line CostPrice×QtyDelivered (skip zero-cost).
+	// GLPosted flag guards the partial-failure window: GL first, then flag, then
+	// status — a failed status write leaves GLPosted=true so retry skips the GL.
+	if s.gl != nil && !dn.GLPosted {
 		lines := []domain.JournalLine{}
 		for _, l := range dn.Lines {
 			if l.CostPrice <= 0 || l.QtyDelivered <= 0 {
@@ -294,6 +296,10 @@ func (s *SaleService) PostDN(ctx context.Context, id string) error {
 			if err := s.gl.CreatePostedEntry(ctx, entry, dn.CreatedBy); err != nil {
 				return err
 			}
+		}
+		now := s.now().UTC()
+		if err := s.dnRepo.SetDNGLPosted(ctx, id, now); err != nil {
+			return err
 		}
 	}
 	if err := s.dnRepo.UpdateDNStatus(ctx, id, domain.DNPosted); err != nil {
@@ -1164,6 +1170,7 @@ func (s *SaleService) GetVATOutputReport(ctx context.Context, companyID, fromDat
 		CompanyID: companyID, FromDate: fromDate, ToDate: toDate, Rows: []domain.VATOutputRow{},
 	}
 	byRate := make(map[float64]*domain.VATOutputRow)
+	counted := make(map[float64]map[string]struct{})
 	order := []float64{}
 	for _, inv := range invoices {
 		if inv.Status != domain.SInvPosted {
@@ -1178,7 +1185,14 @@ func (s *SaleService) GetVATOutputReport(ctx context.Context, companyID, fromDat
 			}
 			r.Subtotal += l.LineTotal
 			r.VatAmount += l.LineVATAmount
-			r.InvoiceCount++
+			// count each invoice once per rate, not once per line
+			if counted[l.VATRate] == nil {
+				counted[l.VATRate] = make(map[string]struct{})
+			}
+			if _, seen := counted[l.VATRate][inv.ID]; !seen {
+				counted[l.VATRate][inv.ID] = struct{}{}
+				r.InvoiceCount++
+			}
 		}
 	}
 	sort.Float64s(order)

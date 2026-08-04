@@ -1,0 +1,3 @@
+ALTER TABLE delivery_notes
+    ADD COLUMN gl_posted BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN gl_posted_at TIMESTAMPTZ;

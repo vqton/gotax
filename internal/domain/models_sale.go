@@ -190,10 +190,12 @@ type DeliveryNote struct {
 	CarrierName     string       `json:"carrier_name,omitempty"`
 	TrackingNumber  string       `json:"tracking_number,omitempty"`
 	DeliveryAddress string       `json:"delivery_address,omitempty"`
-	Status          DNStatus     `json:"status"`
-	Notes           string       `json:"notes,omitempty"`
-	TolerancePercent float64    `json:"tolerance_percent,omitempty"`
-	CreatedBy       string       `json:"created_by"`
+	Status           DNStatus     `json:"status"`
+	Notes            string       `json:"notes,omitempty"`
+	TolerancePercent float64      `json:"tolerance_percent,omitempty"`
+	GLPosted         bool         `json:"gl_posted"`
+	GLPostedAt       *time.Time   `json:"gl_posted_at,omitempty"`
+	CreatedBy        string       `json:"created_by"`
 	CreatedAt       time.Time    `json:"created_at,omitempty"`
 	UpdatedAt       time.Time    `json:"updated_at,omitempty"`
 	Lines           []DNLine     `json:"lines"`

@@ -474,6 +474,8 @@ func dnToGORM(dn *domain.DeliveryNote) *domain.DeliveryNoteGORM {
 		Status:          string(dn.Status),
 		Notes:           dn.Notes,
 		TolerancePercent: dn.TolerancePercent,
+		GLPosted:        dn.GLPosted,
+		GLPostedAt:      dn.GLPostedAt,
 		CreatedBy:       dn.CreatedBy,
 		CreatedAt:       dn.CreatedAt,
 		UpdatedAt:       dn.UpdatedAt,
@@ -502,6 +504,8 @@ func dnFromGORM(g *domain.DeliveryNoteGORM) *domain.DeliveryNote {
 		Status:          domain.DNStatus(g.Status),
 		Notes:           g.Notes,
 		TolerancePercent: g.TolerancePercent,
+		GLPosted:        g.GLPosted,
+		GLPostedAt:      g.GLPostedAt,
 		CreatedBy:       g.CreatedBy,
 		CreatedAt:       g.CreatedAt,
 		UpdatedAt:       g.UpdatedAt,
@@ -681,6 +685,13 @@ func (r *PGDeliveryNoteRepo) UpdateDN(ctx context.Context, dn *domain.DeliveryNo
 
 func (r *PGDeliveryNoteRepo) UpdateDNStatus(ctx context.Context, id string, status domain.DNStatus) error {
 	return r.db.WithContext(ctx).Model(&domain.DeliveryNoteGORM{}).Where("id = ?", id).Update("status", string(status)).Error
+}
+
+func (r *PGDeliveryNoteRepo) SetDNGLPosted(ctx context.Context, id string, postedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.DeliveryNoteGORM{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"gl_posted":    true,
+		"gl_posted_at": postedAt,
+	}).Error
 }
 
 func (r *PGDeliveryNoteRepo) GetDNLines(ctx context.Context, dnID string) ([]domain.DNLine, error) {

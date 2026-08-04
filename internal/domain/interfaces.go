@@ -499,6 +499,7 @@ type DeliveryNoteRepository interface {
 	ListDNs(ctx context.Context, filter DeliveryNoteFilter) ([]DeliveryNote, int, error)
 	UpdateDN(ctx context.Context, dn *DeliveryNote) error
 	UpdateDNStatus(ctx context.Context, id string, status DNStatus) error
+	SetDNGLPosted(ctx context.Context, id string, postedAt time.Time) error
 	GetDNLines(ctx context.Context, dnID string) ([]DNLine, error)
 	CreateDNLines(ctx context.Context, items []DNLine) error
 	UpdateDNLines(ctx context.Context, items []DNLine) error

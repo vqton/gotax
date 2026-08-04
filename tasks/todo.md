@@ -717,7 +717,7 @@ type OffBalanceSheetItem struct {
 
 ### S5: COGS on delivery ✅
 - [x] PostDN GL: Dr 632 / Cr 156 per line CostPrice×Qty (skip zero-cost)
-- [x] Repo: GL-posted flag if needed (not needed — DRAFT→POSTED guard idempotent)
+- [x] Repo: GL-posted flag (SetDNGLPosted) — guards partial-failure double-post window
 - [x] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
 
 ### S6: Reports (FR-9) ✅

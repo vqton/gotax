@@ -495,6 +495,18 @@ func (r *MemorySaleRepo) UpdateDNStatus(_ context.Context, id string, status dom
 	return nil
 }
 
+func (r *MemorySaleRepo) SetDNGLPosted(_ context.Context, id string, postedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	dn, ok := r.dns[id]
+	if !ok {
+		return domain.ErrDNNotFound
+	}
+	dn.GLPosted = true
+	dn.GLPostedAt = &postedAt
+	return nil
+}
+
 func (r *MemorySaleRepo) GetDNLines(_ context.Context, dnID string) ([]domain.DNLine, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

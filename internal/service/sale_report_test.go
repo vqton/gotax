@@ -233,3 +233,34 @@ func TestGetUnbilledDeliveriesReport(t *testing.T) {
 	assert.Equal(t, "TestCo", rpt.Rows[0].CustomerName)
 	assert.Equal(t, 1000.0, rpt.Rows[0].Amount)
 }
+
+// ─── Bug fix: InvoiceCount counts invoices, not lines ────────────────
+
+func TestGetVATOutputReport_InvoiceCountCountsInvoices(t *testing.T) {
+	svc, ctx := setupSaleSvc(t)
+	seedCust(t, svc, ctx, "c1", "co1")
+	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+
+	// one invoice with two 10% lines → counts once, not twice
+	inv := &domain.CustomerInvoice{
+		CompanyID: "co1", InvoiceNumber: "INV-MULTI", InvoiceDate: now,
+		CustomerID: "c1", CustomerName: "TestCo", CustomerTaxCode: "1234567890",
+		CustomerAddress: "addr", InvoiceType: "domestic", Currency: "VND",
+		Status: domain.SInvDraft,
+		Lines: []domain.InvLine{
+			{ItemName: "a", Unit: "pcs", Quantity: 1, UnitPrice: 100,
+				VATRate: 10, RevenueAccount: "5111", VATAccountID: "3331"},
+			{ItemName: "b", Unit: "pcs", Quantity: 1, UnitPrice: 50,
+				VATRate: 10, RevenueAccount: "5111", VATAccountID: "3331"},
+		},
+	}
+	seedInvoice(t, svc, ctx, inv)
+
+	rpt, err := svc.GetVATOutputReport(ctx, "co1", "", "")
+	require.NoError(t, err)
+	require.Len(t, rpt.Rows, 1)
+	assert.Equal(t, 10.0, rpt.Rows[0].VatRate)
+	assert.Equal(t, 150.0, rpt.Rows[0].Subtotal)
+	assert.Equal(t, 15.0, rpt.Rows[0].VatAmount)
+	assert.Equal(t, 1, rpt.Rows[0].InvoiceCount, "one invoice with two 10% lines counts once")
+}
