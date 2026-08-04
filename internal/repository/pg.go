@@ -906,7 +906,7 @@ func (r *PGTaxRepo) GetEInvoices(ctx context.Context, filter domain.EInvoiceFilt
 	if filter.CompanyID != "" { q = q.Where("company_id = ?", filter.CompanyID) }
 	if filter.Status != "" { q = q.Where("status = ?", string(filter.Status)) }
 	var models []domain.EInvoiceGORM
-	if err := q.Order("issue_date DESC").Find(&models).Error; err != nil { return nil, err }
+	if err := q.Preload("Lines").Order("issue_date DESC").Find(&models).Error; err != nil { return nil, err }
 	out := make([]domain.EInvoice, len(models))
 	for i := range models { out[i] = *gormEInvoiceToDomain(&models[i]) }
 	return out, nil

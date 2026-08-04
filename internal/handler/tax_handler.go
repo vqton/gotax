@@ -86,6 +86,10 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			calc.POST("/cit", h.CalculateCIT)
 			calc.POST("/pit", h.CalculatePIT)
 		}
+		reconcile := tax.Group("/reconcile")
+		{
+			reconcile.POST("/vat", h.ReconcileVAT)
+		}
 	}
 }
 
@@ -208,6 +212,23 @@ func (h *TaxHandler) CheckDeclarationStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "declaration status updated"})
+}
+
+func (h *TaxHandler) ReconcileVAT(c *gin.Context) {
+	var req struct {
+		CompanyID string           `json:"company_id"`
+		Period    domain.TaxPeriod `json:"period"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	res, err := h.svc.ReconcileVAT(c.Request.Context(), req.CompanyID, req.Period)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
 
 func (h *TaxHandler) AcknowledgeDeclaration(c *gin.Context) {

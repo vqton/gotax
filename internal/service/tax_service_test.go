@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -885,4 +886,94 @@ func TestCheckDeclarationStatus_NotSubmitted(t *testing.T) {
 
 	err := svc.CheckDeclarationStatus(ctx, d.ID)
 	assert.ErrorIs(t, err, domain.ErrDeclarationNotEditable)
+}
+
+// ─── VAT Reconciliation (BR-VAT-06) ────────────────────────────────────
+
+func TestReconcileVAT_Matched(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	// declaration with output VAT [23] = 120000
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: "c1", DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{
+			{LineCode: "23", LineName: "Tong VAT dau ra", Amount: 120000},
+		},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+	// two issued invoices, VAT 70000 + 50000
+	for i, vat := range []float64{70000, 50000} {
+		inv := testEInvoice(domain.EInvStatusISSUED)
+		inv.ID = fmt.Sprintf("EINV-%d", i+1)
+		inv.IssueDate = "2026-04-15"
+		inv.VATAmount = vat
+		inv.Lines = []domain.EInvoiceLine{{LineNumber: 1, Description: "S", Quantity: 1, UnitPrice: vat * 10, LineTotal: vat * 10, VATRate: 10, VATAmount: vat}}
+		require.NoError(t, repo.CreateEInvoice(ctx, inv))
+	}
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, "DECL-1", res.DeclarationID)
+	assert.Equal(t, 120000.0, res.InvoiceTotal)
+	assert.Equal(t, 120000.0, res.DeclarationTotal)
+	assert.Equal(t, 0.0, res.Variance)
+	assert.True(t, res.Matched)
+	assert.Equal(t, 2, res.InvoiceCount)
+	require.Len(t, res.ByRate, 1)
+	assert.Equal(t, 120000.0, res.ByRate[0].InvoiceVAT)
+}
+
+func TestReconcileVAT_Mismatch(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: "c1", DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{{LineCode: "23", LineName: "Tong", Amount: 50000}},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+	inv := testEInvoice(domain.EInvStatusISSUED)
+	inv.IssueDate = "2026-04-15"
+	inv.VATAmount = 70000
+	inv.Lines = []domain.EInvoiceLine{{LineNumber: 1, Quantity: 1, UnitPrice: 700000, LineTotal: 700000, VATRate: 10, VATAmount: 70000}}
+	require.NoError(t, repo.CreateEInvoice(ctx, inv))
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.False(t, res.Matched)
+	assert.Equal(t, 20000.0, res.Variance)
+}
+
+func TestReconcileVAT_ExcludesCancelled(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	cancelled := testEInvoice(domain.EInvStatusCANCELLED)
+	cancelled.IssueDate = "2026-04-15"
+	cancelled.VATAmount = 99999
+	require.NoError(t, repo.CreateEInvoice(ctx, cancelled))
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, res.InvoiceTotal)
+	assert.Equal(t, 0, res.InvoiceCount)
+	assert.Len(t, res.ExcludedInvoices, 1)
+}
+
+func TestReconcileVAT_PeriodFilter(t *testing.T) {
+	svc, repo, _ := newTaxTestSvcIssuer(nil, nil)
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4}
+	outOfPeriod := testEInvoice(domain.EInvStatusISSUED)
+	outOfPeriod.IssueDate = "2026-05-20"
+	outOfPeriod.VATAmount = 99999
+	require.NoError(t, repo.CreateEInvoice(ctx, outOfPeriod))
+
+	res, err := svc.ReconcileVAT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, res.InvoiceTotal)
+	assert.Equal(t, 0, res.InvoiceCount)
 }

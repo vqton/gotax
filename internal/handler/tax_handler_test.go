@@ -819,3 +819,41 @@ func TestTimeDependentOperations(t *testing.T) {
 	updated4, _ := ts.svc.GetDeclaration(nil, d2.ID)
 	assert.Equal(t, domain.DeclStatusCANCELLED, updated4.Status)
 }
+
+func TestReconcileVAT(t *testing.T) {
+	ts := setupTaxTest(t)
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-1", CompanyID: ts.compID, DeclarationType: domain.DeclTypeGTGT01,
+		TaxPeriod: domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 4},
+		Status:    domain.DeclStatusACKNOWLEDGED, AdjustmentType: domain.AdjTypeNONE,
+		Lines: []domain.TaxDeclarationLine{{LineCode: "23", LineName: "Tong", Amount: 100000}},
+	}
+	require.NoError(t, ts.svc.CreateDeclaration(nil, decl))
+	inv := &domain.EInvoice{
+		CompanyID:   ts.compID,
+		Pattern:     "01GTKT0/001",
+		Serial:      "AA/25E",
+		InvoiceType: domain.EInvTypeORIGINAL,
+		BuyerName:   "Buyer",
+		CurrencyCode: "VND",
+		IssueDate:   "2026-04-15",
+		Status:      domain.EInvStatusISSUED,
+		Subtotal:    1000000,
+		VATAmount:   100000,
+		GrandTotal:  1100000,
+		Lines:       []domain.EInvoiceLine{{LineNumber: 1, Description: "S", Quantity: 1, UnitPrice: 1000000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000}},
+	}
+	require.NoError(t, ts.svc.CreateEInvoice(nil, inv))
+
+	body := `{"company_id":"` + ts.compID + `","period":{"period_type":"MONTHLY","period_year":2026,"period_number":4}}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/reconcile/vat", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var res domain.VATReconciliationResult
+	json.Unmarshal(w.Body.Bytes(), &res)
+	assert.True(t, res.Matched)
+	assert.Equal(t, 100000.0, res.InvoiceTotal)
+}

@@ -147,6 +147,9 @@ type TaxServiceInterface interface {
 	// Declaration → GDT: XML → sign → submit; poll status.
 	CheckDeclarationStatus(ctx context.Context, id string) error
 
+	// VAT Reconciliation (BR-VAT-06): issued e-invoices vs GTGT01 [23].
+	ReconcileVAT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.VATReconciliationResult, error)
+
 	// E-Invoice Issuance
 	CheckInvoiceStatus(ctx context.Context, id string) error
 }
@@ -289,6 +292,85 @@ func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) erro
 	default:
 		return nil // still processing — stay SUBMITTED
 	}
+}
+
+// ReconcileVAT compares issued e-invoices in the period against the GTGT01
+// declaration's output VAT ([23]) — BR-VAT-06. Cancelled/replaced invoices
+// are excluded and reported. Per-rate breakdown comes from invoice lines.
+func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.VATReconciliationResult, error) {
+	from, to := periodDateRange(period)
+	invoices, err := s.repo.GetEInvoices(ctx, domain.EInvoiceFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	res := &domain.VATReconciliationResult{CompanyID: companyID, Period: period}
+	byRate := map[float64]*domain.VATRateReconciliation{}
+	var rateOrder []float64
+	for i := range invoices {
+		inv := &invoices[i]
+		if !inPeriod(inv.IssueDate, from, to) {
+			continue
+		}
+		if inv.Status == domain.EInvStatusCANCELLED || inv.Status == domain.EInvStatusREPLACED {
+			res.ExcludedInvoices = append(res.ExcludedInvoices, inv.ID)
+			continue
+		}
+		if inv.Status != domain.EInvStatusISSUED {
+			res.Notes = append(res.Notes, "invoice "+inv.ID+" not issued — excluded")
+			continue
+		}
+		res.InvoiceCount++
+		res.InvoiceTotal += inv.VATAmount
+		for _, l := range inv.Lines {
+			r := byRate[l.VATRate]
+			if r == nil {
+				byRate[l.VATRate] = &domain.VATRateReconciliation{Rate: l.VATRate}
+				r = byRate[l.VATRate]
+				rateOrder = append(rateOrder, l.VATRate)
+			}
+			r.InvoiceVAT += l.VATAmount
+			r.InvoiceAmount += l.LineTotal
+		}
+	}
+	for _, rate := range rateOrder {
+		byRate[rate].InvoiceCount = res.InvoiceCount
+		res.ByRate = append(res.ByRate, *byRate[rate])
+	}
+	// pull the GTGT01 declaration for the period
+	decls, err := s.repo.GetDeclarations(ctx, domain.TaxDeclarationFilter{
+		CompanyID: companyID, DeclarationType: domain.DeclTypeGTGT01,
+		PeriodYear: period.PeriodYear, PeriodNumber: period.PeriodNumber,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range decls {
+		d := &decls[i]
+		if d.TaxPeriod.PeriodType != period.PeriodType || d.Status == domain.DeclStatusCANCELLED {
+			continue
+		}
+		res.DeclarationID = d.ID
+		for _, l := range d.Lines {
+			if l.LineCode == "23" {
+				res.DeclarationTotal = l.Amount
+			}
+		}
+		break
+	}
+	if res.DeclarationID == "" {
+		res.Notes = append(res.Notes, "no GTGT01 declaration for period")
+	}
+	res.Variance = round2(res.InvoiceTotal - res.DeclarationTotal)
+	res.Matched = res.DeclarationID != "" && res.Variance == 0
+	return res, nil
+}
+
+func inPeriod(date string, from, to time.Time) bool {
+	t, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		return false
+	}
+	return !t.Before(from) && !t.After(to)
 }
 
 func (s *taxService) AcknowledgeDeclaration(ctx context.Context, id, ref string) error {

@@ -519,3 +519,28 @@ type EInvoiceInput struct {
 	DigitalSignatureID string        `json:"digital_signature_id,omitempty"`
 	IssueDate         string         `json:"issue_date"`
 }
+
+// VATRateReconciliation is the per-VAT-rate breakdown of issued e-invoices
+// for a period (BR-VAT-06: e-invoice data must reconcile with GTGT01).
+type VATRateReconciliation struct {
+	Rate          float64 `json:"rate"`
+	InvoiceCount  int     `json:"invoice_count"`
+	InvoiceAmount float64 `json:"invoice_amount"`
+	InvoiceVAT    float64 `json:"invoice_vat"`
+}
+
+// VATReconciliationResult compares issued e-invoices against the GTGT01
+// declaration's output VAT ([23]) for the same company + period.
+type VATReconciliationResult struct {
+	CompanyID        string                    `json:"company_id"`
+	Period           TaxPeriod                 `json:"period"`
+	DeclarationID    string                    `json:"declaration_id,omitempty"`
+	DeclarationTotal float64                   `json:"declaration_total"`
+	InvoiceTotal     float64                   `json:"invoice_total"`
+	Variance         float64                   `json:"variance"`
+	Matched          bool                      `json:"matched"`
+	InvoiceCount     int                       `json:"invoice_count"`
+	ByRate           []VATRateReconciliation   `json:"by_rate"`
+	ExcludedInvoices []string                  `json:"excluded_invoices,omitempty"`
+	Notes            []string                  `json:"notes,omitempty"`
+}
