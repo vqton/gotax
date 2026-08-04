@@ -76,6 +76,12 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		// Config
 		pw.GET("/config", h.GetConfig)
 		pw.PUT("/config", h.SetConfig)
+
+		// Reports
+		pw.GET("/reports/insurance", h.GetInsuranceSummary)
+		pw.GET("/reports/pit", h.GetPITSummary)
+		pw.GET("/reports/overtime", h.GetOvertimeSummary)
+		pw.GET("/reports/leave-balance", h.GetLeaveBalanceReport)
 	}
 }
 
@@ -388,6 +394,48 @@ func (h *PayrollHandler) GetPeriodSummary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, summary)
+}
+
+// ─── Reports ────────────────────────────────────────────────────
+
+func (h *PayrollHandler) GetInsuranceSummary(c *gin.Context) {
+	periodID := c.Query("period_id")
+	summary, err := h.svc.GetInsuranceSummary(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
+func (h *PayrollHandler) GetPITSummary(c *gin.Context) {
+	periodID := c.Query("period_id")
+	summary, err := h.svc.GetPITSummary(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
+func (h *PayrollHandler) GetOvertimeSummary(c *gin.Context) {
+	periodID := c.Query("period_id")
+	summary, err := h.svc.GetOvertimeSummary(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
+func (h *PayrollHandler) GetLeaveBalanceReport(c *gin.Context) {
+	periodID := c.Query("period_id")
+	reports, err := h.svc.GetLeaveBalanceReport(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, reports)
 }
 
 // ─── Config ─────────────────────────────────────────────────────

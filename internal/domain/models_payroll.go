@@ -297,3 +297,47 @@ type SalaryTemplateComponent struct {
 	Formula          string  `json:"formula,omitempty"`
 	Order            int     `json:"order"`
 }
+
+// InsuranceSummary aggregates insurance data for a period.
+type InsuranceSummary struct {
+	PeriodID          string  `json:"period_id"`
+	EmployeeCount     int     `json:"employee_count"`
+	TotalEmployeeSI   float64 `json:"total_employee_si"`
+	TotalEmployeeHI   float64 `json:"total_employee_hi"`
+	TotalEmployeeUI   float64 `json:"total_employee_ui"`
+	TotalEmployerSI   float64 `json:"total_employer_si"`
+	TotalEmployerHI   float64 `json:"total_employer_hi"`
+	TotalEmployerUI   float64 `json:"total_employer_ui"`
+	TotalSI           float64 `json:"total_si"`
+	TotalHI           float64 `json:"total_hi"`
+	TotalUI           float64 `json:"total_ui"`
+}
+
+// PITSummary aggregates PIT data for a period.
+type PITSummary struct {
+	PeriodID            string  `json:"period_id"`
+	EmployeeCount       int     `json:"employee_count"`
+	EmployeesWithPIT    int     `json:"employees_with_pit"`
+	TotalPIT            float64 `json:"total_pit"`
+	TotalTaxableIncome  float64 `json:"total_taxable_income"`
+}
+
+// OvertimeSummary aggregates overtime data for a period.
+type OvertimeSummary struct {
+	PeriodID        string  `json:"period_id"`
+	EmployeesWithOT int     `json:"employees_with_ot"`
+	TotalOTHours    float64 `json:"total_ot_hours"`
+	TotalOTPay      float64 `json:"total_ot_pay"`
+	TotalNightHours float64 `json:"total_night_hours"`
+	TotalNightPay   float64 `json:"total_night_pay"`
+}
+
+// LeaveBalanceReport shows leave balance per employee per type.
+type LeaveBalanceReport struct {
+	EmployeeID string  `json:"employee_id"`
+	Year       int     `json:"year"`
+	LeaveType  string  `json:"leave_type"`
+	Entitled   float64 `json:"entitled"`
+	Used       float64 `json:"used"`
+	Remaining  float64 `json:"remaining"`
+}

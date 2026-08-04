@@ -625,3 +625,101 @@ func TestPayrollSendPayslip_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// ─── Reports ────────────────────────────────────────────────────
+
+func TestPayrollGetInsuranceSummary_Empty(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/reports/insurance?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summary domain.InsuranceSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summary))
+	assert.Equal(t, 0, summary.EmployeeCount)
+}
+
+func TestPayrollGetPITSummary_Empty(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/reports/pit?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summary domain.PITSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summary))
+	assert.Equal(t, 0, summary.EmployeeCount)
+}
+
+func TestPayrollGetOvertimeSummary_Empty(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/reports/overtime?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summary domain.OvertimeSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summary))
+	assert.Equal(t, 0, summary.EmployeesWithOT)
+}
+
+func TestPayrollGetLeaveBalanceReport_Empty(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/reports/leave-balance?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var reports []domain.LeaveBalanceReport
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &reports))
+	assert.Len(t, reports, 0)
+}
+
+func TestPayrollGetInsuranceSummary_WithData(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	_ = svc.CreateRun(testContext(), &domain.PayrollRun{
+		PeriodID:   period.ID,
+		EmployeeID: "NV001",
+		CompanyID:  "CMP001",
+		BaseSalary: 10_000_000,
+		SIDeduction: 800_000,
+		HIDeduction: 150_000,
+		UIDeduction: 100_000,
+		EmployerSI:  1_750_000,
+		EmployerHI:  300_000,
+		EmployerUI:  100_000,
+	})
+	_ = svc.CreateRun(testContext(), &domain.PayrollRun{
+		PeriodID:   period.ID,
+		EmployeeID: "NV002",
+		CompanyID:  "CMP001",
+		BaseSalary: 15_000_000,
+		SIDeduction: 1_200_000,
+		HIDeduction: 225_000,
+		UIDeduction: 150_000,
+		EmployerSI:  2_625_000,
+		EmployerHI:  450_000,
+		EmployerUI:  150_000,
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/reports/insurance?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summary domain.InsuranceSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summary))
+	assert.Equal(t, 2, summary.EmployeeCount)
+	assert.Equal(t, 2_000_000.0, summary.TotalEmployeeSI)
+	assert.Equal(t, 4_375_000.0, summary.TotalEmployerSI)
+}

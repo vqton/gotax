@@ -273,6 +273,101 @@ func (s *PayrollService) GetPeriodSummary(ctx context.Context, periodID string) 
 	return summary, nil
 }
 
+// ─── Reports ────────────────────────────────────────────────────
+
+func (s *PayrollService) GetInsuranceSummary(ctx context.Context, periodID string) (*domain.InsuranceSummary, error) {
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	summary := &domain.InsuranceSummary{PeriodID: periodID}
+	for _, run := range runs {
+		summary.TotalEmployeeSI += run.SIDeduction
+		summary.TotalEmployeeHI += run.HIDeduction
+		summary.TotalEmployeeUI += run.UIDeduction
+		summary.TotalEmployerSI += run.EmployerSI
+		summary.TotalEmployerHI += run.EmployerHI
+		summary.TotalEmployerUI += run.EmployerUI
+		summary.TotalSI += run.SIDeduction + run.EmployerSI
+		summary.TotalHI += run.HIDeduction + run.EmployerHI
+		summary.TotalUI += run.UIDeduction + run.EmployerUI
+		summary.EmployeeCount++
+	}
+	return summary, nil
+}
+
+func (s *PayrollService) GetPITSummary(ctx context.Context, periodID string) (*domain.PITSummary, error) {
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	summary := &domain.PITSummary{PeriodID: periodID}
+	for _, run := range runs {
+		summary.TotalPIT += run.PITAmount
+		summary.TotalTaxableIncome += run.GrossSalary - run.SIDeduction - run.HIDeduction - run.UIDeduction - run.TradeUnionDues
+		summary.EmployeeCount++
+		if run.PITAmount > 0 {
+			summary.EmployeesWithPIT++
+		}
+	}
+	return summary, nil
+}
+
+func (s *PayrollService) GetOvertimeSummary(ctx context.Context, periodID string) (*domain.OvertimeSummary, error) {
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	summary := &domain.OvertimeSummary{PeriodID: periodID}
+	for _, run := range runs {
+		summary.TotalOTHours += run.OTHours
+		summary.TotalOTPay += run.OTPay
+		summary.TotalNightHours += run.NightShiftHours
+		summary.TotalNightPay += run.NightShiftPay
+		if run.OTHours > 0 {
+			summary.EmployeesWithOT++
+		}
+	}
+	return summary, nil
+}
+
+func (s *PayrollService) GetLeaveBalanceReport(ctx context.Context, periodID string) ([]domain.LeaveBalanceReport, error) {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var reports []domain.LeaveBalanceReport
+	for _, run := range runs {
+		if seen[run.EmployeeID] {
+			continue
+		}
+		seen[run.EmployeeID] = true
+
+		leaveTypes := []domain.LeaveType{domain.LeaveAnnual, domain.LeaveSick, domain.LeaveMaternity}
+		for _, lt := range leaveTypes {
+			balance, err := s.repo.GetLeaveBalance(ctx, run.EmployeeID, period.Year, lt)
+			if err != nil {
+				continue
+			}
+			reports = append(reports, domain.LeaveBalanceReport{
+				EmployeeID: run.EmployeeID,
+				Year:       period.Year,
+				LeaveType:  string(lt),
+				Entitled:   balance.Entitled,
+				Used:       balance.Used,
+				Remaining:  balance.Remaining,
+			})
+		}
+	}
+	return reports, nil
+}
+
 // ─── Dependants ─────────────────────────────────────────────────
 
 func (s *PayrollService) ListDependants(ctx context.Context, employeeID string) ([]domain.Dependant, error) {
