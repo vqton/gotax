@@ -720,14 +720,14 @@ type OffBalanceSheetItem struct {
 - [x] Repo: GL-posted flag if needed (not needed — DRAFT→POSTED guard idempotent)
 - [x] Tests: GL entry generated, zero-cost skipped, no GL when gl==nil
 
-### S6: Reports (FR-9)
-- [ ] S01-BH sales ledger (per customer/period)
-- [ ] S02-BH AR subledger (per customer)
-- [ ] S03-BH goods sales ledger (per item)
-- [ ] VAT output tracking (per rate)
-- [ ] Unbilled delivery report (posted DN, no invoice)
-- [ ] Routes /api/v1/sale/reports/* + /ar/recon (GetARGLReconciliation)
-- [ ] Tests per report
+### S6: Reports (FR-9) ✅
+- [x] S01-BH sales ledger (per customer/period)
+- [x] S02-BH AR subledger (per customer)
+- [x] S03-BH goods sales ledger (per item)
+- [x] VAT output tracking (per rate)
+- [x] Unbilled delivery report (posted DN, no invoice)
+- [x] Routes /api/v1/sale/reports/* + /ar/recon (GetARGLReconciliation)
+- [x] Tests per report
 
 ### S7: Auto-numbering endpoints
 - [ ] GET /orders/next-number, /deliveries/next-number, /invoices/next-number

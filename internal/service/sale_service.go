@@ -969,6 +969,279 @@ func (s *SaleService) GetARGLReconciliation(ctx context.Context, companyID, peri
 	}, nil
 }
 
+// ─── FR-9 Reports ────────────────────────────────────────────────────
+
+// GetSalesLedgerReport — S01-BH: per customer per period (invoices + CNs).
+func (s *SaleService) GetSalesLedgerReport(ctx context.Context, companyID, customerID, fromDate, toDate string) (*domain.SalesLedgerReport, error) {
+	invFilter := domain.CustomerInvoiceFilter{CompanyID: companyID, CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, invFilter)
+	if err != nil {
+		return nil, err
+	}
+	cnFilter := domain.CreditNoteFilter{CompanyID: companyID, CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	cns, _, err := s.cnRepo.ListCNs(ctx, cnFilter)
+	if err != nil {
+		return nil, err
+	}
+	type row struct {
+		date time.Time
+		r    domain.SalesLedgerRow
+	}
+	rows := []row{}
+	for _, inv := range invoices {
+		if inv.Status == domain.SInvCancelled {
+			continue
+		}
+		rows = append(rows, row{inv.InvoiceDate, domain.SalesLedgerRow{
+			Date: inv.InvoiceDate.Format("2006-01-02"), Ref: inv.InvoiceNumber,
+			Description: "Invoice " + inv.InvoiceNumber,
+			Revenue: inv.Subtotal, VAT: inv.TaxAmount, Total: inv.TotalAmount,
+		}})
+	}
+	for _, cn := range cns {
+		if cn.Status == domain.CNCancelled {
+			continue
+		}
+		rows = append(rows, row{cn.ReturnDate, domain.SalesLedgerRow{
+			Date: cn.ReturnDate.Format("2006-01-02"), Ref: cn.CNNumber,
+			Description: "Credit note " + cn.CNNumber,
+			Revenue: -cn.Subtotal, VAT: -cn.TaxAmount, Total: -cn.TotalAmount,
+		}})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].date.Before(rows[j].date) })
+
+	name := ""
+	if customerID != "" {
+		if cust, err := s.custRepo.GetCustomer(ctx, customerID); err == nil && cust != nil {
+			name = cust.Name
+		}
+	}
+	rpt := &domain.SalesLedgerReport{
+		CompanyID: companyID, CustomerID: customerID, CustomerName: name,
+		FromDate: fromDate, ToDate: toDate,
+		Rows: make([]domain.SalesLedgerRow, 0, len(rows)),
+	}
+	for _, r := range rows {
+		rpt.Rows = append(rpt.Rows, r.r)
+		rpt.TotalRevenue += r.r.Revenue
+		rpt.TotalVAT += r.r.VAT
+		rpt.Total += r.r.Total
+	}
+	return rpt, nil
+}
+
+// GetCustomerLedgerReport — S02-BH: 131 debit/credit running balance per customer.
+func (s *SaleService) GetCustomerLedgerReport(ctx context.Context, companyID, customerID, fromDate, toDate string) (*domain.CustomerLedgerReport, error) {
+	cust := &domain.Customer{}
+	if customerID != "" {
+		if c, err := s.custRepo.GetCustomer(ctx, customerID); err == nil && c != nil {
+			cust = c
+		}
+	}
+	// opening balance: BalanceDue of non-cancelled invoices dated before fromDate
+	opening := 0.0
+	if fromDate != "" {
+		prior, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{
+			CompanyID: companyID, CustomerID: customerID, ToDate: fromDate,
+		})
+		if err == nil {
+			for _, inv := range prior {
+				if inv.Status == domain.SInvCancelled {
+					continue
+				}
+				opening += inv.BalanceDue
+			}
+		}
+	}
+
+	type row struct {
+		date time.Time
+		r    domain.CustomerLedgerRow
+	}
+	rows := []row{}
+	add := func(date time.Time, ref, desc string, debit, credit float64) {
+		rows = append(rows, row{date, domain.CustomerLedgerRow{
+			Date: date.Format("2006-01-02"), Ref: ref, Description: desc,
+			Debit: debit, Credit: credit,
+		}})
+	}
+	invFilter := domain.CustomerInvoiceFilter{CompanyID: companyID, CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, invFilter)
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range invoices {
+		if inv.Status == domain.SInvCancelled {
+			continue
+		}
+		add(inv.InvoiceDate, inv.InvoiceNumber, "Invoice "+inv.InvoiceNumber, inv.TotalAmount, 0)
+	}
+	rcptFilter := domain.ReceiptFilter{CompanyID: companyID, CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	receipts, _, err := s.rcptRepo.ListReceipts(ctx, rcptFilter)
+	if err != nil {
+		return nil, err
+	}
+	for _, rcpt := range receipts {
+		if rcpt.Status == domain.RcpCancelled {
+			continue
+		}
+		add(rcpt.ReceiptDate, rcpt.ReceiptNumber, "Receipt "+rcpt.ReceiptNumber, 0, rcpt.Amount)
+	}
+	cnFilter := domain.CreditNoteFilter{CompanyID: companyID, CustomerID: customerID, FromDate: fromDate, ToDate: toDate}
+	cns, _, err := s.cnRepo.ListCNs(ctx, cnFilter)
+	if err != nil {
+		return nil, err
+	}
+	for _, cn := range cns {
+		if cn.Status == domain.CNCancelled {
+			continue
+		}
+		add(cn.ReturnDate, cn.CNNumber, "Credit note "+cn.CNNumber, 0, cn.TotalAmount)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].date.Before(rows[j].date) })
+
+	rpt := &domain.CustomerLedgerReport{
+		CompanyID: companyID, CustomerID: customerID, CustomerName: cust.Name,
+		FromDate: fromDate, ToDate: toDate, OpeningBalance: opening,
+		Rows: make([]domain.CustomerLedgerRow, 0, len(rows)),
+	}
+	bal := opening
+	for _, r := range rows {
+		bal += r.r.Debit - r.r.Credit
+		r.r.Balance = bal
+		rpt.Rows = append(rpt.Rows, r.r)
+	}
+	rpt.ClosingBalance = bal
+	return rpt, nil
+}
+
+// GetGoodsSalesLedgerReport — S03-BH: per item from posted invoice lines.
+func (s *SaleService) GetGoodsSalesLedgerReport(ctx context.Context, companyID, fromDate, toDate string) (*domain.GoodsLedgerReport, error) {
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	rpt := &domain.GoodsLedgerReport{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+		Rows: []domain.GoodsLedgerRow{},
+	}
+	for _, inv := range invoices {
+		if inv.Status != domain.SInvPosted {
+			continue
+		}
+		for _, l := range inv.Lines {
+			rpt.Rows = append(rpt.Rows, domain.GoodsLedgerRow{
+				Date: inv.InvoiceDate.Format("2006-01-02"), Ref: inv.InvoiceNumber,
+				ItemCode: l.ItemCode, ItemName: l.ItemName, Unit: l.Unit,
+				Quantity: l.Quantity, UnitPrice: l.UnitPrice,
+				Revenue: l.LineTotal, VAT: l.LineVATAmount, Total: l.LineTotal + l.LineVATAmount,
+			})
+			rpt.TotalQty += l.Quantity
+			rpt.TotalRevenue += l.LineTotal
+			rpt.TotalVAT += l.LineVATAmount
+		}
+	}
+	sort.Slice(rpt.Rows, func(i, j int) bool {
+		if rpt.Rows[i].ItemName == rpt.Rows[j].ItemName {
+			return rpt.Rows[i].Date < rpt.Rows[j].Date
+		}
+		return rpt.Rows[i].ItemName < rpt.Rows[j].ItemName
+	})
+	return rpt, nil
+}
+
+// GetVATOutputReport — VAT output tracking per rate from posted invoices.
+func (s *SaleService) GetVATOutputReport(ctx context.Context, companyID, fromDate, toDate string) (*domain.VATOutputReport, error) {
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	rpt := &domain.VATOutputReport{
+		CompanyID: companyID, FromDate: fromDate, ToDate: toDate, Rows: []domain.VATOutputRow{},
+	}
+	byRate := make(map[float64]*domain.VATOutputRow)
+	order := []float64{}
+	for _, inv := range invoices {
+		if inv.Status != domain.SInvPosted {
+			continue
+		}
+		for _, l := range inv.Lines {
+			r, ok := byRate[l.VATRate]
+			if !ok {
+				r = &domain.VATOutputRow{VatRate: l.VATRate}
+				byRate[l.VATRate] = r
+				order = append(order, l.VATRate)
+			}
+			r.Subtotal += l.LineTotal
+			r.VatAmount += l.LineVATAmount
+			r.InvoiceCount++
+		}
+	}
+	sort.Float64s(order)
+	for _, rate := range order {
+		r := byRate[rate]
+		rpt.Rows = append(rpt.Rows, *r)
+		rpt.TotalSubtotal += r.Subtotal
+		rpt.TotalVAT += r.VatAmount
+	}
+	return rpt, nil
+}
+
+// GetUnbilledDeliveriesReport — posted DNs with no covering (posted) invoice.
+func (s *SaleService) GetUnbilledDeliveriesReport(ctx context.Context, companyID string) (*domain.UnbilledDeliveryReport, error) {
+	dns, _, err := s.dnRepo.ListDNs(ctx, domain.DeliveryNoteFilter{CompanyID: companyID, Status: domain.DNPosted})
+	if err != nil {
+		return nil, err
+	}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, domain.CustomerInvoiceFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	covered := make(map[string]bool)
+	coveredBySO := make(map[string]bool)
+	for _, inv := range invoices {
+		if inv.Status != domain.SInvPosted && inv.Status != domain.SInvIssued {
+			continue
+		}
+		if inv.DNID != "" {
+			covered[inv.DNID] = true
+		}
+		if inv.SOID != "" {
+			coveredBySO[inv.SOID] = true
+		}
+	}
+	custName := func(id string) string {
+		if c, err := s.custRepo.GetCustomer(ctx, id); err == nil && c != nil {
+			return c.Name
+		}
+		return ""
+	}
+	rpt := &domain.UnbilledDeliveryReport{CompanyID: companyID, Rows: []domain.UnbilledDeliveryRow{}}
+	for _, dn := range dns {
+		if covered[dn.ID] || (dn.SOID != "" && coveredBySO[dn.SOID]) {
+			continue
+		}
+		customerID := ""
+		if so, err := s.soRepo.GetSO(ctx, dn.SOID); err == nil && so != nil {
+			customerID = so.CustomerID
+		}
+		for _, l := range dn.Lines {
+			rpt.Rows = append(rpt.Rows, domain.UnbilledDeliveryRow{
+				DNID: dn.ID, DNNumber: dn.DNNumber,
+				DeliveryDate: dn.DeliveryDate.Format("2006-01-02"),
+				SOID: dn.SOID, CustomerID: customerID, CustomerName: custName(customerID),
+				ItemCode: l.ItemCode, ItemName: l.ItemName,
+				QtyDelivered: l.QtyDelivered, Amount: l.QtyDelivered * l.UnitPrice,
+			})
+		}
+	}
+	return rpt, nil
+}
+
 // ─── Sales Quotation (P1) ──────────────────────────────────────────────
 
 func (s *SaleService) CreateSQ(ctx context.Context, sq *domain.SalesQuotation) error {

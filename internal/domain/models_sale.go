@@ -597,3 +597,108 @@ type ARGLReconDetail struct {
 	CustomerName   string  `json:"customer_name"`
 	BalanceDue     float64 `json:"balance_due"`
 }
+
+// ── FR-9 Reports ──────────────────────────────────────────────────────
+
+// SalesLedgerRow — S01-BH sales ledger line (per customer per period).
+type SalesLedgerRow struct {
+	Date        string  `json:"date"`
+	Ref         string  `json:"ref"`
+	Description string  `json:"description"`
+	Revenue     float64 `json:"revenue"` // 5111
+	VAT         float64 `json:"vat"`     // 3331
+	Total       float64 `json:"total"`
+}
+
+type SalesLedgerReport struct {
+	CompanyID    string           `json:"company_id"`
+	CustomerID   string           `json:"customer_id"`
+	CustomerName string           `json:"customer_name"`
+	FromDate     string           `json:"from_date"`
+	ToDate       string           `json:"to_date"`
+	Rows         []SalesLedgerRow `json:"rows"`
+	TotalRevenue float64          `json:"total_revenue"`
+	TotalVAT     float64          `json:"total_vat"`
+	Total        float64          `json:"total"`
+}
+
+// CustomerLedgerRow — S02-BH customer detail ledger line (131).
+type CustomerLedgerRow struct {
+	Date        string  `json:"date"`
+	Ref         string  `json:"ref"`
+	Description string  `json:"description"`
+	Debit       float64 `json:"debit"`
+	Credit      float64 `json:"credit"`
+	Balance     float64 `json:"balance"`
+}
+
+type CustomerLedgerReport struct {
+	CompanyID      string              `json:"company_id"`
+	CustomerID     string              `json:"customer_id"`
+	CustomerName   string              `json:"customer_name"`
+	FromDate       string              `json:"from_date"`
+	ToDate         string              `json:"to_date"`
+	OpeningBalance float64             `json:"opening_balance"`
+	Rows           []CustomerLedgerRow `json:"rows"`
+	ClosingBalance float64             `json:"closing_balance"`
+}
+
+// GoodsLedgerRow — S03-BH goods sales ledger line (per item per period).
+type GoodsLedgerRow struct {
+	Date      string  `json:"date"`
+	Ref       string  `json:"ref"`
+	ItemCode  string  `json:"item_code,omitempty"`
+	ItemName  string  `json:"item_name"`
+	Unit      string  `json:"unit"`
+	Quantity  float64 `json:"quantity"`
+	UnitPrice float64 `json:"unit_price"`
+	Revenue   float64 `json:"revenue"`
+	VAT       float64 `json:"vat"`
+	Total     float64 `json:"total"`
+}
+
+type GoodsLedgerReport struct {
+	CompanyID   string          `json:"company_id"`
+	FromDate    string          `json:"from_date"`
+	ToDate      string          `json:"to_date"`
+	Rows        []GoodsLedgerRow `json:"rows"`
+	TotalQty    float64         `json:"total_quantity"`
+	TotalRevenue float64        `json:"total_revenue"`
+	TotalVAT    float64         `json:"total_vat"`
+}
+
+// VATOutputRow — VAT output tracking per rate (3331).
+type VATOutputRow struct {
+	VatRate      float64 `json:"vat_rate"`
+	Subtotal     float64 `json:"subtotal"`
+	VatAmount    float64 `json:"vat_amount"`
+	InvoiceCount int     `json:"invoice_count"`
+}
+
+type VATOutputReport struct {
+	CompanyID     string         `json:"company_id"`
+	FromDate      string         `json:"from_date"`
+	ToDate        string         `json:"to_date"`
+	Rows          []VATOutputRow `json:"rows"`
+	TotalSubtotal float64        `json:"total_subtotal"`
+	TotalVAT      float64        `json:"total_vat"`
+}
+
+// UnbilledDeliveryRow — posted delivery with no covering invoice.
+type UnbilledDeliveryRow struct {
+	DNID         string  `json:"dn_id"`
+	DNNumber     string  `json:"dn_number"`
+	DeliveryDate string  `json:"delivery_date"`
+	SOID         string  `json:"so_id"`
+	CustomerID   string  `json:"customer_id"`
+	CustomerName string  `json:"customer_name"`
+	ItemCode     string  `json:"item_code,omitempty"`
+	ItemName     string  `json:"item_name"`
+	QtyDelivered float64 `json:"quantity_delivered"`
+	Amount       float64 `json:"amount"`
+}
+
+type UnbilledDeliveryReport struct {
+	CompanyID string                `json:"company_id"`
+	Rows      []UnbilledDeliveryRow `json:"rows"`
+}

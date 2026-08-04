@@ -79,6 +79,15 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 			ar.GET("/aging", h.GetARAgingReport)
 			ar.GET("/summary", h.GetARSummary)
 			ar.GET("/statement", h.GetCustomerStatement)
+			ar.GET("/recon", h.GetARGLReconciliation)
+		}
+		reports := sale.Group("/reports")
+		{
+			reports.GET("/s01-bh", h.GetSalesLedgerReport)
+			reports.GET("/s02-bh", h.GetCustomerLedgerReport)
+			reports.GET("/s03-bh", h.GetGoodsSalesLedgerReport)
+			reports.GET("/vat-output", h.GetVATOutputReport)
+			reports.GET("/unbilled-deliveries", h.GetUnbilledDeliveriesReport)
 		}
 		quotations := sale.Group("/quotations")
 		{
@@ -711,6 +720,77 @@ func (h *SaleHandler) GetCustomerStatement(c *gin.Context) {
 }
 
 // ─── Sales Quotation ───────────────────────────────────────────────────
+
+func (h *SaleHandler) GetARGLReconciliation(c *gin.Context) {
+	companyID := c.Query("company_id")
+	periodID := c.Query("period_id")
+	recon, err := h.svc.GetARGLReconciliation(c.Request.Context(), companyID, periodID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, recon)
+}
+
+func (h *SaleHandler) GetSalesLedgerReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	customerID := c.Query("customer_id")
+	fromDate := c.DefaultQuery("from_date", "")
+	toDate := c.DefaultQuery("to_date", "")
+	rpt, err := h.svc.GetSalesLedgerReport(c.Request.Context(), companyID, customerID, fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *SaleHandler) GetCustomerLedgerReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	customerID := c.Query("customer_id")
+	fromDate := c.DefaultQuery("from_date", "")
+	toDate := c.DefaultQuery("to_date", "")
+	rpt, err := h.svc.GetCustomerLedgerReport(c.Request.Context(), companyID, customerID, fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *SaleHandler) GetGoodsSalesLedgerReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	fromDate := c.DefaultQuery("from_date", "")
+	toDate := c.DefaultQuery("to_date", "")
+	rpt, err := h.svc.GetGoodsSalesLedgerReport(c.Request.Context(), companyID, fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *SaleHandler) GetVATOutputReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	fromDate := c.DefaultQuery("from_date", "")
+	toDate := c.DefaultQuery("to_date", "")
+	rpt, err := h.svc.GetVATOutputReport(c.Request.Context(), companyID, fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *SaleHandler) GetUnbilledDeliveriesReport(c *gin.Context) {
+	companyID := c.Query("company_id")
+	rpt, err := h.svc.GetUnbilledDeliveriesReport(c.Request.Context(), companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rpt)
+}
 
 func (h *SaleHandler) CreateSQ(c *gin.Context) {
 	var sq domain.SalesQuotation

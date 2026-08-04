@@ -598,3 +598,69 @@ func TestGetCustomerStatement(t *testing.T) {
 	assert.Equal(t, ts.cust.ID, stmt.Customer.ID)
 	assert.Equal(t, 220.0, stmt.ClosingBal) // 200 + 20 VAT = 220
 }
+
+func TestReportRoutes(t *testing.T) {
+	ts := setupSale(t)
+
+	// invoice + post
+	invBody := fmt.Sprintf(`{"company_id":"CMP001","invoice_number":"RPT-INV","customer_id":"%s","customer_name":"Test Customer","customer_tax_code":"1234567890","customer_address":"addr","invoice_type":"domestic","currency":"VND","invoice_date":"%s","lines":[{"item_name":"Widget","unit":"pcs","quantity":2,"unit_price":100,"vat_rate":10,"vat_type":"VAT_10","revenue_account_id":"5111"}]}`,
+		ts.cust.ID, time.Now().Add(-48*time.Hour).Format(time.RFC3339))
+	w := postJSON(ts, "/api/v1/sale/invoices?company_id=CMP001", invBody)
+	require.Equal(t, 201, w.Code)
+	var inv domain.CustomerInvoice
+	json.Unmarshal(w.Body.Bytes(), &inv)
+	w = patchJSON(ts, "/api/v1/sale/invoices/"+inv.ID+"/post?company_id=CMP001", "")
+	require.Equal(t, 200, w.Code)
+
+	t.Run("s01-bh", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/reports/s01-bh?company_id=CMP001&customer_id="+ts.cust.ID)
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.SalesLedgerReport
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		require.Len(t, rpt.Rows, 1)
+		assert.Equal(t, 220.0, rpt.Total)
+	})
+
+	t.Run("s02-bh", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/reports/s02-bh?company_id=CMP001&customer_id="+ts.cust.ID)
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.CustomerLedgerReport
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		assert.Equal(t, 220.0, rpt.ClosingBalance)
+	})
+
+	t.Run("s03-bh", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/reports/s03-bh?company_id=CMP001")
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.GoodsLedgerReport
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		require.Len(t, rpt.Rows, 1)
+		assert.Equal(t, 200.0, rpt.TotalRevenue)
+	})
+
+	t.Run("vat-output", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/reports/vat-output?company_id=CMP001")
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.VATOutputReport
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		require.Len(t, rpt.Rows, 1)
+		assert.Equal(t, 10.0, rpt.Rows[0].VatRate)
+		assert.Equal(t, 20.0, rpt.Rows[0].VatAmount)
+	})
+
+	t.Run("unbilled-deliveries", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/reports/unbilled-deliveries?company_id=CMP001")
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.UnbilledDeliveryReport
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		assert.Empty(t, rpt.Rows)
+	})
+
+	t.Run("ar-recon", func(t *testing.T) {
+		w = getJSON(ts, "/api/v1/sale/ar/recon?company_id=CMP001")
+		assert.Equal(t, 200, w.Code)
+		var rpt domain.ARGLReconciliation
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rpt))
+		assert.Equal(t, 220.0, rpt.SubledgerTotal)
+	})
+}
