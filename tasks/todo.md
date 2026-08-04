@@ -83,9 +83,25 @@
 
 BR-VAT-06: issued e-invoices must reconcile with VAT declaration.
 
-- [x] ReconcileVAT: period-filtered issued invoices vs declaration [23], per-rate breakdown, cancelled/replaced excluded
+- [x] ReconcileVAT: period-filtered issued invoices vs declaration, per-rate breakdown, cancelled/replaced excluded
+- [x] Reconcile [22] (SUM output VAT from e-invoices, spec §8.1) with [23] fallback + note (20d1428)
+- [x] Per-rate InvoiceCount = distinct invoices per bucket (was global count) (20d1428)
 - [x] POST /api/v1/tax/reconcile/vat; variance + matched flag
 - [ ] Reconciliation report export (deferred)
+
+---
+
+## ✅ Post-Review Compliance + Architecture Round (DONE — 20d1428, fa7b4bb, 51357b5, a7f259c)
+
+Review findings from code-review skill over Round B/C + reconciliation, triaged as chief accountant (compliance first):
+
+- [x] Per-rate reconciliation counts + [22] per spec §8.1 (20d1428)
+- [x] P0: HTKK NgayTao date-only (XSD date type rejects time) + MaChiTieu bracketed at wire, domain unbracketed + CreateDeclaration stamps CreatedAt (fa7b4bb)
+- [x] P0: CanCancel only from ISSUED — cancel/replace needs CQT code (Circular 78/2021) (fa7b4bb)
+- [x] P1: GDT response codes 02 duplicate→acknowledge, 10 period-already-declared→amend error, 03 taxcode→422, 99→unavailable, 01→rejected (51357b5)
+- [x] P2: service decoupled from transport — GDT DTOs → domain, gdt maps errors at boundary, pemSigner → einvoice (a7f259c)
+- [ ] Deferred: real-GDT integration (mTLS, ValidateInvoice/IssueInvoice/GetTaxpayerInfo/rates/payment-order) — wire contract is isolated mock
+- [ ] Deferred: LanDau amendment counter — HTKK only distinguishes 1/2, current 2 is compliant
 
 ---
 
