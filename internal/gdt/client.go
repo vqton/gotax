@@ -135,13 +135,19 @@ func (c *Client) CancelInvoice(ctx context.Context, transactionID, reason string
 type DeclarationSubmitResponse struct {
 	SubmissionID string `json:"submission_id"`
 	Status       string `json:"status"`
-	AckRef       string `json:"ack_ref,omitempty"`
-	Message      string `json:"message,omitempty"`
+	// Code is the GDT response code (spec §4.2): 00 acknowledged, 01 schema
+	// failure, 02 duplicate, 03 tax code not found, 10 period already
+	// declared, 99 system error.
+	Code    string `json:"code,omitempty"`
+	AckRef  string `json:"ack_ref,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // DeclarationStatusResponse is the declaration status payload.
 type DeclarationStatusResponse struct {
-	Status  string `json:"status"`
+	Status string `json:"status"`
+	// Code carries the same GDT response codes as DeclarationSubmitResponse.
+	Code    string `json:"code,omitempty"`
 	AckRef  string `json:"ack_ref,omitempty"`
 	Message string `json:"message,omitempty"`
 }

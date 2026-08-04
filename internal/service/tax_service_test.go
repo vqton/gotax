@@ -559,13 +559,15 @@ func TestAcknowledgeDeclaration_CITAnnualDueDate(t *testing.T) {
 // ─── B3: E-Invoice Issuance Pipeline ────────────────────────────────────
 
 type stubGDT struct {
-	submitResp   *gdt.SubmitResponse
-	statusResp   *gdt.StatusResponse
-	submitErr    error
-	statusErr    error
-	cancelErr    error
-	submittedXML string
-	cancelled    bool
+	submitResp     *gdt.SubmitResponse
+	statusResp     *gdt.StatusResponse
+	declSubmitResp *gdt.DeclarationSubmitResponse
+	declStatusResp *gdt.DeclarationStatusResponse
+	submitErr      error
+	statusErr      error
+	cancelErr      error
+	submittedXML   string
+	cancelled      bool
 }
 
 func (g *stubGDT) SubmitInvoice(_ context.Context, xml, certID string) (*gdt.SubmitResponse, error) {
@@ -591,12 +593,18 @@ func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*gdt
 	if g.submitErr != nil {
 		return nil, g.submitErr
 	}
+	if g.declSubmitResp != nil {
+		return g.declSubmitResp, nil
+	}
 	return &gdt.DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED"}, nil
 }
 
 func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*gdt.DeclarationStatusResponse, error) {
 	if g.statusErr != nil {
 		return nil, g.statusErr
+	}
+	if g.declStatusResp != nil {
+		return g.declStatusResp, nil
 	}
 	if g.statusResp == nil {
 		return &gdt.DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
@@ -902,6 +910,70 @@ func TestCheckDeclarationStatus_NotSubmitted(t *testing.T) {
 
 	err := svc.CheckDeclarationStatus(ctx, d.ID)
 	assert.ErrorIs(t, err, domain.ErrDeclarationNotEditable)
+}
+
+// GDT response code 02 = duplicate submission — the earlier filing stands;
+// acknowledge it and auto-create the payable, never a second one.
+func TestCheckDeclarationStatus_DuplicateAcknowledges(t *testing.T) {
+	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "02", Status: "REJECTED", AckRef: "ACK-REF-1"}}
+	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
+	ctx := context.Background()
+	d := newDeclTestDecl()
+	d.Status = domain.DeclStatusSUBMITTED
+	d.GDTSubmissionID = "SUB-1"
+	require.NoError(t, repo.CreateDeclaration(ctx, d))
+
+	require.NoError(t, svc.CheckDeclarationStatus(ctx, d.ID))
+
+	updated, _ := repo.GetDeclarationByID(ctx, d.ID)
+	assert.Equal(t, domain.DeclStatusACKNOWLEDGED, updated.Status)
+	assert.Equal(t, "ACK-REF-1", updated.AcknowledgementRef)
+}
+
+// GDT response code 10 = period already declared — filing must be an
+// amendment (LanDau=2), never treated as a plain rejection.
+func TestCheckDeclarationStatus_AlreadyDeclared(t *testing.T) {
+	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "10", Status: "REJECTED"}}
+	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, nil)
+	ctx := context.Background()
+	d := newDeclTestDecl()
+	d.Status = domain.DeclStatusSUBMITTED
+	d.GDTSubmissionID = "SUB-1"
+	require.NoError(t, repo.CreateDeclaration(ctx, d))
+
+	err := svc.CheckDeclarationStatus(ctx, d.ID)
+	assert.ErrorIs(t, err, domain.ErrDeclarationPeriodAlreadyDeclared)
+}
+
+// GDT response code 03 = taxpayer code unknown at GDT — profile problem,
+// not a declaration defect.
+func TestCheckDeclarationStatus_TaxCodeNotFound(t *testing.T) {
+	g := &stubGDT{declStatusResp: &gdt.DeclarationStatusResponse{Code: "03", Status: "REJECTED"}}
+	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, nil)
+	ctx := context.Background()
+	d := newDeclTestDecl()
+	d.Status = domain.DeclStatusSUBMITTED
+	d.GDTSubmissionID = "SUB-1"
+	require.NoError(t, repo.CreateDeclaration(ctx, d))
+
+	err := svc.CheckDeclarationStatus(ctx, d.ID)
+	assert.ErrorIs(t, err, domain.ErrGDTInvalidTaxCode)
+}
+
+// Synchronous rejection on submit must surface the business error and leave
+// the declaration un-submitted (no partial SUBMITTED persist).
+func TestSubmitDeclaration_RejectCode(t *testing.T) {
+	g := &stubGDT{declSubmitResp: &gdt.DeclarationSubmitResponse{Code: "10", Status: "REJECTED"}}
+	svc, repo, _ := newTaxTestSvcDecl(g, &stubSigner{}, &domain.Company{ID: "c1", TaxCode: "0100123456"})
+	ctx := context.Background()
+	d := newDeclTestDecl()
+	require.NoError(t, repo.CreateDeclaration(ctx, d))
+
+	err := svc.SubmitDeclaration(ctx, d.ID, "user-1")
+	assert.ErrorIs(t, err, domain.ErrDeclarationPeriodAlreadyDeclared)
+
+	updated, _ := repo.GetDeclarationByID(ctx, d.ID)
+	assert.Equal(t, domain.DeclStatusVALIDATED, updated.Status)
 }
 
 // ─── VAT Reconciliation (BR-VAT-06) ────────────────────────────────────

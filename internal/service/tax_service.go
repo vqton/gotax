@@ -257,6 +257,17 @@ func (s *taxService) SubmitDeclaration(ctx context.Context, id, userID string) e
 		if err != nil {
 			return mapGDTErr(err)
 		}
+		switch resp.Code {
+		case "01":
+			return domain.ErrGDTRejected
+		case "03":
+			return domain.ErrGDTInvalidTaxCode
+		case "10":
+			return domain.ErrDeclarationPeriodAlreadyDeclared
+		case "99":
+			return domain.ErrGDTUnavailable
+		}
+		// 00 / 02 (duplicate — existing ack stands) proceed to SUBMITTED
 		d.GDTSubmissionID = resp.SubmissionID
 	}
 	return s.repo.UpdateDeclaration(ctx, d)
@@ -280,8 +291,12 @@ func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) erro
 	if err != nil {
 		return mapGDTErr(err)
 	}
-	switch st.Status {
-	case "ACKNOWLEDGED", "ACCEPTED":
+	status, err := declarationOutcome(st)
+	if err != nil {
+		return err
+	}
+	switch status {
+	case domain.DeclStatusACKNOWLEDGED:
 		d.Status = domain.DeclStatusACKNOWLEDGED
 		d.AcknowledgedAt = s.now().Format(time.RFC3339)
 		d.AcknowledgementRef = st.AckRef
@@ -289,11 +304,38 @@ func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) erro
 			return err
 		}
 		return s.createPaymentForDeclaration(ctx, d)
-	case "REJECTED", "INVALID":
+	case domain.DeclStatusREJECTED:
 		d.Status = domain.DeclStatusREJECTED
 		return s.repo.UpdateDeclaration(ctx, d)
 	default:
 		return nil // still processing — stay SUBMITTED
+	}
+}
+
+// declarationOutcome interprets a GDT declaration status per spec §4.2. The
+// response code takes precedence over the status string: 00 acknowledged, 01
+// schema failure, 02 duplicate (earlier filing stands — acknowledge), 03 tax
+// code not found, 10 period already declared (must amend), 99 system error.
+func declarationOutcome(st *gdt.DeclarationStatusResponse) (domain.DeclarationStatus, error) {
+	switch st.Code {
+	case "00", "02":
+		return domain.DeclStatusACKNOWLEDGED, nil
+	case "03":
+		return "", domain.ErrGDTInvalidTaxCode
+	case "10":
+		return "", domain.ErrDeclarationPeriodAlreadyDeclared
+	case "01":
+		return domain.DeclStatusREJECTED, nil
+	case "99":
+		return "", domain.ErrGDTUnavailable
+	}
+	switch st.Status {
+	case "ACKNOWLEDGED", "ACCEPTED":
+		return domain.DeclStatusACKNOWLEDGED, nil
+	case "REJECTED", "INVALID":
+		return domain.DeclStatusREJECTED, nil
+	default:
+		return "", nil // still processing
 	}
 }
 

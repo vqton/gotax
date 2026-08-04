@@ -440,6 +440,8 @@ var (
 	ErrGDTUnavailable          = errors.New("GDT service unavailable")
 	ErrGDTUnauthorized         = errors.New("GDT rejected credentials")
 	ErrGDTRejected             = errors.New("GDT rejected the request")
+	ErrGDTInvalidTaxCode       = errors.New("tax code not found at GDT")
+	ErrDeclarationPeriodAlreadyDeclared = errors.New("period already declared at GDT — amend instead")
 
 	ErrInvItemNameRequired    = errors.New("item name is required")
 	ErrInvItemQtyRequired     = errors.New("quantity must be positive")

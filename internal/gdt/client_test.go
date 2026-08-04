@@ -70,12 +70,12 @@ func newMockServer(t *testing.T) *mockServer {
 		}
 		m.declSubmitBody.Store(req.XML)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED", AckRef: "ACK-REF-1"})
+		json.NewEncoder(w).Encode(DeclarationSubmitResponse{SubmissionID: "SUB-1", Status: "SUBMITTED", Code: "00", AckRef: "ACK-REF-1"})
 	})
 	mux.HandleFunc("/api/submission/status", func(w http.ResponseWriter, r *http.Request) {
 		m.declStatusCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"})
+		json.NewEncoder(w).Encode(DeclarationStatusResponse{Status: "ACKNOWLEDGED", Code: "00", AckRef: "ACK-REF-1"})
 	})
 	m.server = httptest.NewServer(mux)
 	return m
@@ -214,6 +214,7 @@ func TestSubmitDeclaration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SUB-1", resp.SubmissionID)
 	assert.Equal(t, "SUBMITTED", resp.Status)
+	assert.Equal(t, "00", resp.Code)
 	assert.Equal(t, "<BoKe/>", m.declSubmitBody.Load().(string))
 	assert.Equal(t, int32(1), m.declSubmitCalls.Load())
 }
@@ -226,6 +227,7 @@ func TestQueryDeclarationStatus(t *testing.T) {
 	st, err := c.QueryDeclarationStatus(context.Background(), "SUB-1")
 	require.NoError(t, err)
 	assert.Equal(t, "ACKNOWLEDGED", st.Status)
+	assert.Equal(t, "00", st.Code)
 	assert.Equal(t, "ACK-REF-1", st.AckRef)
 	assert.Equal(t, int32(1), m.declStatusCalls.Load())
 }

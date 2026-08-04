@@ -105,10 +105,12 @@ func (h *TaxHandler) taxError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrDeclarationNotEditable),
 		errors.Is(err, domain.ErrDeclarationAlreadySubmitted),
+		errors.Is(err, domain.ErrDeclarationPeriodAlreadyDeclared),
 		errors.Is(err, domain.ErrInvoiceStatusInvalid),
 		errors.Is(err, domain.ErrDuplicateDeclaration):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, domain.ErrGDTRejected):
+	case errors.Is(err, domain.ErrGDTRejected),
+		errors.Is(err, domain.ErrGDTInvalidTaxCode):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrGDTUnauthorized),
 		errors.Is(err, domain.ErrGDTUnavailable):
