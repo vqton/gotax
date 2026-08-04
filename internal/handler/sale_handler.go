@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"gotax/internal/domain"
 	"gotax/internal/service"
@@ -33,6 +34,7 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 		{
 			orders.POST("", h.CreateSO)
 			orders.GET("", h.ListSOs)
+			orders.GET("/next-number", h.GetNextSONumber)
 			orders.GET("/:id", h.GetSO)
 			orders.PUT("/:id", h.UpdateSO)
 			orders.PATCH("/:id/approve", h.ApproveSO)
@@ -43,6 +45,7 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 		{
 			deliveries.POST("", h.CreateDN)
 			deliveries.GET("", h.ListDNs)
+			deliveries.GET("/next-number", h.GetNextDNNumber)
 			deliveries.GET("/:id", h.GetDN)
 			deliveries.PUT("/:id", h.UpdateDN)
 			deliveries.PATCH("/:id/post", h.PostDN)
@@ -52,6 +55,7 @@ func RegisterSaleRoutes(r *gin.Engine, h *SaleHandler, authMW gin.HandlerFunc) {
 		{
 			invoices.POST("", h.CreateInvoice)
 			invoices.GET("", h.ListInvoices)
+			invoices.GET("/next-number", h.GetNextInvNumber)
 			invoices.GET("/:id", h.GetInvoice)
 			invoices.PUT("/:id", h.UpdateInvoice)
 			invoices.PATCH("/:id/post", h.PostInvoice)
@@ -790,6 +794,39 @@ func (h *SaleHandler) GetUnbilledDeliveriesReport(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, rpt)
+}
+
+func (h *SaleHandler) GetNextSONumber(c *gin.Context) {
+	companyID := c.Query("company_id")
+	yyyymm := c.DefaultQuery("yyyymm", time.Now().Format("200601"))
+	next, err := h.svc.NextSONumber(c.Request.Context(), companyID, yyyymm)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"next_number": next})
+}
+
+func (h *SaleHandler) GetNextDNNumber(c *gin.Context) {
+	companyID := c.Query("company_id")
+	yyyymm := c.DefaultQuery("yyyymm", time.Now().Format("200601"))
+	next, err := h.svc.NextDNNumber(c.Request.Context(), companyID, yyyymm)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"next_number": next})
+}
+
+func (h *SaleHandler) GetNextInvNumber(c *gin.Context) {
+	companyID := c.Query("company_id")
+	yyyymm := c.DefaultQuery("yyyymm", time.Now().Format("200601"))
+	next, err := h.svc.NextInvNumber(c.Request.Context(), companyID, yyyymm)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"next_number": next})
 }
 
 func (h *SaleHandler) CreateSQ(c *gin.Context) {

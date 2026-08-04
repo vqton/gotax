@@ -1295,6 +1295,6 @@ func (s *SaleService) NextDNNumber(ctx context.Context, companyID, yyyymm string
 
 // ─── Auto-numbering ────────────────────────────────────────────────────
 
-func (s *SaleService) GetInvNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
+func (s *SaleService) NextInvNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
 	return s.invRepo.NextInvNumber(ctx, companyID, yyyymm)
 }

@@ -664,3 +664,43 @@ func TestReportRoutes(t *testing.T) {
 		assert.Equal(t, 220.0, rpt.SubledgerTotal)
 	})
 }
+
+func TestNextNumberEndpoints(t *testing.T) {
+	ts := setupSale(t)
+
+	type nextNum struct {
+		NextNumber string `json:"next_number"`
+	}
+
+	t.Run("orders", func(t *testing.T) {
+		w := getJSON(ts, "/api/v1/sale/orders/next-number?company_id=CMP001&yyyymm=202607")
+		assert.Equal(t, 200, w.Code)
+		var r nextNum
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
+		assert.Equal(t, "SO-202607-00001", r.NextNumber)
+	})
+
+	t.Run("deliveries", func(t *testing.T) {
+		w := getJSON(ts, "/api/v1/sale/deliveries/next-number?company_id=CMP001&yyyymm=202607")
+		assert.Equal(t, 200, w.Code)
+		var r nextNum
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
+		assert.Equal(t, "DN-202607-00001", r.NextNumber)
+	})
+
+	t.Run("invoices", func(t *testing.T) {
+		w := getJSON(ts, "/api/v1/sale/invoices/next-number?company_id=CMP001&yyyymm=202607")
+		assert.Equal(t, 200, w.Code)
+		var r nextNum
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
+		assert.Equal(t, "INV-202607-00001", r.NextNumber)
+	})
+
+	t.Run("default yyyymm is current month", func(t *testing.T) {
+		w := getJSON(ts, "/api/v1/sale/orders/next-number?company_id=CMP001")
+		assert.Equal(t, 200, w.Code)
+		var r nextNum
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
+		assert.Regexp(t, `^SO-\d{6}-\d{5}$`, r.NextNumber)
+	})
+}

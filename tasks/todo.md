@@ -729,9 +729,9 @@ type OffBalanceSheetItem struct {
 - [x] Routes /api/v1/sale/reports/* + /ar/recon (GetARGLReconciliation)
 - [x] Tests per report
 
-### S7: Auto-numbering endpoints
-- [ ] GET /orders/next-number, /deliveries/next-number, /invoices/next-number
-- [ ] Tests
+### S7: Auto-numbering endpoints ✅
+- [x] GET /orders/next-number, /deliveries/next-number, /invoices/next-number
+- [x] Tests
 
 ### S8: Docs + final review
 - [ ] AGENTS.md Sale row updated, BRD "ZERO" note, plan.md checkpoints
