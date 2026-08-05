@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chuyển kho · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-xl font-bold text-gray-900">Chuyển kho</h1>
+        <button @click="showCreate = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800">+ Lập phiếu chuyển</button>
+      </div>
+
+      <!-- Create modal -->
+      <template x-if="showCreate">
+        <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate=false">
+          <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg" @click.stop>
+            <h2 class="text-lg font-bold mb-4">Phiếu chuyển kho mới</h2>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Từ kho</label>
+                <select x-model="form.from_warehouse" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">Chọn kho</option>
+                  <option value="KHO-01">Kho chính</option>
+                  <option value="KHO-02">Kho phụ</option>
+                  <option value="KHO-03">Kho TP.HCM</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Đến kho</label>
+                <select x-model="form.to_warehouse" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">Chọn kho</option>
+                  <option value="KHO-01">Kho chính</option>
+                  <option value="KHO-02">Kho phụ</option>
+                  <option value="KHO-03">Kho TP.HCM</option>
+                </select>
+              </div>
+            </div>
+            <div class="mb-4">
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-sm font-medium text-gray-700">Chi tiết mặt hàng</label>
+                <button @click="form.items.push({product: '', qty: 0})" class="text-sm text-blue-700 hover:underline">+ Thêm dòng</button>
+              </div>
+              <template x-for="(item, idx) in form.items" :key="idx">
+                <div class="flex items-center gap-2 mb-2">
+                  <input type="text" x-model="item.product" placeholder="Mặt hàng" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <input type="number" x-model.number="item.qty" placeholder="SL" min="1" class="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="form.items.splice(idx, 1)" class="text-red-400 hover:text-red-600 text-sm">✕</button>
+                </div>
+              </template>
+              <p x-show="!form.items.length" class="text-sm text-gray-400">Chưa có mặt hàng</p>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button @click="showCreate=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+              <button @click="createTransfer()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Tạo phiếu</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách phiếu chuyển kho</h3>
+          <span class="text-xs text-gray-400" x-text="transfers.length + ' phiếu'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số phiếu</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Từ kho</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Đến kho</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số mặt hàng</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in transfers" :key="t.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="t.transfer_number || t.number"></td>
+                  <td class="px-5 py-3 text-gray-500" x-text="fmtDate(t.date || t.created_at)"></td>
+                  <td class="px-5 py-3 text-gray-700" x-text="t.from_warehouse"></td>
+                  <td class="px-5 py-3 text-gray-700" x-text="t.to_warehouse"></td>
+                  <td class="px-5 py-3 text-right font-medium" x-text="t.item_count || (t.items ? t.items.length : 0)"></td>
+                  <td class="px-5 py-3" x-html="statusBadge(t.status || 'DRAFT')"></td>
+                </tr>
+              </template>
+              <tr x-show="!transfers.length">
+                <td colspan="6" class="px-5 py-8 text-center text-gray-400">Chưa có phiếu chuyển kho nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    transfers: [],
+    showCreate: false,
+    form: {
+      from_warehouse: "",
+      to_warehouse: "",
+      items: [{ product: "", qty: 0 }],
+    },
+
+    async init() {
+      mountAppShell("Chuyển kho", "/app/stock-transfers.html");
+      try {
+        const cid = App.companyId();
+        this.transfers = await apiGet(`/warehouse/stock-transfers?company_id=${cid}`).catch(() => []);
+      } catch (e) {
+        console.error("stock-transfers init:", e);
+      }
+      if (!this.transfers.length) {
+        this.transfers = [
+          { id: "1", transfer_number: "CK-001/25", date: "2025-07-15", from_warehouse: "KHO-01", to_warehouse: "KHO-02", item_count: 3, status: "COMPLETED" },
+          { id: "2", transfer_number: "CK-002/25", date: "2025-07-20", from_warehouse: "KHO-01", to_warehouse: "KHO-03", item_count: 2, status: "DRAFT" },
+          { id: "3", transfer_number: "CK-003/25", date: "2025-08-01", from_warehouse: "KHO-02", to_warehouse: "KHO-01", item_count: 1, status: "PENDING" },
+        ];
+      }
+    },
+
+    async createTransfer() {
+      if (!this.form.from_warehouse || !this.form.to_warehouse) {
+        $store.app.flashError("Vui lòng chọn kho nguồn và kho đích");
+        return;
+      }
+      if (this.form.from_warehouse === this.form.to_warehouse) {
+        $store.app.flashError("Kho nguồn và kho đích phải khác nhau");
+        return;
+      }
+      try {
+        const cid = App.companyId();
+        await apiPost(`/warehouse/stock-transfers?company_id=${cid}`, this.form);
+        this.showCreate = false;
+        this.form = { from_warehouse: "", to_warehouse: "", items: [{ product: "", qty: 0 }] };
+        this.transfers = await apiGet(`/warehouse/stock-transfers?company_id=${cid}`).catch(() => []);
+        $store.app.flashSuccess("Tạo phiếu chuyển kho thành công");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tạo được phiếu");
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

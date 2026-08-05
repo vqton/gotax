@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phiếu chi · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="cashPayments()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h2 class="text-xl font-bold text-gray-900">Danh sách phiếu chi</h2>
+          <p class="text-sm text-gray-500 mt-1" x-text="'Tổng: ' + (total || 0) + ' phiếu chi'"></p>
+        </div>
+        <button @click="showForm = true; resetForm()" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Lập phiếu chi
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số PC</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Diễn giải</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Chi cho</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số tiền</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="p in items" :key="p.id">
+              <tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-5 py-3 font-medium" x-text="p.voucher_no"></td>
+                <td class="px-5 py-3 text-gray-500" x-text="fmtDate(p.voucher_date)"></td>
+                <td class="px-5 py-3 text-gray-700 max-w-xs truncate" x-text="p.reason"></td>
+                <td class="px-5 py-3 text-gray-700" x-text="p.payee_name || p.payee_id || '—'"></td>
+                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(p.amount)"></td>
+                <td class="px-5 py-3" x-html="statusBadge(p.status)"></td>
+                <td class="px-5 py-3">
+                  <button x-show="p.status === 'DRAFT'" @click="post(p)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Ghi sổ</button>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!items.length && !loading">
+              <td colspan="7" class="px-5 py-8 text-center text-gray-400">Chưa có phiếu chi nào</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="showForm" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" x-transition>
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg" @click.outside="showForm = false">
+          <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900">Lập phiếu chi</h3>
+            <button @click="showForm = false" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <form @submit.prevent="create()" class="px-6 py-4 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày lập</label>
+                <input type="date" x-model="form.voucher_date" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Loại chi</label>
+                <select x-model="form.payment_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="SUPPLIER">Chi NCC</option>
+                  <option value="SALARY">Chi lương</option>
+                  <option value="EXPENSE">Chi phí</option>
+                  <option value="BANK_DEPOSIT">Gửi tiền NH</option>
+                  <option value="ADVANCE">Chi ứng trước</option>
+                  <option value="TAX">Chi thuế</option>
+                  <option value="OTHER">Khác</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Diễn giải</label>
+              <input type="text" x-model="form.reason" required placeholder="Nhập diễn giải" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Chi cho (đối tượng)</label>
+                <input type="text" x-model="form.payee_name" placeholder="Tên đối tượng" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Số tiền</label>
+                <input type="number" x-model.number="form.amount" required min="1" step="1" placeholder="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Tài khoản tiền mặt</label>
+                <input type="text" x-model="form.cash_account_id" required placeholder="VD: 1111" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Tài khoản đối ứng</label>
+                <input type="text" x-model="form.debit_account_id" required placeholder="VD: 3311" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button type="button" @click="showForm = false" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition">Hủy</button>
+              <button type="submit" :disabled="saving" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
+                <span x-show="!saving">Tạo phiếu chi</span>
+                <span x-show="saving">Đang lưu...</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function cashPayments() {
+  return {
+    items: [],
+    total: 0,
+    loading: false,
+    showForm: false,
+    saving: false,
+    form: {
+      voucher_date: new Date().toISOString().slice(0, 10),
+      payment_type: "SUPPLIER",
+      reason: "",
+      payee_name: "",
+      amount: 0,
+      cash_account_id: "",
+      debit_account_id: "",
+      credit_account_id: "",
+      currency: "VND",
+      exchange_rate: 1,
+      payee_type: "SUPPLIER",
+    },
+
+    async init() {
+      mountAppShell("Phiếu chi", "/app/cash-payments.html");
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const cid = App.companyId();
+        const res = await apiGet(`/cash/payments?company_id=${cid}`);
+        this.items = res.data || [];
+        this.total = res.total || 0;
+      } catch (e) {
+        console.error("load payments:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    resetForm() {
+      this.form = {
+        voucher_date: new Date().toISOString().slice(0, 10),
+        payment_type: "SUPPLIER",
+        reason: "",
+        payee_name: "",
+        amount: 0,
+        cash_account_id: "",
+        debit_account_id: "",
+        credit_account_id: "",
+        currency: "VND",
+        exchange_rate: 1,
+        payee_type: "SUPPLIER",
+      };
+    },
+
+    async create() {
+      this.saving = true;
+      try {
+        const cid = App.companyId();
+        this.form.company_id = cid;
+        this.form.credit_account_id = this.form.debit_account_id;
+        await apiPost(`/cash/payments?company_id=${cid}`, this.form);
+        this.showForm = false;
+        $store.app.flashSuccess("Tạo phiếu chi thành công");
+        await this.load();
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi tạo phiếu chi");
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async post(p) {
+      if (!App.confirm("Ghi sổ phiếu chi " + p.voucher_no + "?")) return;
+      try {
+        const cid = App.companyId();
+        await apiFetch(`/cash/payments/${p.id}/post?company_id=${cid}`, { method: "POST" });
+        $store.app.flashSuccess("Đã ghi sổ phiếu chi " + p.voucher_no);
+        await this.load();
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi ghi sổ");
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

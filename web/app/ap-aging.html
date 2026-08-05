@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Công nợ phải trả · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Công nợ phải trả</h2>
+        <button @click="loadItems()" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition">🔄 Làm mới</button>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500">Tổng phải trả</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900" x-text="fmtVND(summary.total) + ' ₫'"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-red-200 p-5">
+          <p class="text-sm text-gray-500">Quá hạn</p>
+          <p class="mt-1 text-2xl font-bold text-red-600" x-text="fmtVND(summary.overdue) + ' ₫'"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-amber-200 p-5">
+          <p class="text-sm text-gray-500">Đến hạn trong 30 ngày</p>
+          <p class="mt-1 text-2xl font-bold text-amber-600" x-text="fmtVND(summary.dueSoon) + ' ₫'"></p>
+        </div>
+      </div>
+
+      <!-- Aging table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Nhà cung cấp</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng nợ</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Chưa đến hạn</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">1-30 ngày</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">31-60 ngày</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">61-90 ngày</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">&gt;90 ngày</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in rows" :key="row.supplier_id">
+              <tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-5 py-3 font-medium text-gray-900" x-text="row.supplier_name"></td>
+                <td class="px-5 py-3 text-right font-bold text-gray-900" x-text="fmtVND(row.total)"></td>
+                <td class="px-5 py-3 text-right text-green-700 font-medium" x-text="fmtVND(row.current)"></td>
+                <td class="px-5 py-3 text-right font-medium" :class="row.d1_30 > 0 ? 'text-yellow-600' : 'text-gray-400'" x-text="fmtVND(row.d1_30)"></td>
+                <td class="px-5 py-3 text-right font-medium" :class="row.d31_60 > 0 ? 'text-orange-500' : 'text-gray-400'" x-text="fmtVND(row.d31_60)"></td>
+                <td class="px-5 py-3 text-right font-medium" :class="row.d61_90 > 0 ? 'text-orange-600' : 'text-gray-400'" x-text="fmtVND(row.d61_90)"></td>
+                <td class="px-5 py-3 text-right font-bold" :class="row.d90plus > 0 ? 'text-red-600' : 'text-gray-400'" x-text="fmtVND(row.d90plus)"></td>
+              </tr>
+            </template>
+            <!-- Totals row -->
+            <tr class="bg-gray-50 border-t-2 border-gray-200 font-bold">
+              <td class="px-5 py-3 text-gray-900">Tổng cộng</td>
+              <td class="px-5 py-3 text-right text-gray-900" x-text="fmtVND(totals.total)"></td>
+              <td class="px-5 py-3 text-right text-green-700" x-text="fmtVND(totals.current)"></td>
+              <td class="px-5 py-3 text-right text-yellow-600" x-text="fmtVND(totals.d1_30)"></td>
+              <td class="px-5 py-3 text-right text-orange-500" x-text="fmtVND(totals.d31_60)"></td>
+              <td class="px-5 py-3 text-right text-orange-600" x-text="fmtVND(totals.d61_90)"></td>
+              <td class="px-5 py-3 text-right text-red-600" x-text="fmtVND(totals.d90plus)"></td>
+            </tr>
+            <tr x-show="!rows.length && !loading">
+              <td colspan="7" class="px-5 py-8 text-center text-gray-400">Chưa có dữ liệu công nợ</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    rows: [],
+    loading: true,
+    summary: { total: 0, overdue: 0, dueSoon: 0 },
+    totals: { total: 0, current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 },
+
+    async init() {
+      mountAppShell("Công nợ phải trả", "/app/ap-aging.html");
+      await this.loadItems();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const cid = App.companyId();
+        const data = await apiGet(`/purchase/ap/aging?company_id=${cid}`);
+        const raw = Array.isArray(data) ? data : data.items || data.aging || [];
+        this.rows = raw.map(r => ({
+          supplier_id: r.supplier_id || r.id,
+          supplier_name: r.supplier_name || r.name || "—",
+          total: r.total || r.total_amount || 0,
+          current: r.current || r.not_due || 0,
+          d1_30: r.d1_30 || r.bucket_1_30 || 0,
+          d31_60: r.d31_60 || r.bucket_31_60 || 0,
+          d61_90: r.d61_90 || r.bucket_61_90 || 0,
+          d90plus: r.d90plus || r.bucket_90_plus || 0,
+        }));
+        this.computeTotals();
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tải được dữ liệu");
+      }
+      this.loading = false;
+    },
+
+    computeTotals() {
+      const t = { total: 0, current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
+      for (const r of this.rows) {
+        t.total += r.total;
+        t.current += r.current;
+        t.d1_30 += r.d1_30;
+        t.d31_60 += r.d31_60;
+        t.d61_90 += r.d61_90;
+        t.d90plus += r.d90plus;
+      }
+      this.totals = t;
+      this.summary = {
+        total: t.total,
+        overdue: t.d1_30 + t.d31_60 + t.d61_90 + t.d90plus,
+        dueSoon: t.d1_30,
+      };
+    },
+  };
+}
+</script>
+
+</body>
+</html>

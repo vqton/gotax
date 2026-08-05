@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <!-- Main -->
+  <div class="lg:ml-60">
+    <!-- Top bar -->
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <!-- Content -->
+    <main class="p-6">
+      <!-- Flash -->
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Tài khoản</p>
+          <p class="text-2xl font-bold text-gray-900" x-text="summary.accounts || 0"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Chứng từ kỳ này</p>
+          <p class="text-2xl font-bold text-blue-700" x-text="summary.entries || 0"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Doanh thu</p>
+          <p class="text-2xl font-bold text-green-700" x-text="fmtVND(summary.revenue) + ' ₫'"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Phải thu</p>
+          <p class="text-2xl font-bold text-amber-700" x-text="fmtVND(summary.ar_balance) + ' ₫'"></p>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        <h3 class="text-sm font-semibold text-gray-700 mb-4">Thao tác nhanh</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <a href="/app/journal-entries.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">📝</span>
+            <div><p class="font-medium text-gray-900 text-sm">Chứng từ</p><p class="text-xs text-gray-500">Lập mới</p></div>
+          </a>
+          <a href="/app/sales-invoices.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">🧾</span>
+            <div><p class="font-medium text-gray-900 text-sm">Hóa đơn bán</p><p class="text-xs text-gray-500">Bán hàng</p></div>
+          </a>
+          <a href="/app/purchase-invoices.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">🛒</span>
+            <div><p class="font-medium text-gray-900 text-sm">Hóa đơn mua</p><p class="text-xs text-gray-500">Mua hàng</p></div>
+          </a>
+          <a href="/app/cash-receipts.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">💵</span>
+            <div><p class="font-medium text-gray-900 text-sm">Phiếu thu</p><p class="text-xs text-gray-500">Thu tiền</p></div>
+          </a>
+          <a href="/app/trial-balance.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">📊</span>
+            <div><p class="font-medium text-gray-900 text-sm">BCDS phát sinh</p><p class="text-xs text-gray-500">Báo cáo</p></div>
+          </a>
+          <a href="/payroll/periods.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
+            <span class="text-2xl">💰</span>
+            <div><p class="font-medium text-gray-900 text-sm">Tiền lương</p><p class="text-xs text-gray-500">Lương &社保</p></div>
+          </a>
+        </div>
+      </div>
+
+      <!-- Recent entries -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Chứng từ gần đây</h3>
+          <a href="/app/journal-entries.html" class="text-sm text-blue-700 hover:underline">Xem tất cả →</a>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số CT</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Diễn giải</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng Nợ</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng Có</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="e in recentEntries" :key="e.id">
+              <tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-5 py-3 font-medium" x-text="e.entry_number"></td>
+                <td class="px-5 py-3 text-gray-500" x-text="fmtDate(e.entry_date)"></td>
+                <td class="px-5 py-3 text-gray-700 max-w-xs truncate" x-text="e.description"></td>
+                <td class="px-5 py-3" x-html="statusBadge(e.status)"></td>
+                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(e.total_debit)"></td>
+                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(e.total_credit)"></td>
+              </tr>
+            </template>
+            <tr x-show="!recentEntries.length">
+              <td colspan="6" class="px-5 py-8 text-center text-gray-400">Chưa có chứng từ nào</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+<script>
+function dashboard() {
+  return {
+    summary: {},
+    recentEntries: [],
+
+    async init() {
+      mountAppShell("Tổng quan", "/app/dashboard.html");
+      try {
+        const cid = App.companyId();
+        const [accounts, entries] = await Promise.all([
+          apiGet("/accounts?active_only=true").catch(() => []),
+          apiGet("/journal-entries?limit=10").catch(() => []),
+        ]);
+        this.summary.accounts = Array.isArray(accounts) ? accounts.length : 0;
+        this.summary.entries = Array.isArray(entries) ? entries.length : 0;
+        this.recentEntries = Array.isArray(entries) ? entries.slice(0, 10) : [];
+      } catch (e) {
+        console.error("dashboard init:", e);
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

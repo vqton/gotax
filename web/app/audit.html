@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nhật ký hệ thống · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="auditPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <h2 class="text-xl font-bold text-gray-900 mb-6">Nhật ký hệ thống</h2>
+
+      <!-- Filters -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Loại đối tượng</label>
+            <select x-model="filters.entity_type" @change="loadLogs()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              <option value="">Tất cả</option>
+              <option value="journal_entry">Chứng từ</option>
+              <option value="account">Tài khoản</option>
+              <option value="period">Kỳ kế toán</option>
+              <option value="company">Công ty</option>
+              <option value="user">Người dùng</option>
+              <option value="customer">Khách hàng</option>
+              <option value="supplier">Nhà cung cấp</option>
+              <option value="item">Hàng hóa</option>
+              <option value="fixed_asset">Tài sản cố định</option>
+              <option value="cash_receipt">Phiếu thu</option>
+              <option value="cash_payment">Phiếu chi</option>
+              <option value="bank_statement">Sổ ngân hàng</option>
+              <option value="purchase_order">Đơn mua hàng</option>
+              <option value="sales_invoice">Hóa đơn bán</option>
+              <option value="delivery_note">Phiếu xuất kho</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Từ ngày</label>
+            <input type="date" x-model="filters.date_from" @change="loadLogs()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Đến ngày</label>
+            <input type="date" x-model="filters.date_to" @change="loadLogs()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          </div>
+          <div class="flex items-end">
+            <button @click="resetFilters()" class="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+              Xóa bộ lọc
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <!-- Loading -->
+        <template x-if="loading">
+          <div class="p-6">
+            <div class="space-y-3">
+              <div class="h-4 bg-gray-100 rounded animate-pulse"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-5/6"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-4/6"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-3/4"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-2/3"></div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Table -->
+        <template x-if="!loading">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">Thời gian</th>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">Người dùng</th>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">Hành động</th>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">Loại đối tượng</th>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">ID đối tượng</th>
+                  <th class="text-left px-5 py-3 font-semibold text-gray-600">Chi tiết</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="log in logs" :key="log.id">
+                  <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="px-5 py-3 text-gray-500 whitespace-nowrap" x-text="fmtDateTime(log.created_at)"></td>
+                    <td class="px-5 py-3">
+                      <span class="font-medium text-gray-900" x-text="log.username || '—'"></span>
+                    </td>
+                    <td class="px-5 py-3">
+                      <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium" :class="actionClass(log.action)" x-text="actionLabel(log.action)"></span>
+                    </td>
+                    <td class="px-5 py-3 text-gray-600" x-text="entityLabel(log.entity_type)"></td>
+                    <td class="px-5 py-3">
+                      <span class="font-mono text-xs text-gray-500" x-text="log.entity_id ? log.entity_id.substring(0, 8) + '…' : '—'"></span>
+                    </td>
+                    <td class="px-5 py-3">
+                      <button x-show="log.entity_type && log.entity_id" @click="viewDetail(log)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Xem</button>
+                      <span x-show="!log.entity_type || !log.entity_id" class="text-gray-400 text-xs">—</span>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="!logs.length">
+                  <td colspan="6" class="px-5 py-12 text-center text-gray-400">
+                    <span class="text-3xl block mb-2">📜</span>
+                    Không có nhật ký nào
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-5 py-3 border-t border-gray-200 bg-gray-50">
+          <p class="text-xs text-gray-500">
+            Hiển thị <span x-text="offset + 1"></span>–<span x-text="Math.min(offset + limit, total)"></span>
+            trong tổng số <span x-text="total"></span> bản ghi
+          </p>
+          <div class="flex items-center gap-2">
+            <button @click="prevPage()" :disabled="offset === 0"
+              class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition">
+              ← Trước
+            </button>
+            <span class="text-xs text-gray-500" x-text="'Trang ' + currentPage() + '/' + totalPages()"></span>
+            <button @click="nextPage()" :disabled="offset + limit >= total"
+              class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition">
+              Sau →
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Detail modal -->
+  <template x-if="showDetailModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDetailModal = false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" @click.stop>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h3 class="text-lg font-semibold text-gray-900">Chi tiết nhật ký</h3>
+          <button @click="showDetailModal = false" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="px-6 py-4 space-y-3">
+          <div class="flex gap-4">
+            <div class="flex-1">
+              <p class="text-xs text-gray-500">Thời gian</p>
+              <p class="text-sm font-medium" x-text="fmtDateTime(detailLog?.created_at)"></p>
+            </div>
+            <div class="flex-1">
+              <p class="text-xs text-gray-500">Người dùng</p>
+              <p class="text-sm font-medium" x-text="detailLog?.username || '—'"></p>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <div class="flex-1">
+              <p class="text-xs text-gray-500">Hành động</p>
+              <p class="text-sm font-medium" x-text="actionLabel(detailLog?.action)"></p>
+            </div>
+            <div class="flex-1">
+              <p class="text-xs text-gray-500">Loại đối tượng</p>
+              <p class="text-sm font-medium" x-text="entityLabel(detailLog?.entity_type)"></p>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">Entity ID</p>
+            <p class="text-sm font-mono" x-text="detailLog?.entity_id || '—'"></p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-1">Chi tiết thay đổi</p>
+            <pre class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto max-h-60" x-text="formatDetail(detailLog?.details)"></pre>
+          </div>
+        </div>
+        <div class="flex justify-end px-6 py-4 border-t border-gray-200">
+          <button @click="showDetailModal = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+<script>
+const ACTION_MAP = {
+  CREATE: { label: "Tạo mới", cls: "bg-green-100 text-green-700" },
+  UPDATE: { label: "Cập nhật", cls: "bg-blue-100 text-blue-700" },
+  DELETE: { label: "Xóa", cls: "bg-red-100 text-red-700" },
+  LOGIN: { label: "Đăng nhập", cls: "bg-purple-100 text-purple-700" },
+  LOGOUT: { label: "Đăng xuất", cls: "bg-gray-100 text-gray-700" },
+  POST: { label: "Ghi sổ", cls: "bg-amber-100 text-amber-700" },
+  APPROVE: { label: "Phê duyệt", cls: "bg-green-100 text-green-700" },
+  REJECT: { label: "Từ chối", cls: "bg-red-100 text-red-700" },
+};
+
+const ENTITY_MAP = {
+  journal_entry: "Chứng từ",
+  account: "Tài khoản",
+  period: "Kỳ kế toán",
+  company: "Công ty",
+  user: "Người dùng",
+  customer: "Khách hàng",
+  supplier: "Nhà cung cấp",
+  item: "Hàng hóa",
+  fixed_asset: "Tài sản cố định",
+  cash_receipt: "Phiếu thu",
+  cash_payment: "Phiếu chi",
+  bank_statement: "Sổ ngân hàng",
+  purchase_order: "Đơn mua hàng",
+  sales_invoice: "Hóa đơn bán",
+  delivery_note: "Phiếu xuất kho",
+  exchange_rate: "Tỷ giá",
+  opening_balance: "Số dư đầu kỳ",
+};
+
+function auditPage() {
+  return {
+    loading: true,
+    logs: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    filters: {
+      entity_type: "",
+      date_from: "",
+      date_to: "",
+    },
+    showDetailModal: false,
+    detailLog: null,
+
+    async init() {
+      mountAppShell("Nhật ký hệ thống", "/app/audit.html");
+      await this.loadLogs();
+    },
+
+    async loadLogs() {
+      this.loading = true;
+      try {
+        let query = `?limit=${this.limit}&offset=${this.offset}`;
+        if (this.filters.entity_type) query += `&entity_type=${this.filters.entity_type}`;
+        if (this.filters.date_from) query += `&date_from=${this.filters.date_from}`;
+        if (this.filters.date_to) query += `&date_to=${this.filters.date_to}`;
+
+        const res = await apiGet(`/audit${query}`);
+        if (Array.isArray(res)) {
+          this.logs = res;
+          this.total = res.length;
+        } else {
+          this.logs = res?.data || [];
+          this.total = res?.total || this.logs.length;
+        }
+      } catch (e) {
+        $store.app.flashError(e.error || "Không thể tải nhật ký");
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    actionLabel(action) {
+      return ACTION_MAP[action]?.label || action || "—";
+    },
+
+    actionClass(action) {
+      return ACTION_MAP[action]?.cls || "bg-gray-100 text-gray-700";
+    },
+
+    entityLabel(type) {
+      return ENTITY_MAP[type] || type || "—";
+    },
+
+    viewDetail(log) {
+      this.detailLog = log;
+      this.showDetailModal = true;
+    },
+
+    formatDetail(details) {
+      if (!details) return "Không có chi tiết";
+      if (typeof details === "string") {
+        try { return JSON.stringify(JSON.parse(details), null, 2); } catch { return details; }
+      }
+      return JSON.stringify(details, null, 2);
+    },
+
+    currentPage() {
+      return Math.floor(this.offset / this.limit) + 1;
+    },
+
+    totalPages() {
+      return Math.max(1, Math.ceil(this.total / this.limit));
+    },
+
+    prevPage() {
+      if (this.offset >= this.limit) {
+        this.offset -= this.limit;
+        this.loadLogs();
+      }
+    },
+
+    nextPage() {
+      if (this.offset + this.limit < this.total) {
+        this.offset += this.limit;
+        this.loadLogs();
+      }
+    },
+
+    resetFilters() {
+      this.filters = { entity_type: "", date_from: "", date_to: "" };
+      this.offset = 0;
+      this.loadLogs();
+    },
+  };
+}
+</script>
+
+</body>
+</html>

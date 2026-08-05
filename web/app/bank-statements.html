@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sổ ngân hàng · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="bankStatements()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h2 class="text-xl font-bold text-gray-900">Sổ ngân hàng</h2>
+          <p class="text-sm text-gray-500 mt-1" x-text="'Tổng: ' + (total || 0) + ' sao kê'"></p>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            Import CSV
+            <input type="file" accept=".csv" @change="importCSV($event)" class="hidden">
+          </label>
+          <button @click="showForm = true; resetForm()" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Thêm sao kê
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số HBG</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày GD</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Diễn giải</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thu</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Chi</th>
+              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số dư</th>
+              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Đối tượng</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="s in items" :key="s.id">
+              <tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-5 py-3 font-medium" x-text="s.id?.slice(0, 8) || '—'"></td>
+                <td class="px-5 py-3 text-gray-500" x-text="fmtDate(s.statement_date)"></td>
+                <td class="px-5 py-3 text-gray-700 max-w-xs truncate" x-text="s.notes || '—'"></td>
+                <td class="px-5 py-3 text-right font-medium text-green-700" x-text="fmtVND(s.total_credits)"></td>
+                <td class="px-5 py-3 text-right font-medium text-red-700" x-text="fmtVND(s.total_debits)"></td>
+                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(s.closing_balance)"></td>
+                <td class="px-5 py-3 text-gray-700" x-text="s.bank_account_id"></td>
+              </tr>
+            </template>
+            <tr x-show="!items.length && !loading">
+              <td colspan="7" class="px-5 py-8 text-center text-gray-400">Chưa có dữ liệu sao kê ngân hàng</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="showForm" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" x-transition>
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg" @click.outside="showForm = false">
+          <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900">Thêm sao kê ngân hàng</h3>
+            <button @click="showForm = false" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <form @submit.prevent="create()" class="px-6 py-4 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày sao kê</label>
+                <input type="date" x-model="form.statement_date" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Tài khoản ngân hàng</label>
+                <input type="text" x-model="form.bank_account_id" required placeholder="Mã tài khoản NH" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Số dư đầu kỳ</label>
+                <input type="number" x-model.number="form.opening_balance" required step="1" placeholder="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Số dư cuối kỳ</label>
+                <input type="number" x-model.number="form.closing_balance" required step="1" placeholder="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+              <input type="text" x-model="form.notes" placeholder="Ghi chú (tùy chọn)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button type="button" @click="showForm = false" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition">Hủy</button>
+              <button type="submit" :disabled="saving" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
+                <span x-show="!saving">Thêm sao kê</span>
+                <span x-show="saving">Đang lưu...</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function bankStatements() {
+  return {
+    items: [],
+    total: 0,
+    loading: false,
+    showForm: false,
+    saving: false,
+    form: {
+      statement_date: new Date().toISOString().slice(0, 10),
+      bank_account_id: "",
+      opening_balance: 0,
+      closing_balance: 0,
+      currency: "VND",
+      import_method: "MANUAL",
+      notes: "",
+      from_date: "",
+      to_date: "",
+    },
+
+    async init() {
+      mountAppShell("Sổ ngân hàng", "/app/bank-statements.html");
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const cid = App.companyId();
+        const res = await apiGet(`/bank/statements?company_id=${cid}`);
+        this.items = res.data || [];
+        this.total = res.total || 0;
+      } catch (e) {
+        console.error("load statements:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    resetForm() {
+      this.form = {
+        statement_date: new Date().toISOString().slice(0, 10),
+        bank_account_id: "",
+        opening_balance: 0,
+        closing_balance: 0,
+        currency: "VND",
+        import_method: "MANUAL",
+        notes: "",
+        from_date: "",
+        to_date: "",
+      };
+    },
+
+    async create() {
+      this.saving = true;
+      try {
+        const cid = App.companyId();
+        this.form.company_id = cid;
+        this.form.total_debits = 0;
+        this.form.total_credits = 0;
+        this.form.line_count = 0;
+        await apiPost(`/bank/statements?company_id=${cid}`, this.form);
+        this.showForm = false;
+        $store.app.flashSuccess("Thêm sao kê thành công");
+        await this.load();
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi thêm sao kê");
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async importCSV(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const lines = text.split("\n").filter(l => l.trim());
+      if (lines.length < 2) {
+        $store.app.flashError("File CSV không hợp lệ");
+        return;
+      }
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1).map(line => {
+        const cols = line.split(",");
+        return {
+          transaction_date: cols[headers.indexOf("date")] || "",
+          description: cols[headers.indexOf("description")] || "",
+          debit_amount: parseFloat(cols[headers.indexOf("debit")] || "0"),
+          credit_amount: parseFloat(cols[headers.indexOf("credit")] || "0"),
+          counterparty: cols[headers.indexOf("counterparty")] || "",
+        };
+      });
+      try {
+        const cid = App.companyId();
+        await apiPost(`/bank/statements/import?company_id=${cid}`, {
+          statement: {
+            company_id: cid,
+            statement_date: new Date().toISOString().slice(0, 10),
+            import_method: "CSV",
+            raw_file_name: file.name,
+            currency: "VND",
+          },
+          lines: rows,
+        });
+        $store.app.flashSuccess("Import CSV thành công: " + rows.length + " dòng");
+        await this.load();
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi import CSV");
+      }
+      event.target.value = "";
+    },
+  };
+}
+</script>
+
+</body>
+</html>

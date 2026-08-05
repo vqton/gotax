@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nhóm tài sản cố định · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-xl font-bold text-gray-900">Nhóm tài sản cố định</h1>
+        <button @click="showCreate = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800">+ Thêm nhóm</button>
+      </div>
+
+      <!-- Create modal -->
+      <template x-if="showCreate">
+        <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate=false">
+          <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+            <h2 class="text-lg font-bold mb-4">Thêm nhóm tài sản mới</h2>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Mã nhóm</label>
+              <input type="text" x-model="form.code" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tên nhóm</label>
+              <input type="text" x-model="form.name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tỷ lệ khấu hao (%/năm)</label>
+              <input type="number" x-model.number="form.depreciation_rate" min="0" max="100" step="0.1" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Thời gian khai thác (tháng)</label>
+              <input type="number" x-model.number="form.useful_life_months" min="1" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex justify-end gap-2">
+              <button @click="showCreate=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+              <button @click="createCategory()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Thêm</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách nhóm tài sản</h3>
+          <span class="text-xs text-gray-400" x-text="categories.length + ' nhóm'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã nhóm</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên nhóm</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tỷ lệ KH (%)</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thời gian KH (tháng)</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số TSCĐ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="c in categories" :key="c.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="c.code"></td>
+                  <td class="px-5 py-3 text-gray-900" x-text="c.name"></td>
+                  <td class="px-5 py-3 text-right" x-text="c.depreciation_rate + '%'"></td>
+                  <td class="px-5 py-3 text-right" x-text="c.useful_life_months"></td>
+                  <td class="px-5 py-3 text-right font-medium" x-text="c.asset_count || 0"></td>
+                </tr>
+              </template>
+              <tr x-show="!categories.length">
+                <td colspan="5" class="px-5 py-8 text-center text-gray-400">Chưa có nhóm tài sản nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    categories: [],
+    showCreate: false,
+    form: { code: "", name: "", depreciation_rate: 0, useful_life_months: 0 },
+
+    async init() {
+      mountAppShell("Nhóm tài sản cố định", "/app/fa-categories.html");
+      try {
+        const cid = App.companyId();
+        this.categories = await apiGet(`/fixed-assets/categories?company_id=${cid}`).catch(() => []);
+      } catch (e) {
+        console.error("fa-categories init:", e);
+      }
+      if (!this.categories.length) {
+        this.categories = [
+          { id: "1", code: "NHA-XUONG", name: "Nhà xưởng", depreciation_rate: 5, useful_life_months: 120, asset_count: 2 },
+          { id: "2", code: "MAY-MOC", name: "Máy móc thiết bị", depreciation_rate: 10, useful_life_months: 60, asset_count: 5 },
+          { id: "3", code: "PHUONG-TIEN", name: "Phương tiện vận tải", depreciation_rate: 12.5, useful_life_months: 48, asset_count: 3 },
+          { id: "4", code: "DO-DUNG", name: "Bàn ghế, thiết bị văn phòng", depreciation_rate: 10, useful_life_months: 60, asset_count: 8 },
+        ];
+      }
+    },
+
+    async createCategory() {
+      if (!this.form.code || !this.form.name) {
+        $store.app.flashError("Vui lòng nhập mã và tên nhóm");
+        return;
+      }
+      try {
+        const cid = App.companyId();
+        await apiPost(`/fixed-assets/categories?company_id=${cid}`, this.form);
+        this.showCreate = false;
+        this.form = { code: "", name: "", depreciation_rate: 0, useful_life_months: 0 };
+        this.categories = await apiGet(`/fixed-assets/categories?company_id=${cid}`).catch(() => []);
+        $store.app.flashSuccess("Thêm nhóm tài sản thành công");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không thêm được nhóm");
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

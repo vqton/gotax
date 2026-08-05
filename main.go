@@ -104,6 +104,7 @@ func main() {
 r.LoadHTMLGlob("web/auth/*.html")
 r.Static("/assets", "./web/static")
 r.Static("/payroll", "./web/payroll")
+r.Static("/app", "./web/app")
 
 r.GET("/ping", func(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "GoTax GL Server"})

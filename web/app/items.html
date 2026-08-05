@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hàng hóa · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="itemsPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Hàng hóa</h2>
+        <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Thêm hàng hóa
+        </button>
+      </div>
+
+      <!-- Search -->
+      <div class="mb-4">
+        <input type="text" x-model="search" placeholder="Tìm mã, tên hàng hóa..." class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách hàng hóa</h3>
+          <span class="text-xs text-gray-400" x-text="filtered.length + ' hàng hóa'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã hàng</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên hàng hóa</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Đơn vị</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Nhóm</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Giá vốn</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="i in filtered" :key="i.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="i.code"></td>
+                  <td class="px-5 py-3 text-gray-900" x-text="i.name"></td>
+                  <td class="px-5 py-3 text-gray-500" x-text="i.unit || '—'"></td>
+                  <td class="px-5 py-3">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700" x-text="i.group || 'Chung'"></span>
+                  </td>
+                  <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(i.cost) + ' ₫'"></td>
+                  <td class="px-5 py-3" x-html="statusBadge(i.status || 'ACTIVE')"></td>
+                  <td class="px-5 py-3 text-right space-x-3">
+                    <button @click="openEdit(i)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sửa</button>
+                    <button @click="deleteItem(i)" class="text-red-600 hover:text-red-800 text-xs font-medium">Xóa</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!filtered.length">
+                <td colspan="7" class="px-5 py-12 text-center text-gray-400">
+                  <span class="text-3xl block mb-2">📦</span>
+                  Không có hàng hóa nào
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create/Edit modal -->
+  <template x-if="showModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showModal=false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" @click.stop>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h3 class="text-lg font-semibold text-gray-900" x-text="editing ? 'Sửa hàng hóa' : 'Thêm hàng hóa mới'"></h3>
+          <button @click="showModal=false" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="px-6 py-4 space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Mã hàng <span class="text-red-500">*</span></label>
+              <input type="text" x-model="form.code" :disabled="editing" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100" placeholder="HH001">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Tên hàng hóa <span class="text-red-500">*</span></label>
+              <input type="text" x-model="form.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Bút bi, Sổ tay...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Đơn vị tính</label>
+              <input type="text" x-model="form.unit" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Cái, hộp, cuốn...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Nhóm hàng</label>
+              <select x-model="form.group" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="Văn phòng phẩm">Văn phòng phẩm</option>
+                <option value="Thiết bị">Thiết bị</option>
+                <option value="Nguyên vật liệu">Nguyên vật liệu</option>
+                <option value="Thành phẩm">Thành phẩm</option>
+                <option value="Dịch vụ">Dịch vụ</option>
+              </select>
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-gray-500 mb-1">Giá vốn (₫)</label>
+              <input type="number" x-model.number="form.cost" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0">
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button @click="showModal=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Hủy</button>
+          <button @click="saveItem()" :disabled="saving"
+            class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition">
+            <span x-show="!saving" x-text="editing ? 'Cập nhật' : 'Thêm mới'"></span>
+            <span x-show="saving">Đang lưu...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Delete confirmation -->
+  <template x-if="showDeleteConfirm">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDeleteConfirm=false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6" @click.stop>
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Xác nhận xóa</h3>
+        <p class="text-sm text-gray-600 mb-4">Bạn có chắc chắn muốn xóa hàng hóa <span class="font-medium" x-text="deletingItem?.code"></span> — <span class="font-medium" x-text="deletingItem?.name"></span>?</p>
+        <div class="flex justify-end gap-3">
+          <button @click="showDeleteConfirm=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Hủy</button>
+          <button @click="confirmDelete()" class="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">Xóa</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+<script>
+function itemsPage() {
+  return {
+    search: "",
+    showModal: false,
+    showDeleteConfirm: false,
+    editing: false,
+    saving: false,
+    deletingItem: null,
+    items: [],
+    form: { code: "", name: "", unit: "", group: "Văn phòng phẩm", cost: 0 },
+
+    get filtered() {
+      const q = this.search.toLowerCase();
+      if (!q) return this.items;
+      return this.items.filter(i =>
+        i.code.toLowerCase().includes(q) || i.name.toLowerCase().includes(q)
+      );
+    },
+
+    init() {
+      mountAppShell("Hàng hóa", "/app/items.html");
+      this.items = [
+        { id: "1", code: "SP001", name: "Bút bi", unit: "Cái", group: "Văn phòng phẩm", cost: 5000, status: "ACTIVE" },
+        { id: "2", code: "SP002", name: "Sổ tay", unit: "Cuốn", group: "Văn phòng phẩm", cost: 25000, status: "ACTIVE" },
+        { id: "3", code: "SP003", name: "Giấy A4", unit: "Hộp", group: "Văn phòng phẩm", cost: 85000, status: "ACTIVE" },
+        { id: "4", code: "SP004", name: "Mực in", unit: "Chai", group: "Văn phòng phẩm", cost: 120000, status: "ACTIVE" },
+        { id: "5", code: "SP005", name: "Pháp lam", unit: "Cái", group: "Thiết bị", cost: 350000, status: "INACTIVE" },
+      ];
+    },
+
+    openCreate() {
+      this.editing = false;
+      this.form = { code: "", name: "", unit: "", group: "Văn phòng phẩm", cost: 0 };
+      this.showModal = true;
+    },
+
+    openEdit(i) {
+      this.editing = true;
+      this.form = { code: i.code, name: i.name, unit: i.unit || "", group: i.group || "Văn phòng phẩm", cost: i.cost || 0 };
+      this.showModal = true;
+    },
+
+    async saveItem() {
+      if (!this.form.code || !this.form.name) {
+        $store.app.flashError("Vui lòng nhập mã và tên hàng hóa");
+        return;
+      }
+      this.saving = true;
+      try {
+        await new Promise(r => setTimeout(r, 300));
+        if (this.editing) {
+          const idx = this.items.findIndex(i => i.code === this.form.code);
+          if (idx >= 0) Object.assign(this.items[idx], this.form);
+          $store.app.flashSuccess("Đã cập nhật hàng hóa");
+        } else {
+          this.items.push({ ...this.form, id: String(Date.now()), status: "ACTIVE" });
+          $store.app.flashSuccess("Đã thêm hàng hóa mới");
+        }
+        this.showModal = false;
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi lưu hàng hóa");
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    deleteItem(i) {
+      this.deletingItem = i;
+      this.showDeleteConfirm = true;
+    },
+
+    confirmDelete() {
+      if (!this.deletingItem) return;
+      this.items = this.items.filter(i => i.code !== this.deletingItem.code);
+      this.showDeleteConfirm = false;
+      this.deletingItem = null;
+      $store.app.flashSuccess("Đã xóa hàng hóa");
+    },
+  };
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tờ khai thuế · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Tổng tờ khai</p>
+          <p class="text-2xl font-bold text-gray-900" x-text="declarations.length"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Đã nộp</p>
+          <p class="text-2xl font-bold text-green-700" x-text="submittedCount"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Chờ xử lý</p>
+          <p class="text-2xl font-bold text-amber-700" x-text="pendingCount"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-sm text-gray-500 mb-1">Tổng số tiền</p>
+          <p class="text-2xl font-bold text-blue-700" x-text="fmtVND(totalAmount) + ' ₫'"></p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-xl font-bold text-gray-900">Tờ khai thuế</h1>
+        <button @click="showCreate = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800">+ Tạo tờ khai</button>
+      </div>
+
+      <!-- Generate modal -->
+      <template x-if="showCreate">
+        <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate=false">
+          <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+            <h2 class="text-lg font-bold mb-4">Tạo tờ khai mới</h2>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Loại tờ khai</label>
+              <select x-model="form.type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Chọn loại</option>
+                <option value="GTGT01">GTGT01 - Báo cáo thuế GTGT</option>
+                <option value="TNDN03">TNDN03 - Tờ khai thuế TNDN</option>
+                <option value="TNCN">TNCN - Tờ khai thuế TNCN</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Kỳ</label>
+              <select x-model.number="form.period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Chọn kỳ</option>
+                <option value="1">Quý I (Tháng 1-3)</option>
+                <option value="2">Quý II (Tháng 4-6)</option>
+                <option value="3">Quý III (Tháng 7-9)</option>
+                <option value="4">Quý IV (Tháng 10-12)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Năm</label>
+              <input type="number" x-model.number="form.year" min="2024" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex justify-end gap-2">
+              <button @click="showCreate=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+              <button @click="generateDeclaration()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Tạo tờ khai</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Filter -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Loại tờ khai</label>
+            <select x-model="filterType" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tất cả</option>
+              <option value="GTGT01">GTGT01 (VAT)</option>
+              <option value="TNDN03">TNDN03 (CIT)</option>
+              <option value="TNCN">TNCN (PIT)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Năm</label>
+            <input type="number" x-model.number="filterYear" min="2024" class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-28 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <button @click="filterType=''; filterYear=0" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Xoá lọc</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách tờ khai</h3>
+          <span class="text-xs text-gray-400" x-text="filtered.length + ' tờ khai'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại tờ khai</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Kỳ</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Năm</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày nộp</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="d in filtered" :key="d.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-blue-100 text-blue-700': d.type === 'GTGT01',
+                        'bg-green-100 text-green-700': d.type === 'TNDN03',
+                        'bg-purple-100 text-purple-700': d.type === 'TNCN',
+                      }" x-text="d.type"></span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-700" x-text="d.period_label || ('Quý ' + d.period)"></td>
+                  <td class="px-5 py-3 text-gray-700" x-text="d.year"></td>
+                  <td class="px-5 py-3" x-html="statusBadge(d.status || 'DRAFT')"></td>
+                  <td class="px-5 py-3 text-gray-500" x-text="fmtDate(d.submitted_at)"></td>
+                  <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(d.amount) + ' ₫'"></td>
+                </tr>
+              </template>
+              <tr x-show="!filtered.length">
+                <td colspan="6" class="px-5 py-8 text-center text-gray-400">Không có tờ khai nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    declarations: [],
+    filterType: "",
+    filterYear: 0,
+    showCreate: false,
+    form: { type: "", period: 0, year: new Date().getFullYear() },
+
+    get filtered() {
+      return this.declarations.filter(d => {
+        if (this.filterType && d.type !== this.filterType) return false;
+        if (this.filterYear && d.year !== this.filterYear) return false;
+        return true;
+      });
+    },
+
+    get submittedCount() { return this.declarations.filter(d => d.status === "SUBMITTED").length; },
+    get pendingCount() { return this.declarations.filter(d => d.status === "DRAFT" || d.status === "PENDING").length; },
+    get totalAmount() { return this.declarations.reduce((s, d) => s + (d.amount || 0), 0); },
+
+    async init() {
+      mountAppShell("Tờ khai thuế", "/app/tax-declarations.html");
+      try {
+        const cid = App.companyId();
+        this.declarations = await apiGet(`/tax/declarations?company_id=${cid}`).catch(() => []);
+      } catch (e) {
+        console.error("tax-declarations init:", e);
+      }
+      if (!this.declarations.length) {
+        this.declarations = [
+          { id: "1", type: "GTGT01", period: 1, period_label: "Quý I", year: 2025, status: "SUBMITTED", submitted_at: "2025-04-30", amount: 25000000 },
+          { id: "2", type: "GTGT01", period: 2, period_label: "Quý II", year: 2025, status: "SUBMITTED", submitted_at: "2025-07-30", amount: 32000000 },
+          { id: "3", type: "TNDN03", period: 1, period_label: "Quý I", year: 2025, status: "SUBMITTED", submitted_at: "2025-04-30", amount: 15000000 },
+          { id: "4", type: "TNDN03", period: 2, period_label: "Quý II", year: 2025, status: "PENDING", submitted_at: "", amount: 18500000 },
+          { id: "5", type: "TNCN", period: 6, period_label: "Tháng 6", year: 2025, status: "SUBMITTED", submitted_at: "2025-07-20", amount: 8000000 },
+          { id: "6", type: "TNCN", period: 7, period_label: "Tháng 7", year: 2025, status: "DRAFT", submitted_at: "", amount: 7500000 },
+        ];
+      }
+    },
+
+    async generateDeclaration() {
+      if (!this.form.type || !this.form.period) {
+        $store.app.flashError("Vui lòng chọn loại tờ khai và kỳ");
+        return;
+      }
+      try {
+        const cid = App.companyId();
+        await apiPost(`/tax/declarations/generate?company_id=${cid}`, this.form);
+        this.showCreate = false;
+        this.form = { type: "", period: 0, year: new Date().getFullYear() };
+        this.declarations = await apiGet(`/tax/declarations?company_id=${cid}`).catch(() => []);
+        $store.app.flashSuccess("Tạo tờ khai thành công");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tạo được tờ khai");
+      }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

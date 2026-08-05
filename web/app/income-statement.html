@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kết quả kinh doanh · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Kết quả kinh doanh</h2>
+        <button @click="window.print()" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+          In báo cáo
+        </button>
+      </div>
+
+      <!-- Year/Month selectors -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Năm</label>
+            <select x-model.number="year" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <template x-for="y in yearOptions" :key="y">
+                <option :value="y" x-text="y"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Tháng</label>
+            <select x-model.number="month" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <template x-for="m in 12" :key="m">
+                <option :value="m" x-text="'Tháng ' + m"></option>
+              </template>
+            </select>
+          </div>
+          <button @click="loadReport()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">Xem báo cáo</button>
+        </div>
+      </div>
+
+      <!-- Report content -->
+      <div x-show="hasData" class="space-y-4">
+        <!-- Revenue -->
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-200 bg-green-50">
+            <h3 class="text-sm font-bold text-green-900">I. DOANH THU</h3>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Mã TK</th>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Tên tài khoản</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh nợ</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh có</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in revenue" :key="r.account_code">
+                <tr class="border-b border-gray-100">
+                  <td class="px-5 py-2 font-medium" x-text="r.account_code"></td>
+                  <td class="px-5 py-2 text-gray-700" x-text="r.account_name"></td>
+                  <td class="px-5 py-2 text-right tabular-nums" x-text="fmtVND(r.debit_turnover)"></td>
+                  <td class="px-5 py-2 text-right tabular-nums font-medium" x-text="fmtVND(r.credit_turnover)"></td>
+                </tr>
+              </template>
+              <tr x-show="!revenue.length"><td colspan="4" class="px-5 py-3 text-center text-gray-400 text-xs">Không có dữ liệu</td></tr>
+            </tbody>
+            <tfoot class="bg-green-50 border-t border-green-200">
+              <tr>
+                <td colspan="3" class="px-5 py-2.5 text-xs font-bold text-green-900">Tổng doanh thu</td>
+                <td class="px-5 py-2.5 text-right text-xs font-bold tabular-nums text-green-900" x-text="fmtVND(totalRevenue)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- COGS -->
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-200 bg-red-50">
+            <h3 class="text-sm font-bold text-red-900">II. GIÁ VỐN HÀNG BÁN</h3>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Mã TK</th>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Tên tài khoản</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh nợ</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh có</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in cogs" :key="r.account_code">
+                <tr class="border-b border-gray-100">
+                  <td class="px-5 py-2 font-medium" x-text="r.account_code"></td>
+                  <td class="px-5 py-2 text-gray-700" x-text="r.account_name"></td>
+                  <td class="px-5 py-2 text-right tabular-nums" x-text="fmtVND(r.debit_turnover)"></td>
+                  <td class="px-5 py-2 text-right tabular-nums font-medium" x-text="fmtVND(r.credit_turnover)"></td>
+                </tr>
+              </template>
+              <tr x-show="!cogs.length"><td colspan="4" class="px-5 py-3 text-center text-gray-400 text-xs">Không có dữ liệu</td></tr>
+            </tbody>
+            <tfoot class="bg-red-50 border-t border-red-200">
+              <tr>
+                <td colspan="3" class="px-5 py-2.5 text-xs font-bold text-red-900">Tổng giá vốn</td>
+                <td class="px-5 py-2.5 text-right text-xs font-bold tabular-nums text-red-900" x-text="fmtVND(totalCOGS)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Gross Profit -->
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-200 bg-blue-50 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-blue-900">III. LỢI NHUẬN GỘP</h3>
+            <span class="text-lg font-bold tabular-nums" :class="grossProfit >= 0 ? 'text-green-700' : 'text-red-700'" x-text="fmtVND(grossProfit) + ' ₫'"></span>
+          </div>
+        </div>
+
+        <!-- Expenses -->
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-200 bg-amber-50">
+            <h3 class="text-sm font-bold text-amber-900">IV. CHI PHÍ</h3>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Mã TK</th>
+                <th class="text-left px-5 py-2 font-semibold text-gray-600">Tên tài khoản</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh nợ</th>
+                <th class="text-right px-5 py-2 font-semibold text-gray-600">Phát sinh có</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in expenses" :key="r.account_code">
+                <tr class="border-b border-gray-100">
+                  <td class="px-5 py-2 font-medium" x-text="r.account_code"></td>
+                  <td class="px-5 py-2 text-gray-700" x-text="r.account_name"></td>
+                  <td class="px-5 py-2 text-right tabular-nums font-medium" x-text="fmtVND(r.debit_turnover)"></td>
+                  <td class="px-5 py-2 text-right tabular-nums" x-text="fmtVND(r.credit_turnover)"></td>
+                </tr>
+              </template>
+              <tr x-show="!expenses.length"><td colspan="4" class="px-5 py-3 text-center text-gray-400 text-xs">Không có dữ liệu</td></tr>
+            </tbody>
+            <tfoot class="bg-amber-50 border-t border-amber-200">
+              <tr>
+                <td colspan="3" class="px-5 py-2.5 text-xs font-bold text-amber-900">Tổng chi phí</td>
+                <td class="px-5 py-2.5 text-right text-xs font-bold tabular-nums text-amber-900" x-text="fmtVND(totalExpenses)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Net Profit -->
+        <div class="bg-white rounded-xl border-2 border-gray-300 overflow-hidden">
+          <div class="px-5 py-5 bg-gray-900 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white">V. LỢI NHUẬN SAU THUẾ</h3>
+            <span class="text-xl font-bold tabular-nums" :class="netProfit >= 0 ? 'text-green-400' : 'text-red-400'" x-text="fmtVND(netProfit) + ' ₫'"></span>
+          </div>
+        </div>
+      </div>
+
+      <div x-show="!hasData && !loading" class="text-center text-gray-400 py-12">
+        Chọn năm và tháng để xem báo cáo
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  const now = new Date();
+  return {
+    revenue: [],
+    cogs: [],
+    expenses: [],
+    loading: false,
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    yearOptions: Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i),
+
+    get hasData() { return this.revenue.length > 0 || this.cogs.length > 0 || this.expenses.length > 0; },
+
+    get totalRevenue() { return this.revenue.reduce((s, r) => s + (r.credit_turnover || 0) - (r.debit_turnover || 0), 0); },
+    get totalCOGS() { return this.cogs.reduce((s, r) => s + (r.debit_turnover || 0) - (r.credit_turnover || 0), 0); },
+    get grossProfit() { return this.totalRevenue - this.totalCOGS; },
+    get totalExpenses() { return this.expenses.reduce((s, r) => s + (r.debit_turnover || 0) - (r.credit_turnover || 0), 0); },
+    get netProfit() { return this.grossProfit - this.totalExpenses; },
+
+    async init() {
+      mountAppShell("Kết quả kinh doanh", "/app/income-statement.html");
+    },
+
+    async loadReport() {
+      this.loading = true;
+      this.revenue = [];
+      this.cogs = [];
+      this.expenses = [];
+      try {
+        const data = await apiGet(`/reports/income-statement?year=${this.year}&month=${this.month}`);
+        const rows = Array.isArray(data) ? data : data.items || data.rows || [];
+        this.revenue = rows.filter(r => r.account_code && r.account_code.startsWith("511"));
+        this.cogs = rows.filter(r => r.account_code && r.account_code.startsWith("632"));
+        this.expenses = rows.filter(r => {
+          if (!r.account_code) return false;
+          return r.account_code.startsWith("6") && !r.account_code.startsWith("632");
+        });
+        if (this.revenue.length === 0 && this.cogs.length === 0 && this.expenses.length === 0 && rows.length > 0) {
+          this.revenue = rows.filter(r => r.section === "revenue" || r.type === "revenue");
+          this.cogs = rows.filter(r => r.section === "cogs" || r.type === "cogs");
+          this.expenses = rows.filter(r => r.section === "expense" || r.type === "expense");
+        }
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tải được báo cáo");
+      }
+      this.loading = false;
+    },
+  };
+}
+</script>
+
+</body>
+</html>
