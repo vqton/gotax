@@ -9,7 +9,7 @@
 
 Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company.
 
-**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify
+**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + Tailwind CSS v4 (frontend)
 
 ## Architecture
 
@@ -78,7 +78,7 @@ Same pattern across all module handlers.
 
 ## Routes
 
-Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, authMW, adminMW)` at `handler/handler.go:207`.
+Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)` at `handler/handler.go:207`.
 
 | Group | Prefix | Handler |
 |-------|--------|---------|
@@ -93,6 +93,7 @@ Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH,
 | Sale | `/api/v1/sale/**` | `SaleHandler` |
 | Warehouse | `/api/v1/warehouse/**` | `WarehouseHandler` |
 | Fixed Asset | `/api/v1/fixed-assets/**` | `FAHandler` |
+| Payroll | `/api/v1/payroll/**` | `PayrollHandler` |
 
 Auth middleware on all groups except auth endpoints.
 
@@ -123,7 +124,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000018_sale_dn_gl_posted`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000021_payroll_holidays`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -155,6 +156,22 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 
 `NewService()` in `internal/service/service.go:209` takes **16 repository interfaces** (all GL+Cash related). Each module-level service (Company, Tax, Purchase, Bank, Sale, Warehouse, FA) has its own `New*Service()` with its own repos. No DI framework — manual wiring in `main.go`.
 
+## Handler Files
+
+`handler.go` contains only: `Handler` struct, `NewHandler`, `RegisterRoutes`, `RegisterRoutesWithCompany`. Domain-specific handlers split into separate files:
+
+| File | Domain |
+|------|--------|
+| `auth_handler.go` | Login, refresh, TOTP, 2FA, sessions |
+| `account_handler.go` | Account CRUD, freeze, balance, usage |
+| `journal_handler.go` | Journal entry CRUD + workflow |
+| `report_handler.go` | Trial balance, balance sheet, income statement |
+| `period_handler.go` | Period CRUD, close, reopen |
+| `exchange_rate_handler.go` | Exchange rate CRUD |
+| `audit_handler.go` | Audit log queries |
+| `user_handler.go` | User CRUD, current user |
+| `coa_handler.go` | COA approvals, versions, analysis, mappings, IFRS |
+
 ## Validate Package
 
 `internal/validate/` — singleton `go-playground/validator/v10` instance with custom validators for domain enum types: `fastatus`, `damethod`, `fasource`, `fatrtype`, `disposaltype`.
@@ -162,6 +179,32 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 Validation flow: service calls `validate.FixedAsset(a)` or `validate.FixedAssetCategory(c)` which sets defaults, runs struct tag validation, maps `ValidationErrors` to domain errors. Domain still exports `Validate()` methods but service uses validate package instead.
 
 When adding a new module that uses the validator: register custom validators in `internal/validate/validator.go`, add `validate` struct tags to domain models, create module validation function in `internal/validate/`.
+
+## Frontend
+
+**No build step.** Tailwind CSS v4 compiled to `web/static/css/app.css`. Alpine.js bundled at `web/static/js/alpine.min.js`. No webpack, no Vite.
+
+**Two UI entry points:**
+- `/app/*` — Main accounting UI (40 pages). MISA SME 2026 layout: left sidebar with 12 module groups, top bar, content area.
+- `/payroll/*` — Payroll module (8 pages). Separate nav bar (top).
+- `/login` — Auth pages at `web/auth/*.html`.
+
+**Shared JS:**
+- `web/static/js/app.js` — Global sidebar nav (`MODULE_GROUPS`), API client (`apiGet`/`apiPost`/`apiPut`/`apiDelete` with JWT refresh), formatters, status badges, Alpine store.
+- `web/static/js/auth.js` — JWT store, token refresh, alert system.
+- `web/static/js/payroll.js` — Payroll-specific nav + API client.
+
+**Static routes in `main.go`:**
+```go
+r.Static("/assets", "./web/static")   // CSS, JS, images
+r.Static("/payroll", "./web/payroll") // Payroll pages
+r.Static("/app", "./web/app")         // Main app pages
+```
+
+**Page pattern:** Each HTML page is standalone with Alpine.js `x-data` component. Calls `mountAppShell(title, activePath)` on init for sidebar/topbar. Uses `apiGet`/`apiPost` from app.js.
+
+**Wired to backend:** All GL, Auth, Company, Cash, Bank, Purchase, Sale, FA, Tax (partial), Warehouse (partial) pages call real APIs.
+**Static/mock data:** Customers, Items, VAT Report, Cash Flow — awaiting backend completion.
 
 ## Module Readiness
 
@@ -173,11 +216,11 @@ When adding a new module that uses the validator: register custom validators in 
 | Cash | PROD | Receipts, payments, transfers, petty cash, advances |
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
-| Tax | ~40% | Rate resolver + VAT/CIT/PIT engines (rate-table), declaration engine (GL→GTGT01/TNDN03, cross-validation), declaration→payment automation (due dates). Missing: form XML gen, GDT API push, e-invoice engine |
-| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes + 47 handler tests + 67 service tests + 28 domain tests + 7 einvoice tests. Requisition+approval, returns (return GRN + credit note), import + landed cost, AP FX revaluation (515/635), GDT e-invoice XML (parse/generate, internal/einvoice), 3-way matching, GL auto-posting, doubtful-debt provisioning (Circular 99), 5 reports. Missing: GDT API push, supplier portal |
-| Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn + aging/summary/statement/recon. GL auto-posting (invoice/receipt/CN/COGS), delivery tolerance, SO status progression, FR-9 reports (S01/S02/S03-BH, VAT output, unbilled), auto-numbering, migration 000017+000018. Missing: e-invoice TXML (deferred), GDT push |
-| Warehouse | ~0% | Interface + PG + memory repos. Service incomplete |
-| Payroll | 0% | **NOT PROD READY.** Full spec at `docs/payroll/`. Requires: salary engine, SI/HI/UI calc, PIT 5-bracket, timekeeping, payslips, GL posting, D02-TS/05-KK-TNCN declarations, approval workflow. Est. 12-16 weeks. |
+| Tax | ~60% | Rate resolver + VAT/CIT/PIT engines, declaration engine, payment automation. Missing: form XML gen, GDT API push |
+| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
+| Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
+| Warehouse | ~30% | Interface + PG + memory repos. Service incomplete |
+| Payroll | ~50% | Salary engine, SI/HI/UI calc, PIT, timekeeping, payslips, GL posting, declarations. UI complete (8 pages). Missing: approval workflow |
 
 Full tax/purchase/warehouse/payroll specs at `docs/`.
 
@@ -200,7 +243,7 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 - **`GenerateToken` (HMAC-SHA256 with hardcoded secret)** — test-only dead code. Production uses `GenerateAccessToken` (RS256).
 - **Config** from `config.yaml` + env vars via viper. Env overrides (e.g. `JWT_SECRET`, `DATABASE_URL`).
 - **Audit logging** via `internal/handler/audit.go` middleware — logs all state-mutating operations.
-- **Web UI** at `web/auth/*.html` (login, 2FA, forgot/reset password). Served by gin. Not a SPA.
+- **Web UI** at `web/app/*.html` (main) and `web/payroll/*.html` (payroll). Served by gin. Not a SPA.
 - **PDF** generation with `maroto/v2` for opening balance reports. Not wired to any endpoint yet.
 - **Handler error mapping** uses `errors.Is` to switch on domain errors per module. See `internal/handler/fixed_asset_handler.go:79` (the `faError` func) for pattern.
 - **GDT env vars**: `GDT_BASE_URL`, `GDT_TOKEN` — e-invoice API client. Without them, `newGDTClient()` returns nil.
@@ -241,7 +284,7 @@ Compared to MISA SME (19 subsystems, Vietnam market leader) and standard SME ERP
 
 | Module | Priority | Why Missing |
 |--------|----------|-------------|
-| **Payroll** | CRITICAL | Spec complete at `docs/payroll/`. Full build needed: salary engine, SI/HI/UI, PIT, timekeeping, payslips, GL posting, declarations. Est. 12-16 weeks. |
+| **Payroll** | CRITICAL | Spec complete at `docs/payroll/`. Full build needed: salary engine, SI/HI/UI, PIT, timekeeping, payslips, GL posting, D02-TS/05/KK-TNCN declarations, approval workflow. Est. 12-16 weeks. |
 | **Tools & Equipment (CCDC)** | HIGH | Vietnamese accounting standard requires separate tracking from fixed assets. Account code 153. |
 | **Cost Accounting** | HIGH | Product/job costing for manufacturing/construction SMEs. |
 | **Budget Management** | HIGH | Budget planning by department, actual vs. budget variance. |
