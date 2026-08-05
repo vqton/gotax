@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phiếu lương · Payroll · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/payroll.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<nav id="pw-nav" class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between"></nav>
+
+<main class="max-w-6xl mx-auto px-6 py-8" x-data="payslips()" x-init="init()">
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Phiếu lương</h1>
+    <div class="flex gap-2 items-center">
+      <label class="text-sm text-gray-500">Kỳ lương:</label>
+      <select x-model="periodId" @change="loadPayslips()" class="border rounded-lg px-3 py-2 text-sm">
+        <option value="">— Chọn —</option>
+        <template x-for="p in periods" :key="p.id">
+          <option :value="p.id" x-text="p.month + '/' + p.year + ' (' + p.status + ')'"></option>
+        </template>
+      </select>
+    </div>
+  </div>
+
+  <!-- Payslip detail modal -->
+  <template x-if="selectedPayslip">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="selectedPayslip=null">
+      <div class="bg-white rounded-xl shadow-xl w-[600px] max-h-[90vh] overflow-y-auto" @click.stop>
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-bold">Phiếu lương</h2>
+            <div class="flex gap-2">
+              <button @click="printPayslip()" class="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200">🖨 In</button>
+              <button @click="sendPayslip(selectedPayslip.id)" class="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200">📧 Gửi email</button>
+              <button @click="selectedPayslip=null" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+          </div>
+          <div class="text-center mb-4">
+            <p class="text-lg font-bold">CÔNG TY TNHH GOTAX</p>
+            <p class="text-sm text-gray-500">PHIẾU LƯƠNG THÁNG <span x-text="selectedPayslip.period_id"></span></p>
+          </div>
+          <div class="grid grid-cols-2 gap-4 mb-4 text-sm">
+            <div><span class="text-gray-500">Mã NV:</span> <span class="font-medium" x-text="selectedPayslip.employee_id"></span></div>
+            <div><span class="text-gray-500">Số phiếu:</span> <span class="font-medium" x-text="selectedPayslip.payslip_no"></span></div>
+          </div>
+          <table class="w-full text-sm mb-4">
+            <thead><tr class="border-b text-left text-gray-500"><th class="pb-2" colspan="2">Thu nhập</th><th class="pb-2 text-right" colspan="2">Khấu trừ</th></tr></thead>
+            <tbody class="text-sm">
+              <tr><td class="py-1">Lương cơ bản</td><td class="text-right" x-text="fmtVND(run.base_salary)"></td><td class="py-1 pl-6 text-gray-500">BHXH (SI)</td><td class="text-right text-red-600" x-text="fmtVND(run.si_deduction)"></td></tr>
+              <tr><td class="py-1">OT</td><td class="text-right" x-text="fmtVND(run.ot_pay)"></td><td class="py-1 pl-6 text-gray-500">BHYT (HI)</td><td class="text-right text-red-600" x-text="fmtVND(run.hi_deduction)"></td></tr>
+              <tr><td class="py-1">Ca đêm</td><td class="text-right" x-text="fmtVND(run.night_shift_pay)"></td><td class="py-1 pl-6 text-gray-500">BHTN (UI)</td><td class="text-right text-red-600" x-text="fmtVND(run.ui_deduction)"></td></tr>
+              <tr><td class="py-1">Phép</td><td class="text-right" x-text="fmtVND(run.leave_pay)"></td><td class="py-1 pl-6 text-gray-500">PIT</td><td class="text-right text-red-600" x-text="fmtVND(run.pit_amount)"></td></tr>
+              <tr><td class="py-1">Phụ cấp</td><td class="text-right" x-text="fmtVND(run.allowances)"></td><td class="py-1 pl-6 text-gray-500">KKhác</td><td class="text-right text-red-600" x-text="fmtVND(run.other_deductions)"></td></tr>
+              <tr><td class="py-1">Thưởng</td><td class="text-right" x-text="fmtVND(run.bonuses)"></td><td></td><td></td></tr>
+              <tr class="border-t font-bold"><td class="py-2">Tổng thu nhập</td><td class="text-right text-blue-700" x-text="fmtVND(run.gross_salary)"></td><td class="py-2">Tổng khấu trừ</td><td class="text-right text-red-700" x-text="fmtVND(run.total_deductions)"></td></tr>
+            </tbody>
+          </table>
+          <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+            <p class="text-sm text-gray-500">Lương thực nhận</p>
+            <p class="text-2xl font-bold text-green-700" x-text="fmtVND(run.net_pay) + ' ₫'"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Table -->
+  <div class="bg-white rounded-xl border overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b">
+        <tr>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600">Mã NV</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600">Số phiếu</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600">Gross</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600">Khấu trừ</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600">Net</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600">Thao tác</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="p in payslips" :key="p.id">
+          <tr class="border-b hover:bg-blue-50/50 cursor-pointer" @click="viewPayslip(p)">
+            <td class="px-4 py-3 font-medium" x-text="p.employee_id"></td>
+            <td class="px-4 py-3 text-gray-500" x-text="p.payslip_no"></td>
+            <td class="px-4 py-3 text-right" x-text="fmtVND(p.run?.gross_salary)"></td>
+            <td class="px-4 py-3 text-right text-red-600" x-text="fmtVND(p.run?.total_deductions)"></td>
+            <td class="px-4 py-3 text-right font-bold text-green-700" x-text="fmtVND(p.run?.net_pay)"></td>
+            <td class="px-4 py-3 text-right">
+              <a :href="'/api/v1/payroll/payslips/' + p.id + '/pdf'" target="_blank" class="text-blue-700 text-xs hover:underline" @click.stop>PDF</a>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!payslips.length"><td colspan="6" class="px-4 py-8 text-center text-gray-400">Chọn kỳ lương để xem phiếu lương</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+function payslips() {
+  return {
+    periods: [],
+    periodId: "",
+    payslips: [],
+    selectedPayslip: null,
+    run: {},
+
+    async init() {
+      mountNav("pw-nav", "/payroll/payslips.html");
+      const params = new URLSearchParams(location.search);
+      this.periodId = params.get("period_id") || "";
+      try {
+        this.periods = await pwGet("/periods");
+        if (this.periodId) await this.loadPayslips();
+      } catch (e) { console.error(e); }
+    },
+
+    async loadPayslips() {
+      if (!this.periodId) return;
+      try {
+        const raw = await pwGet(`/payslips?period_id=${this.periodId}`);
+        this.payslips = raw.map(p => ({ ...p, run: null }));
+      } catch (e) { console.error(e); }
+    },
+
+    async viewPayslip(p) {
+      this.selectedPayslip = p;
+      try {
+        const detail = await pwGet(`/payslips/${p.id}`);
+        this.run = detail.run || detail;
+        this.selectedPayslip = { ...p, ...detail };
+      } catch (e) { $store.pw.error = "Không tải được phiếu lương"; }
+    },
+
+    printPayslip() { window.print(); },
+
+    async sendPayslip(id) {
+      try { await pwPost(`/payslips/${id}/send`, {}); $store.pw.flashSuccess("Đã gửi phiếu lương"); } catch (e) { $store.pw.error = e.error || "Lỗi gửi"; }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

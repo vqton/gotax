@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nghỉ phép · Payroll · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/payroll.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<nav id="pw-nav" class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between"></nav>
+
+<main class="max-w-6xl mx-auto px-6 py-8" x-data="leave()" x-init="init()">
+
+  <template x-if="$store.pw.success">
+    <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.pw.success"></div>
+  </template>
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Quản lý nghỉ phép</h1>
+    <button @click="showRequest = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800">+ Đăng ký nghỉ</button>
+  </div>
+
+  <div class="grid grid-cols-2 gap-6">
+    <!-- Pending requests -->
+    <div class="bg-white rounded-xl border p-6">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4">Đơn chờ duyệt</h2>
+      <template x-for="r in pending" :key="r.id">
+        <div class="border-b border-gray-100 py-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-medium text-sm" x-text="r.employee_id"></p>
+              <p class="text-xs text-gray-500" x-text="r.leave_type + ' · ' + r.start_date + ' → ' + r.end_date + ' (' + r.days + ' ngày)'"></p>
+              <p class="text-xs text-gray-400 mt-1" x-text="r.reason"></p>
+            </div>
+            <div class="flex gap-2">
+              <button @click="approveLeave(r.id)" class="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium">Duyệt</button>
+              <button @click="rejectLeave(r.id)" class="px-3 py-1 bg-red-600 text-white rounded text-xs font-medium">Từ chối</button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="!pending.length" class="text-sm text-gray-400 text-center py-4">Không có đơn chờ duyệt</p>
+    </div>
+
+    <!-- Leave balance -->
+    <div class="bg-white rounded-xl border p-6">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4">Số dư phép năm</h2>
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Mã nhân viên</label>
+        <div class="flex gap-2">
+          <input type="text" x-model="balanceEmpId" class="border rounded-lg px-3 py-2 text-sm flex-1" placeholder="NV001">
+          <button @click="loadBalance()" class="px-3 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200">Xem</button>
+        </div>
+      </div>
+      <template x-if="balance.length">
+        <table class="w-full text-sm">
+          <thead class="border-b"><tr class="text-gray-500 text-left"><th class="pb-2">Loại phép</th><th class="pb-2 text-right">Được hưởng</th><th class="pb-2 text-right">Đã dùng</th><th class="pb-2 text-right">Còn lại</th></tr></thead>
+          <tbody>
+            <template x-for="b in balance" :key="b.id">
+              <tr class="border-b"><td class="py-2" x-text="b.leave_type"></td><td class="text-right" x-text="b.entitled"></td><td class="text-right" x-text="b.used"></td><td class="text-right font-medium" x-text="b.remaining"></td></tr>
+            </template>
+          </tbody>
+        </table>
+      </template>
+    </div>
+  </div>
+
+  <!-- Request modal -->
+  <template x-if="showRequest">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showRequest=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Đăng ký nghỉ phép</h2>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Mã nhân viên</label>
+        <input type="text" x-model="reqForm.employee_id" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Loại phép</label>
+        <select x-model="reqForm.leave_type" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+          <option value="ANNUAL">Phép năm</option>
+          <option value="SICK">Ốm đau</option>
+          <option value="MATERNITY">Thai sản</option>
+          <option value="PATERNITY">Thai sản (nam)</option>
+          <option value="UNPAID">Không lương</option>
+          <option value="COMPENSATORY">Nghỉ bù</option>
+        </select>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Từ ngày</label>
+        <input type="date" x-model="reqForm.start_date" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Đến ngày</label>
+        <input type="date" x-model="reqForm.end_date" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Số ngày</label>
+        <input type="number" step="0.5" x-model.number="reqForm.days" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Lý do</label>
+        <textarea x-model="reqForm.reason" class="w-full border rounded-lg px-3 py-2 text-sm mb-4" rows="2"></textarea>
+        <div class="flex justify-end gap-2">
+          <button @click="showRequest=false" class="px-4 py-2 text-sm text-gray-600">Hủy</button>
+          <button @click="submitRequest()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Gửi đơn</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+</main>
+
+<script>
+function leave() {
+  return {
+    pending: [],
+    balance: [],
+    balanceEmpId: "",
+    showRequest: false,
+    reqForm: { employee_id: "", leave_type: "ANNUAL", start_date: "", end_date: "", days: 1, reason: "" },
+
+    async init() {
+      mountNav("pw-nav", "/payroll/leave.html");
+      try { this.pending = await pwGet("/leave/pending"); } catch (e) { console.error(e); }
+    },
+
+    async loadBalance() {
+      if (!this.balanceEmpId) return;
+      try { this.balance = await pwGet(`/leave/balance?employee_id=${this.balanceEmpId}`); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+
+    async submitRequest() {
+      try {
+        await pwPost("/leave", this.reqForm);
+        this.showRequest = false;
+        this.pending = await pwGet("/leave/pending");
+        $store.pw.flashSuccess("Đã gửi đơn nghỉ phép");
+      } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+
+    async approveLeave(id) {
+      try { await pwPost(`/leave/${id}/approve`, {}); this.pending = await pwGet("/leave/pending"); $store.pw.flashSuccess("Đã duyệt"); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+
+    async rejectLeave(id) {
+      try { await pwPost(`/leave/${id}/reject`, {}); this.pending = await pwGet("/leave/pending"); $store.pw.flashSuccess("Đã từ chối"); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

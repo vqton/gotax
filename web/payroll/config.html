@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cấu hình lương · Payroll · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/payroll.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<nav id="pw-nav" class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between"></nav>
+
+<main class="max-w-5xl mx-auto px-6 py-8" x-data="configPage()" x-init="init()">
+
+  <template x-if="$store.pw.success">
+    <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.pw.success"></div>
+  </template>
+
+  <h1 class="text-2xl font-bold text-gray-900 mb-6">Cấu hình lương</h1>
+
+  <div class="grid grid-cols-3 gap-6">
+
+    <!-- Salary components -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-700">Hệ số lương</h2>
+        <button @click="showCompModal=true" class="text-sm text-blue-700 hover:underline">+ Thêm</button>
+      </div>
+      <template x-for="c in components" :key="c.id">
+        <div class="flex items-center justify-between py-2 border-b border-gray-100">
+          <div>
+            <p class="text-sm font-medium" x-text="c.name"></p>
+            <p class="text-xs text-gray-400" x-text="c.code + ' · ' + c.type + ' · ' + c.calculation"></p>
+          </div>
+          <button @click="deleteComp(c.id)" class="text-red-500 text-xs">Xóa</button>
+        </div>
+      </template>
+      <p x-show="!components.length" class="text-sm text-gray-400 text-center py-4">Chưa có cấu phần lương</p>
+    </div>
+
+    <!-- Salary templates -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-700">Mẫu lương</h2>
+        <button @click="showTplModal=true" class="text-sm text-blue-700 hover:underline">+ Thêm</button>
+      </div>
+      <template x-for="t in templates" :key="t.id">
+        <div class="py-2 border-b border-gray-100">
+          <p class="text-sm font-medium" x-text="t.name"></p>
+          <p class="text-xs text-gray-400" x-text="(t.components?.length || 0) + ' cấu phần'"></p>
+        </div>
+      </template>
+      <p x-show="!templates.length" class="text-sm text-gray-400 text-center py-4">Chưa có mẫu lương</p>
+    </div>
+
+    <!-- Holidays -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-700">Ngày lễ</h2>
+        <button @click="showHolidayModal=true" class="text-sm text-blue-700 hover:underline">+ Thêm</button>
+      </div>
+      <template x-for="h in holidays" :key="h.id">
+        <div class="flex items-center justify-between py-2 border-b border-gray-100">
+          <div>
+            <p class="text-sm font-medium" x-text="h.name"></p>
+            <p class="text-xs text-gray-400" x-text="h.date"></p>
+          </div>
+          <button @click="deleteHoliday(h.id)" class="text-red-500 text-xs">Xóa</button>
+        </div>
+      </template>
+      <p x-show="!holidays.length" class="text-sm text-gray-400 text-center py-4">Chưa có ngày lễ</p>
+    </div>
+
+  </div>
+
+  <!-- Component modal -->
+  <template x-if="showCompModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCompModal=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Thêm hệ số lương</h2>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Mã</label>
+        <input type="text" x-model="compForm.code" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Tên</label>
+        <input type="text" x-model="compForm.name" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Loại</label>
+        <select x-model="compForm.type" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+          <option value="INCOME">Thu nhập</option>
+          <option value="DEDUCTION">Khấu trừ</option>
+          <option value="EMPLOYER_COST">Chi phí NLĐ</option>
+        </select>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Cách tính</label>
+        <select x-model="compForm.calculation" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+          <option value="FIXED">Cố định</option>
+          <option value="PERCENTAGE">Phần trăm</option>
+          <option value="FORMULA">Công thức</option>
+        </select>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Giá trị mặc định</label>
+        <input type="number" x-model.number="compForm.default_value" class="w-full border rounded-lg px-3 py-2 text-sm mb-4">
+        <div class="flex justify-end gap-2">
+          <button @click="showCompModal=false" class="px-4 py-2 text-sm text-gray-600">Hủy</button>
+          <button @click="addComponent()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Thêm</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Template modal -->
+  <template x-if="showTplModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showTplModal=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Thêm mẫu lương</h2>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Tên mẫu</label>
+        <input type="text" x-model="tplForm.name" class="w-full border rounded-lg px-3 py-2 text-sm mb-4">
+        <div class="flex justify-end gap-2">
+          <button @click="showTplModal=false" class="px-4 py-2 text-sm text-gray-600">Hủy</button>
+          <button @click="addTemplate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Thêm</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Holiday modal -->
+  <template x-if="showHolidayModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showHolidayModal=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Thêm ngày lễ</h2>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Tên ngày lễ</label>
+        <input type="text" x-model="holidayForm.name" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Ngày</label>
+        <input type="date" x-model="holidayForm.date" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Năm</label>
+        <input type="number" x-model.number="holidayForm.year" class="w-full border rounded-lg px-3 py-2 text-sm mb-4">
+        <div class="flex justify-end gap-2">
+          <button @click="showHolidayModal=false" class="px-4 py-2 text-sm text-gray-600">Hủy</button>
+          <button @click="addHoliday()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Thêm</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+</main>
+
+<script>
+function configPage() {
+  return {
+    components: [],
+    templates: [],
+    holidays: [],
+    showCompModal: false, showTplModal: false, showHolidayModal: false,
+    compForm: { code: "", name: "", type: "INCOME", calculation: "FIXED", default_value: 0 },
+    tplForm: { name: "" },
+    holidayForm: { name: "", date: "", year: new Date().getFullYear() },
+
+    async init() {
+      mountNav("pw-nav", "/payroll/config.html");
+      try {
+        [this.components, this.templates, this.holidays] = await Promise.all([
+          pwGet("/components"), pwGet("/templates"), pwGet("/holidays"),
+        ]);
+      } catch (e) { console.error(e); }
+    },
+
+    async addComponent() {
+      try { await pwPost("/components", this.compForm); this.showCompModal=false; this.components = await pwGet("/components"); $store.pw.flashSuccess("Đã thêm"); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+    async deleteComp(id) {
+      if (!confirm("Xóa?")) return;
+      try { await pwDelete(`/components/${id}`); this.components = this.components.filter(c => c.id !== id); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+    async addTemplate() {
+      try { await pwPost("/templates", this.tplForm); this.showTplModal=false; this.templates = await pwGet("/templates"); $store.pw.flashSuccess("Đã thêm"); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+    async addHoliday() {
+      try { await pwPost("/holidays", this.holidayForm); this.showHolidayModal=false; this.holidays = await pwGet("/holidays"); $store.pw.flashSuccess("Đã thêm"); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+    async deleteHoliday(id) {
+      if (!confirm("Xóa?")) return;
+      try { await pwDelete(`/holidays/${id}`); this.holidays = this.holidays.filter(h => h.id !== id); } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

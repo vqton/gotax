@@ -4,34 +4,35 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Đăng nhập · GoTax</title>
-  <link rel="stylesheet" href="/assets/css/auth.css">
+  <link rel="stylesheet" href="/assets/css/app.css">
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script defer src="/assets/js/auth.js"></script>
 </head>
 <body class="auth-page">
 
-<div class="auth-card" x-data="loginStore()" aria-labelledby="page-title">
+<div class="w-full max-w-[420px] bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,.1),0_8px_24px_rgba(0,0,0,.06)] p-8 pb-7 border border-gray-200"
+     x-data="loginStore()" aria-labelledby="page-title">
 
-  <div class="auth-header">
-    <div class="auth-logo">
-      <span class="logo-icon">📊</span>
-      <span class="logo-text">GoTax</span>
+  <div class="text-center mb-6">
+    <div class="inline-flex items-center gap-2 mb-3">
+      <span class="text-2xl">📊</span>
+      <span class="text-xl font-bold text-brand tracking-tight">GoTax</span>
     </div>
-    <h1 id="page-title" class="auth-title">Đăng nhập hệ thống</h1>
-    <p class="auth-subtitle">Hệ thống Quản lý Thuế Kế toán · Circular 99/2025</p>
+    <h1 id="page-title" class="text-xl font-semibold text-gray-900 mb-1">Đăng nhập hệ thống</h1>
+    <p class="text-sm text-gray-500">Hệ thống Quản lý Thuế Kế toán · Circular 99/2025</p>
   </div>
 
   <div id="alert-slot"></div>
 
   <form @submit.prevent="submit" novalidate>
 
-    <div class="form-group">
-      <label for="username" class="form-label">Tên đăng nhập</label>
+    <div class="mb-4">
+      <label for="username" class="block text-sm font-semibold text-gray-900 mb-1.5">Tên đăng nhập</label>
       <input
         type="text"
         id="username"
         name="username"
-        class="form-input"
+        class="w-full px-3 py-2.5 border-[1.5px] border-gray-300 rounded-md bg-gray-50 text-[0.95rem] text-gray-900 appearance-none transition-colors duration-150 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40"
         placeholder="ten.dang.nhap"
         required
         x-model="username"
@@ -39,18 +40,18 @@
         aria-required="true"
         aria-describedby="username-hint"
       >
-      <p id="username-hint" class="form-hint">Tên đăng nhập do quản trị cấp.</p>
+      <p id="username-hint" class="text-xs text-gray-500 mt-1">Tên đăng nhập do quản trị cấp.</p>
     </div>
 
-    <div class="form-group">
-      <label for="password" class="form-label">Mật khẩu</label>
-      <div class="password-wrapper">
+    <div class="mb-4">
+      <label for="password" class="block text-sm font-semibold text-gray-900 mb-1.5">Mật khẩu</label>
+      <div class="relative">
         <input
           :type="showPw ? 'text' : 'password'"
           id="password"
           name="password"
-          class="form-input"
-          :class="{ 'is-invalid': loginError }"
+          class="w-full pr-10 px-3 py-2.5 border-[1.5px] rounded-md bg-gray-50 text-[0.95rem] text-gray-900 appearance-none transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-200/40"
+          :class="loginError ? 'border-error focus:border-error focus:ring-red-100' : 'border-gray-300 focus:border-accent'"
           placeholder="••••••••"
           required
           minlength="12"
@@ -61,65 +62,69 @@
         >
         <button
           type="button"
-          class="password-toggle"
+          class="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-base leading-none p-1 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-50"
           @click="showPw = !showPw"
           :aria-pressed="showPw"
           aria-label="Hiện / ẩn"
         ><span x-text="showPw ? '🙈' : '👁'"></span></button>
       </div>
       <template x-if="loginError">
-        <p class="form-hint" style="color:var(--clr-error)" x-text="loginError"></p>
+        <p class="text-xs text-error mt-1" x-text="loginError"></p>
       </template>
     </div>
 
-    <div class="form-group">
-      <label class="check-box">
-        <input type="checkbox" name="hasTenant" x-model="withTenant">
+    <div class="mb-4">
+      <label class="inline-flex items-center gap-1 text-sm cursor-pointer select-none">
+        <input type="checkbox" name="hasTenant" x-model="withTenant" class="w-4 h-4 accent-accent cursor-pointer">
         <span>Kèm mã MST / tenant</span>
       </label>
     </div>
 
-    <div class="form-group" x-show="withTenant" x-transition style="display:none">
-      <label for="mst" class="form-label">Mã MST</label>
+    <div class="mb-4" x-show="withTenant" x-transition style="display:none">
+      <label for="mst" class="block text-sm font-semibold text-gray-900 mb-1.5">Mã MST</label>
       <input
         type="text"
         id="mst"
         name="mst"
-        class="form-input"
+        class="w-full px-3 py-2.5 border-[1.5px] border-gray-300 rounded-md bg-gray-50 text-[0.95rem] text-gray-900 appearance-none transition-colors duration-150 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40"
         placeholder="0123456789"
         inputmode="numeric"
         pattern="[0-9]{10,14}"
         x-model="mst"
         autocomplete="off"
       >
-      <p class="form-hint">10–14 chữ số.</p>
+      <p class="text-xs text-gray-500 mt-1">10–14 chữ số.</p>
     </div>
 
-<button
-  type="submit"
-  id="submit-btn"
-  class="btn btn-primary btn-full"
-  :disabled="isSubmitting"
->
-  <template x-if="isSubmitting">
-    <span class="btn-spinner" aria-hidden="true"></span>
-  </template>
-  <span x-text="isSubmitting ? 'Đang đăng nhập…' : 'ĐĂNG NHẬP'"></span>
-</button>
+    <button
+      type="submit"
+      id="submit-btn"
+      class="w-full h-10 inline-flex items-center justify-center gap-2 bg-accent text-white font-semibold text-[0.925rem] leading-none rounded-md cursor-pointer transition-all duration-150 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap"
+      :disabled="isSubmitting"
+    >
+      <template x-if="isSubmitting">
+        <span class="btn-spinner" aria-hidden="true"></span>
+      </template>
+      <span x-text="isSubmitting ? 'Đang đăng nhập…' : 'ĐĂNG NHẬP'"></span>
+    </button>
   </form>
 
-  <div class="auth-divider" aria-hidden="true"><span>hoặc</span></div>
+  <div class="text-center my-4 flex items-center gap-3 text-gray-400 text-sm" aria-hidden="true">
+    <span class="flex-1 h-px bg-gray-200"></span>
+    <span>hoặc</span>
+    <span class="flex-1 h-px bg-gray-200"></span>
+  </div>
 
   <button
     type="button"
-    class="btn btn-secondary btn-full"
+    class="w-full h-10 inline-flex items-center justify-center gap-2 bg-gray-50 text-gray-700 font-semibold text-[0.925rem] leading-none rounded-md cursor-pointer transition-all duration-150 hover:bg-gray-100 border border-gray-200 select-none whitespace-nowrap"
     @click="$refs.vneid.disabled=false;$refs.vneid.click()"
   >🪪 Đăng nhập qua VNeID</button>
   <a ref="vneid" href="/vneid/login" hidden></a>
 
-  <div class="auth-footer">
-    <a href="/forgot-password" class="link-underline">Quên mật khẩu?</a>
-    <span class="legal">© 2026 GoTax</span>
+  <div class="mt-6 pt-4 border-t border-gray-200 flex justify-between items-center text-sm">
+    <a href="/forgot-password" class="text-accent hover:underline">Quên mật khẩu?</a>
+    <span class="text-gray-400">© 2026 GoTax</span>
   </div>
 
 </div>

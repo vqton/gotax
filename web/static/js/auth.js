@@ -11,7 +11,14 @@ function mountAlerts(containerId) {
   host._mounted = true;
   host.innerHTML = Alpine.raw(`
     <template x-for="a in alerts" :key="a.text + a.type">
-      <div class="alert" :class="'alert--' + a.type" x-text="a.text" x-transition @click="alerts.shift()" role="alert"></div>
+      <div class="rounded-md px-3.5 py-3 text-sm font-medium mb-4 cursor-pointer transition-opacity"
+           :class="{
+             'bg-red-50 text-red-900 border border-red-200': a.type === 'error',
+             'bg-green-50 text-green-900 border border-green-200': a.type === 'success',
+             'bg-blue-50 text-blue-900 border border-blue-200': a.type === 'info',
+             'bg-amber-50 text-amber-900 border border-amber-200': a.type === 'warning',
+           }"
+           x-text="a.text" x-transition @click="alerts.shift()" role="alert"></div>
     </template>
   `);
 }

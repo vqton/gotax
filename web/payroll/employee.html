@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hồ sơ lương · Payroll · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/payroll.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<nav id="pw-nav" class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between"></nav>
+
+<main class="max-w-4xl mx-auto px-6 py-8" x-data="employeeProfile()" x-init="init()">
+
+  <template x-if="$store.pw.success">
+    <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.pw.success"></div>
+  </template>
+  <template x-if="$store.pw.error">
+    <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.pw.error"></div>
+  </template>
+
+  <h1 class="text-2xl font-bold text-gray-900 mb-6">Hồ sơ lương nhân viên</h1>
+
+  <!-- Employee selector -->
+  <div class="bg-white rounded-xl border p-4 mb-6">
+    <label class="block text-sm font-medium text-gray-700 mb-1">Mã nhân viên</label>
+    <div class="flex gap-2">
+      <input type="text" x-model="empId" placeholder="NV001" class="border rounded-lg px-3 py-2 text-sm flex-1">
+      <button @click="load()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Tải</button>
+    </div>
+  </div>
+
+  <template x-if="loaded">
+    <div class="space-y-6">
+      <!-- Contract info -->
+      <div class="bg-white rounded-xl border p-6">
+        <h2 class="text-sm font-semibold text-gray-700 mb-4">Hợp đồng & Lương</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Loại hợp đồng</label>
+            <select x-model="form.contract_type" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="INDEFINITE">Không xác định thời hạn</option>
+              <option value="DEFINITE">Xác định thời hạn</option>
+              <option value="PROBATION">Thử việc</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Loại lương</label>
+            <select x-model="form.salary_type" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="TIME_BASED">Theo thời gian</option>
+              <option value="PIECE_RATE">Theo sản phẩm</option>
+              <option value="COMMISSION">Hoa hồng</option>
+              <option value="COEFFICIENT">Hệ số</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Lương cơ bản (VNĐ)</label>
+            <input type="number" x-model.number="form.base_salary" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Hệ số lương</label>
+            <input type="number" step="0.01" x-model.number="form.salary_coefficient" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Phụ cấp chức vụ</label>
+            <input type="number" x-model.number="form.position_allowance" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Phụ cấp trách nhiệm</label>
+            <input type="number" x-model.number="form.responsibility_allowance" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Phụ cấp thâm niên</label>
+            <input type="number" x-model.number="form.seniority_allowance" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Phụ cấp khác</label>
+            <input type="number" x-model.number="form.other_allowances" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Mức đóng BHXH</label>
+            <input type="number" x-model.number="form.insurance_base_salary" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0 = theo lương cơ bản">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Khu vực BHTN</label>
+            <select x-model="form.region" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="I">I</option>
+              <option value="II">II</option>
+              <option value="III">III</option>
+              <option value="IV">IV</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex items-center gap-6 mt-4">
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="form.is_foreign_employee" class="accent-blue-700"> Nhân viên nước ngoài</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="form.is_trade_union_member" class="accent-blue-700"> Đoàn viên CĐ</label>
+        </div>
+      </div>
+
+      <!-- Bank info -->
+      <div class="bg-white rounded-xl border p-6">
+        <h2 class="text-sm font-semibold text-gray-700 mb-4">Thông tin ngân hàng</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Số tài khoản</label>
+            <input type="text" x-model="form.bank_account_no" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Mã ngân hàng</label>
+            <input type="text" x-model="form.bank_code" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="VCB, BIDV, etc.">
+          </div>
+        </div>
+      </div>
+
+      <!-- Dependants -->
+      <div class="bg-white rounded-xl border p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-gray-700">Người phụ thuộc (giảm trừ PIT)</h2>
+          <button @click="showDepModal=true" class="text-sm text-blue-700 hover:underline">+ Thêm</button>
+        </div>
+        <template x-if="dependants.length">
+          <table class="w-full text-sm">
+            <thead class="border-b"><tr class="text-left text-gray-500"><th class="pb-2">Họ tên</th><th class="pb-2">Quan hệ</th><th class="pb-2">Ngày sinh</th><th class="pb-2">MST</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="d in dependants" :key="d.id">
+                <tr class="border-b"><td class="py-2" x-text="d.full_name"></td><td x-text="d.relationship"></td><td x-text="d.date_of_birth"></td><td x-text="d.tax_code||'—'"></td>
+                <td><button @click="deleteDep(d.id)" class="text-red-500 text-xs">Xóa</button></td></tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+        <p x-show="!dependants.length" class="text-sm text-gray-400">Chưa có người phụ thuộc</p>
+      </div>
+
+      <button @click="save()" class="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800">Lưu thay đổi</button>
+    </div>
+  </template>
+
+  <!-- Dependant modal -->
+  <template x-if="showDepModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDepModal=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-96" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Thêm người phụ thuộc</h2>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Họ tên</label>
+        <input type="text" x-model="depForm.full_name" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Quan hệ</label>
+        <input type="text" x-model="depForm.relationship" class="w-full border rounded-lg px-3 py-2 text-sm mb-3" placeholder="Vợ, Con, Cha, Mẹ…">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Ngày sinh</label>
+        <input type="date" x-model="depForm.date_of_birth" class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1">MST (tùy chọn)</label>
+        <input type="text" x-model="depForm.tax_code" class="w-full border rounded-lg px-3 py-2 text-sm mb-4">
+        <div class="flex justify-end gap-2">
+          <button @click="showDepModal=false" class="px-4 py-2 text-sm text-gray-600">Hủy</button>
+          <button @click="addDep()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Thêm</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+</main>
+
+<script>
+function employeeProfile() {
+  return {
+    empId: "",
+    loaded: false,
+    form: {},
+    dependants: [],
+    showDepModal: false,
+    depForm: { full_name: "", relationship: "", date_of_birth: "", tax_code: "" },
+
+    init() {
+      mountNav("pw-nav", "/payroll/employee.html");
+    },
+
+    async load() {
+      if (!this.empId) return;
+      try {
+        this.form = await pwGet(`/employees/${this.empId}`);
+        this.dependants = await pwGet(`/employees/${this.empId}/dependants`);
+        this.loaded = true;
+      } catch (e) { $store.pw.error = e.error || "Không tìm thấy nhân viên"; }
+    },
+
+    async save() {
+      try {
+        await pwPut(`/employees/${this.empId}`, this.form);
+        $store.pw.flashSuccess("Đã lưu hồ sơ lương");
+      } catch (e) { $store.pw.error = e.error || "Lỗi lưu"; }
+    },
+
+    async addDep() {
+      try {
+        await pwPost(`/employees/${this.empId}/dependants`, this.depForm);
+        this.dependants = await pwGet(`/employees/${this.empId}/dependants`);
+        this.showDepModal = false;
+        this.depForm = { full_name: "", relationship: "", date_of_birth: "", tax_code: "" };
+        $store.pw.flashSuccess("Đã thêm người phụ thuộc");
+      } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+
+    async deleteDep(id) {
+      if (!confirm("Xóa người phụ thuộc?")) return;
+      try {
+        await pwDelete(`/employees/${this.empId}/dependants/${id}`);
+        this.dependants = this.dependants.filter(d => d.id !== id);
+      } catch (e) { $store.pw.error = e.error || "Lỗi"; }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

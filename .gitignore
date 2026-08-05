@@ -39,3 +39,6 @@ Thumbs.db
 /tmp/setup_pg.go
 /gotax
 /gotax-server
+
+# Node (Tailwind CLI only)
+node_modules/

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tuyên thuế · Payroll · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/payroll.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<nav id="pw-nav" class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between"></nav>
+
+<main class="max-w-5xl mx-auto px-6 py-8" x-data="declarations()" x-init="init()">
+
+  <h1 class="text-2xl font-bold text-gray-900 mb-6">Tuyên thuế & Khai báo BHXH</h1>
+
+  <!-- Period selector -->
+  <div class="bg-white rounded-xl border p-4 mb-6 flex gap-4 items-end">
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Kỳ lương</label>
+      <select x-model="periodId" class="border rounded-lg px-3 py-2 text-sm">
+        <option value="">— Chọn —</option>
+        <template x-for="p in periods" :key="p.id">
+          <option :value="p.id" x-text="p.month + '/' + p.year"></option>
+        </template>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Company ID</label>
+      <input type="text" x-model="companyId" class="border rounded-lg px-3 py-2 text-sm w-64" placeholder="company-uuid">
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-6">
+
+    <!-- D02-TS -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="text-center mb-4">
+        <span class="text-3xl">📋</span>
+        <h2 class="text-lg font-bold mt-2">D02-TS</h2>
+        <p class="text-xs text-gray-500">Tờ khai đóng BHXH, BHYT, BHTN</p>
+      </div>
+      <p class="text-sm text-gray-600 mb-4">Tổng hợp tiền đóng BHXH, BHYT, BHTN nhân viên + NSDLĐ theo kỳ lương.</p>
+      <button @click="generateD02()" :disabled="!periodId || generating" class="w-full py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50">
+        <span x-show="!generating">📥 Tải XML D02-TS</span>
+        <span x-show="generating">Đang tạo…</span>
+      </button>
+      <template x-if="d02xml">
+        <div class="mt-4">
+          <p class="text-xs text-green-600 mb-2">✓ Đã tạo file XML</p>
+          <a :href="d02xmlUrl" download class="text-sm text-blue-700 hover:underline">Tải xuống D02-TS.xml</a>
+        </div>
+      </template>
+    </div>
+
+    <!-- 05/KK-TNCN -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="text-center mb-4">
+        <span class="text-3xl">🧾</span>
+        <h2 class="text-lg font-bold mt-2">05/KK-TNCN</h2>
+        <p class="text-xs text-gray-500">Tờ khai quyết toán thuế TNCN</p>
+      </div>
+      <p class="text-sm text-gray-600 mb-4">Khai quyết toán thuế thu nhập cá nhân theo quý/năm. Form theo Decision 1109/QD-BTC.</p>
+      <button @click="generate05KK()" :disabled="!periodId || generating" class="w-full py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50">
+        <span x-show="!generating">📥 Tải XML 05/KK-TNCN</span>
+        <span x-show="generating">Đang tạo…</span>
+      </button>
+      <template x-if="tncnxml">
+        <div class="mt-4">
+          <p class="text-xs text-green-600 mb-2">✓ Đã tạo file XML</p>
+          <a :href="tncnxmlUrl" download class="text-sm text-blue-700 hover:underline">Tải xuống 05-KK-TNCN.xml</a>
+        </div>
+      </template>
+    </div>
+
+    <!-- TK3-TS -->
+    <div class="bg-white rounded-xl border p-6">
+      <div class="text-center mb-4">
+        <span class="text-3xl">📝</span>
+        <h2 class="text-lg font-bold mt-2">TK3-TS</h2>
+        <p class="text-xs text-gray-500">Tờ khai thay đổi thông tin lao động</p>
+      </div>
+      <p class="text-sm text-gray-600 mb-4">Đăng ký thay đổi thông tin người tham gia BHXH. Theo Decision 366/QĐ-BHXH.</p>
+      <button @click="generateTK3()" :disabled="!periodId || generating" class="w-full py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50">
+        <span x-show="!generating">📥 Tải XML TK3-TS</span>
+        <span x-show="generating">Đang tạo…</span>
+      </button>
+      <template x-if="tk3xml">
+        <div class="mt-4">
+          <p class="text-xs text-green-600 mb-2">✓ Đã tạo file XML</p>
+          <a :href="tk3xmlUrl" download class="text-sm text-blue-700 hover:underline">Tải xuống TK3-TS.xml</a>
+        </div>
+      </template>
+    </div>
+
+  </div>
+
+  <!-- PIT Summary -->
+  <div class="bg-white rounded-xl border p-6 mt-6" x-show="periodId">
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Tóm tắt thuế TNCN kỳ này</h2>
+    <div class="grid grid-cols-4 gap-4 text-center">
+      <div><p class="text-xs text-gray-500">Số nhân viên có PIT</p><p class="text-xl font-bold" x-text="pitSummary.employees_with_pit || 0"></p></div>
+      <div><p class="text-xs text-gray-500">Tổng thu nhập chịu thuế</p><p class="text-xl font-bold text-blue-700" x-text="fmtVND(pitSummary.total_taxable_income)"></p></div>
+      <div><p class="text-xs text-gray-500">Tổng PIT phải nộp</p><p class="text-xl font-bold text-red-600" x-text="fmtVND(pitSummary.total_pit)"></p></div>
+      <div><p class="text-xs text-gray-500">Tổng nhân viên</p><p class="text-xl font-bold" x-text="pitSummary.employee_count || 0"></p></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+function declarations() {
+  return {
+    periods: [],
+    periodId: "",
+    companyId: "",
+    generating: false,
+    d02xml: null,
+    tncnxml: null,
+    tk3xml: null,
+    pitSummary: {},
+
+    get d02xmlUrl() { return this.d02xml ? `data:text/xml;charset=utf-8,${encodeURIComponent(this.d02xml)}` : "#"; },
+    get tncnxmlUrl() { return this.tncnxml ? `data:text/xml;charset=utf-8,${encodeURIComponent(this.tncnxml)}` : "#"; },
+    get tk3xmlUrl() { return this.tk3xml ? `data:text/xml;charset=utf-8,${encodeURIComponent(this.tk3xml)}` : "#"; },
+
+    async init() {
+      mountNav("pw-nav", "/payroll/declarations.html");
+      try { this.periods = await pwGet("/periods"); } catch (e) { console.error(e); }
+    },
+
+    async generateD02() {
+      this.generating = true;
+      try {
+        const r = await pwFetch(`/declarations/d02-ts?period_id=${this.periodId}&company_id=${this.companyId}`);
+        this.d02xml = await r.text();
+        $store.pw.flashSuccess("Đã tạo D02-TS");
+      } catch (e) { $store.pw.error = e.error || "Lỗi tạo D02-TS"; }
+      this.generating = false;
+    },
+
+    async generate05KK() {
+      this.generating = true;
+      try {
+        const r = await pwFetch(`/declarations/05-kk-tncn?period_id=${this.periodId}&company_id=${this.companyId}`);
+        this.tncnxml = await r.text();
+        $store.pw.flashSuccess("Đã tạo 05/KK-TNCN");
+      } catch (e) { $store.pw.error = e.error || "Lỗi tạo 05/KK-TNCN"; }
+      this.generating = false;
+    },
+
+    async generateTK3() {
+      this.generating = true;
+      try {
+        const r = await pwFetch(`/declarations/tk3-ts?period_id=${this.periodId}&company_id=${this.companyId}`);
+        this.tk3xml = await r.text();
+        $store.pw.flashSuccess("Đã tạo TK3-TS");
+      } catch (e) { $store.pw.error = e.error || "Lỗi tạo TK3-TS"; }
+      this.generating = false;
+    },
+  };
+}
+</script>
+
+</body>
+</html>

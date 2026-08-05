@@ -3,7 +3,7 @@
 
 -- ─── Customer ──────────────────────────────────────────────────────────
 
-CREATE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
     id               VARCHAR(36) PRIMARY KEY,
     company_id       VARCHAR(36) NOT NULL,
     code             VARCHAR(20) NOT NULL,
@@ -28,12 +28,12 @@ CREATE TABLE customers (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, code)
 );
-CREATE INDEX idx_customer_company_code ON customers (company_id, code);
-CREATE INDEX idx_customer_status ON customers (status);
+CREATE INDEX IF NOT EXISTS idx_customer_company_code ON customers (company_id, code);
+CREATE INDEX IF NOT EXISTS idx_customer_status ON customers (status);
 
 -- ─── Sales Quotation ───────────────────────────────────────────────────
 
-CREATE TABLE sales_quotations (
+CREATE TABLE IF NOT EXISTS sales_quotations (
     id              VARCHAR(36) PRIMARY KEY,
     company_id      VARCHAR(36) NOT NULL,
     qn_number       VARCHAR(30) NOT NULL,
@@ -46,11 +46,11 @@ CREATE TABLE sales_quotations (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, qn_number)
 );
-CREATE INDEX idx_sq_company ON sales_quotations (company_id);
+CREATE INDEX IF NOT EXISTS idx_sq_company ON sales_quotations (company_id);
 
 -- ─── Sales Order ───────────────────────────────────────────────────────
 
-CREATE TABLE sales_orders (
+CREATE TABLE IF NOT EXISTS sales_orders (
     id               VARCHAR(36) PRIMARY KEY,
     company_id       VARCHAR(36) NOT NULL,
     so_number        VARCHAR(30) NOT NULL,
@@ -77,12 +77,12 @@ CREATE TABLE sales_orders (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, so_number)
 );
-CREATE INDEX idx_so_company_number ON sales_orders (company_id, so_number);
-CREATE INDEX idx_so_customer ON sales_orders (customer_id);
+CREATE INDEX IF NOT EXISTS idx_so_company_number ON sales_orders (company_id, so_number);
+CREATE INDEX IF NOT EXISTS idx_so_customer ON sales_orders (customer_id);
 
 -- ─── SO Lines ──────────────────────────────────────────────────────────
 
-CREATE TABLE so_lines (
+CREATE TABLE IF NOT EXISTS so_lines (
     id                VARCHAR(36) PRIMARY KEY,
     so_id             VARCHAR(36) NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
     line_number       INT NOT NULL,
@@ -101,11 +101,11 @@ CREATE TABLE so_lines (
     delivered_qty     NUMERIC NOT NULL DEFAULT 0,
     invoiced_qty      NUMERIC NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_soline_so ON so_lines (so_id);
+CREATE INDEX IF NOT EXISTS idx_soline_so ON so_lines (so_id);
 
 -- ─── Delivery Note ─────────────────────────────────────────────────────
 
-CREATE TABLE delivery_notes (
+CREATE TABLE IF NOT EXISTS delivery_notes (
     id               VARCHAR(36) PRIMARY KEY,
     company_id       VARCHAR(36) NOT NULL,
     dn_number        VARCHAR(30) NOT NULL,
@@ -124,12 +124,12 @@ CREATE TABLE delivery_notes (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, dn_number)
 );
-CREATE INDEX idx_dn_company_number ON delivery_notes (company_id, dn_number);
-CREATE INDEX idx_dn_so ON delivery_notes (so_id);
+CREATE INDEX IF NOT EXISTS idx_dn_company_number ON delivery_notes (company_id, dn_number);
+CREATE INDEX IF NOT EXISTS idx_dn_so ON delivery_notes (so_id);
 
 -- ─── DN Lines ──────────────────────────────────────────────────────────
 
-CREATE TABLE dn_lines (
+CREATE TABLE IF NOT EXISTS dn_lines (
     id            VARCHAR(36) PRIMARY KEY,
     dn_id         VARCHAR(36) NOT NULL REFERENCES delivery_notes(id) ON DELETE CASCADE,
     so_line_id    VARCHAR(36),
@@ -142,11 +142,11 @@ CREATE TABLE dn_lines (
     line_total    NUMERIC NOT NULL,
     cost_price    NUMERIC NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_dnline_dn ON dn_lines (dn_id);
+CREATE INDEX IF NOT EXISTS idx_dnline_dn ON dn_lines (dn_id);
 
 -- ─── Customer Invoice ──────────────────────────────────────────────────
 
-CREATE TABLE customer_invoices (
+CREATE TABLE IF NOT EXISTS customer_invoices (
     id                   VARCHAR(36) PRIMARY KEY,
     company_id           VARCHAR(36) NOT NULL,
     invoice_number       VARCHAR(30) NOT NULL,
@@ -185,12 +185,12 @@ CREATE TABLE customer_invoices (
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, invoice_number)
 );
-CREATE INDEX idx_cinv_company_number ON customer_invoices (company_id, invoice_number);
-CREATE INDEX idx_cinv_customer ON customer_invoices (customer_id);
+CREATE INDEX IF NOT EXISTS idx_cinv_company_number ON customer_invoices (company_id, invoice_number);
+CREATE INDEX IF NOT EXISTS idx_cinv_customer ON customer_invoices (customer_id);
 
 -- ─── Invoice Lines ─────────────────────────────────────────────────────
 
-CREATE TABLE inv_lines (
+CREATE TABLE IF NOT EXISTS inv_lines (
     id                 VARCHAR(36) PRIMARY KEY,
     invoice_id         VARCHAR(36) NOT NULL REFERENCES customer_invoices(id) ON DELETE CASCADE,
     so_line_id         VARCHAR(36),
@@ -208,11 +208,11 @@ CREATE TABLE inv_lines (
     revenue_account_id VARCHAR(20) NOT NULL,
     vat_account_id     VARCHAR(20) NOT NULL
 );
-CREATE INDEX idx_invline_inv ON inv_lines (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_invline_inv ON inv_lines (invoice_id);
 
 -- ─── Customer Receipt ──────────────────────────────────────────────────
 
-CREATE TABLE customer_receipts (
+CREATE TABLE IF NOT EXISTS customer_receipts (
     id                VARCHAR(36) PRIMARY KEY,
     company_id        VARCHAR(36) NOT NULL,
     receipt_number    VARCHAR(30) NOT NULL,
@@ -234,23 +234,23 @@ CREATE TABLE customer_receipts (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, receipt_number)
 );
-CREATE INDEX idx_rcpt_company_number ON customer_receipts (company_id, receipt_number);
-CREATE INDEX idx_rcpt_customer ON customer_receipts (customer_id);
+CREATE INDEX IF NOT EXISTS idx_rcpt_company_number ON customer_receipts (company_id, receipt_number);
+CREATE INDEX IF NOT EXISTS idx_rcpt_customer ON customer_receipts (customer_id);
 
 -- ─── Receipt Allocations ───────────────────────────────────────────────
 
-CREATE TABLE rcp_allocations (
+CREATE TABLE IF NOT EXISTS rcp_allocations (
     id               VARCHAR(36) PRIMARY KEY,
     receipt_id       VARCHAR(36) NOT NULL REFERENCES customer_receipts(id) ON DELETE CASCADE,
     invoice_id       VARCHAR(36) NOT NULL,
     allocated_amount NUMERIC NOT NULL,
     discount_amount  NUMERIC NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_rcp_alloc_rcpt ON rcp_allocations (receipt_id);
+CREATE INDEX IF NOT EXISTS idx_rcp_alloc_rcpt ON rcp_allocations (receipt_id);
 
 -- ─── Credit Note ───────────────────────────────────────────────────────
 
-CREATE TABLE credit_notes (
+CREATE TABLE IF NOT EXISTS credit_notes (
     id                 VARCHAR(36) PRIMARY KEY,
     company_id         VARCHAR(36) NOT NULL,
     cn_number          VARCHAR(30) NOT NULL,
@@ -274,13 +274,13 @@ CREATE TABLE credit_notes (
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (company_id, cn_number)
 );
-CREATE INDEX idx_cn_company_number ON credit_notes (company_id, cn_number);
-CREATE INDEX idx_cn_customer ON credit_notes (customer_id);
-CREATE INDEX idx_cn_original_invoice ON credit_notes (original_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_cn_company_number ON credit_notes (company_id, cn_number);
+CREATE INDEX IF NOT EXISTS idx_cn_customer ON credit_notes (customer_id);
+CREATE INDEX IF NOT EXISTS idx_cn_original_invoice ON credit_notes (original_invoice_id);
 
 -- ─── CN Lines ──────────────────────────────────────────────────────────
 
-CREATE TABLE cn_lines (
+CREATE TABLE IF NOT EXISTS cn_lines (
     id              VARCHAR(36) PRIMARY KEY,
     cn_id           VARCHAR(36) NOT NULL REFERENCES credit_notes(id) ON DELETE CASCADE,
     invoice_line_id VARCHAR(36),
@@ -292,11 +292,11 @@ CREATE TABLE cn_lines (
     line_total      NUMERIC NOT NULL,
     line_vat_amount NUMERIC NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_cnline_cn ON cn_lines (cn_id);
+CREATE INDEX IF NOT EXISTS idx_cnline_cn ON cn_lines (cn_id);
 
 -- ─── AR Transactions ───────────────────────────────────────────────────
 
-CREATE TABLE ar_transactions (
+CREATE TABLE IF NOT EXISTS ar_transactions (
     id                VARCHAR(36) PRIMARY KEY,
     company_id        VARCHAR(36) NOT NULL,
     customer_id       VARCHAR(36) NOT NULL,
@@ -310,5 +310,5 @@ CREATE TABLE ar_transactions (
     notes             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_ar_customer ON ar_transactions (customer_id);
-CREATE INDEX idx_ar_invoice ON ar_transactions (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_ar_customer ON ar_transactions (customer_id);
+CREATE INDEX IF NOT EXISTS idx_ar_invoice ON ar_transactions (invoice_id);
