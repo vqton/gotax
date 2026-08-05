@@ -486,7 +486,9 @@ func (s *taxService) AmendDeclaration(ctx context.Context, id string, lines []do
 		return nil, err
 	}
 	d.Status = domain.DeclStatusAMENDED
-	_ = s.repo.UpdateDeclaration(ctx, d)
+	if err := s.repo.UpdateDeclaration(ctx, d); err != nil {
+		return nil, err
+	}
 	return amended, nil
 }
 

@@ -336,9 +336,13 @@ func (s *SaleService) PostDN(ctx context.Context, id string) error {
 	switch so.Status {
 	case domain.SOApproved, domain.SOConfirmed, domain.SOProcessing, domain.SODraft:
 		if allDelivered {
-			_ = s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SODelivered)
+			if err := s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SODelivered); err != nil {
+				return err
+			}
 		} else {
-			_ = s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SOProcessing)
+			if err := s.soRepo.UpdateSOStatus(ctx, so.ID, domain.SOProcessing); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -465,10 +469,12 @@ func (s *SaleService) PostInvoice(ctx context.Context, id string) error {
 	}
 	// S4: SO status → INVOICED when invoiced
 	if inv.SOID != "" {
-		_ = s.soRepo.UpdateSOStatus(ctx, inv.SOID, domain.SOInvoiced)
+		if err := s.soRepo.UpdateSOStatus(ctx, inv.SOID, domain.SOInvoiced); err != nil {
+			return err
+		}
 	}
 	// S2: auto-create AR transaction on invoice post
-	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+	if err := s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
 		CompanyID:       inv.CompanyID,
 		CustomerID:      inv.CustomerID,
 		InvoiceID:       inv.ID,
@@ -478,7 +484,9 @@ func (s *SaleService) PostInvoice(ctx context.Context, id string) error {
 		Currency:        inv.Currency,
 		ReferenceType:   "customer_invoices",
 		ReferenceID:     inv.ID,
-	})
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -565,7 +573,7 @@ func (s *SaleService) PostReceipt(ctx context.Context, id string) error {
 		return err
 	}
 	// S2: auto-create AR transaction on receipt post
-	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+	if err := s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
 		CompanyID:       rcpt.CompanyID,
 		CustomerID:      rcpt.CustomerID,
 		TransactionType: domain.ARTransReceipt,
@@ -574,7 +582,9 @@ func (s *SaleService) PostReceipt(ctx context.Context, id string) error {
 		Currency:        rcpt.Currency,
 		ReferenceType:   "customer_receipts",
 		ReferenceID:     rcpt.ID,
-	})
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -715,7 +725,7 @@ func (s *SaleService) PostCN(ctx context.Context, id string) error {
 		return err
 	}
 	// S2: auto-create AR transaction on CN post
-	_ = s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
+	if err := s.artRepo.CreateARTransaction(ctx, &domain.ARTransaction{
 		CompanyID:       cn.CompanyID,
 		CustomerID:      cn.CustomerID,
 		InvoiceID:       cn.OriginalInvoiceID,
@@ -725,13 +735,18 @@ func (s *SaleService) PostCN(ctx context.Context, id string) error {
 		Currency:        "VND",
 		ReferenceType:   "credit_notes",
 		ReferenceID:     cn.ID,
-	})
+	}); err != nil {
+		return err
+	}
 	// S3: reduce original invoice BalanceDue
 	if cn.OriginalInvoiceID != "" {
-		if err := s.invRepo.ReduceInvoiceBalance(ctx, cn.OriginalInvoiceID, cn.TotalAmount); err == nil {
-			origInv, err2 := s.invRepo.GetInvoice(ctx, cn.OriginalInvoiceID)
-			if err2 == nil && origInv.BalanceDue <= 0 {
-				_ = s.invRepo.UpdateInvoiceStatus(ctx, cn.OriginalInvoiceID, domain.SInvPaid)
+		if err := s.invRepo.ReduceInvoiceBalance(ctx, cn.OriginalInvoiceID, cn.TotalAmount); err != nil {
+			return err
+		}
+		origInv, err2 := s.invRepo.GetInvoice(ctx, cn.OriginalInvoiceID)
+		if err2 == nil && origInv.BalanceDue <= 0 {
+			if err := s.invRepo.UpdateInvoiceStatus(ctx, cn.OriginalInvoiceID, domain.SInvPaid); err != nil {
+				return err
 			}
 		}
 	}

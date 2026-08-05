@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"gotax/internal/domain"
@@ -566,13 +567,20 @@ func (s *PurchaseService) ReceiveEInvoice(ctx context.Context, inv *domain.Suppl
 		}); err != nil {
 			return err
 		}
-		sup, _ = s.supRepo.GetSupplierByCode(ctx, inv.CompanyID, fmt.Sprintf("SUP-%s", inv.SupplierTaxCode))
+		var err error
+		sup, err = s.supRepo.GetSupplierByCode(ctx, inv.CompanyID, fmt.Sprintf("SUP-%s", inv.SupplierTaxCode))
+		if err != nil {
+			return fmt.Errorf("lookup supplier after create: %w", err)
+		}
 	}
 	inv.SupplierID = sup.ID
 	if err := validate.SupplierInvoice(inv); err != nil {
 		return err
 	}
-	dup, _ := s.invRepo.GetInvoiceByNumber(ctx, inv.CompanyID, inv.InvoiceNumber)
+	dup, err := s.invRepo.GetInvoiceByNumber(ctx, inv.CompanyID, inv.InvoiceNumber)
+	if err != nil && !errors.Is(err, domain.ErrSupplierInvoiceNotFound) {
+		return fmt.Errorf("check duplicate invoice: %w", err)
+	}
 	if dup != nil {
 		return fmt.Errorf("invoice %s already exists", inv.InvoiceNumber)
 	}
