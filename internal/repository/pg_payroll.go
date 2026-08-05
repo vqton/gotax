@@ -187,7 +187,14 @@ func (r *PGPayrollRepo) BulkCreateTimekeeping(ctx context.Context, records []dom
 }
 
 func (r *PGPayrollRepo) DeleteTimekeeping(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.TimekeepingRecord{}).Error
+	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.TimekeepingRecord{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrPayrollTimekeepingNotFound
+	}
+	return nil
 }
 
 // ─── Leave Requests ─────────────────────────────────────────────
@@ -375,4 +382,32 @@ func (r *PGPayrollRepo) ListTemplates(ctx context.Context, companyID string) ([]
 
 func (r *PGPayrollRepo) DeleteTemplate(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.SalaryTemplate{}).Error
+}
+
+// ─── Holidays ───────────────────────────────────────────────────
+
+func (r *PGPayrollRepo) CreateHoliday(ctx context.Context, h *domain.PayrollHoliday) error {
+	h.CreatedAt = time.Now()
+	return r.db.WithContext(ctx).Create(h).Error
+}
+
+func (r *PGPayrollRepo) ListHolidays(ctx context.Context, companyID string, year int) ([]domain.PayrollHoliday, error) {
+	var holidays []domain.PayrollHoliday
+	if err := r.db.WithContext(ctx).
+		Where("company_id = ? AND year = ?", companyID, year).
+		Order("date").Find(&holidays).Error; err != nil {
+		return nil, err
+	}
+	return holidays, nil
+}
+
+func (r *PGPayrollRepo) DeleteHoliday(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.PayrollHoliday{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrPayrollHolidayNotFound
+	}
+	return nil
 }

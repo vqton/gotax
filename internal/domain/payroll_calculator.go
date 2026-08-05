@@ -5,27 +5,56 @@ import "math"
 // ─── Insurance Constants ────────────────────────────────────────
 
 const (
-	SIEmployeeRate  = 0.08  // 8%
-	HIEmployeeRate  = 0.015 // 1.5%
-	UIEmployeeRate  = 0.01  // 1%
-	SIEmployerRate  = 0.175 // 17.5%
-	HIEmployerRate  = 0.03  // 3%
-	UIEmployerRate  = 0.01  // 1%
-	TradeUnionRate  = 0.01  // 1%
-	BaseSalaryCapSI = 20    // SI/HI cap = 20 × base salary
-	BaseSalaryCapUI = 20    // UI cap = 20 × regional min wage
-	TradeUnionCap   = 253_000.0
+	SIEmployeeRate = 0.08  // 8%
+	HIEmployeeRate = 0.015 // 1.5%
+	UIEmployeeRate = 0.01  // 1%
+	SIEmployerRate = 0.175 // 17.5%
+	HIEmployerRate = 0.03  // 3%
+	UIEmployerRate = 0.01  // 1%
+	TradeUnionRate = 0.01  // 1%
 
-	BaseSalary2026     = 2_530_000.0 // Decree 161/2026
-	RegionalMinWageI   = 5_310_000.0  // Decree 293/2025
-	RegionalMinWageII  = 4_680_000.0
-	RegionalMinWageIII = 4_160_000.0
-	RegionalMinWageIV  = 3_990_000.0
+	BaseSalaryCapSI = 20 // SI/HI cap = 20 × base salary
+	BaseSalaryCapUI = 20 // UI cap = 20 × regional min wage
 
 	WorkingHoursPerDay = 8
 )
 
-// OT / leave multipliers
+// ─── Date-Ranged Salary Constants (Decree 161/2026, Decree 293/2025) ──
+
+// ReferenceLevel (mức tham chiếu) used for SI/HI cap from 01 Jan 2026.
+const ReferenceLevel2026H1 = 2_340_000.0
+
+// BaseSalary (mức lương cơ sở) from 01 Jul 2026 per Decree 161/2026/NĐ-CP.
+const BaseSalary2026H2 = 2_530_000.0
+
+// GetBaseSalary returns the applicable base salary for a given month/year.
+func GetBaseSalary(month, year int) float64 {
+	if year > 2026 || (year == 2026 && month >= 7) {
+		return BaseSalary2026H2
+	}
+	return ReferenceLevel2026H1
+}
+
+// Regional minimum wages from Decree 293/2025/NĐ-CP (effective 01 Jan 2026).
+const (
+	RegionalMinWageI   = 5_310_000.0
+	RegionalMinWageII  = 4_730_000.0
+	RegionalMinWageIII = 4_140_000.0
+	RegionalMinWageIV  = 3_700_000.0
+)
+
+// GetSIHICap returns the SI/HI contribution cap for a given month/year.
+func GetSIHICap(month, year int) float64 {
+	return BaseSalaryCapSI * GetBaseSalary(month, year)
+}
+
+// GetTradeUnionCap returns the trade union dues cap for a given month/year.
+func GetTradeUnionCap(month, year int) float64 {
+	return 0.01 * GetSIHICap(month, year)
+}
+
+// ─── OT / leave multipliers ────────────────────────────────────
+
 const (
 	OTWeekdayRate     = 1.5 // 150%
 	OTWeekendRate     = 2.0 // 200%
@@ -34,6 +63,8 @@ const (
 	HolidayPayRate    = 3.0 // 300%
 )
 
+// ─── PIT Brackets ──────────────────────────────────────────────
+
 // PITBracket defines a progressive tax bracket.
 type PITBracket struct {
 	UpperLimit float64
@@ -41,9 +72,9 @@ type PITBracket struct {
 	QuickDed   float64
 }
 
-// PITBrackets — monthly progressive tax (Decision 253/2026).
-// 7 brackets: 5% → 10% → 15% → 20% → 25% → 30% → 35%
-var PITBrackets = []PITBracket{
+// PITBracketsOld — 7-bracket schedule (Law 103/2016/QH13, effective 01 Jul 2020).
+// Applies from 01 Jan to 30 Jun 2026.
+var PITBracketsOld = []PITBracket{
 	{5_000_000, 0.05, 0},
 	{10_000_000, 0.10, 250_000},
 	{18_000_000, 0.15, 750_000},
@@ -52,6 +83,28 @@ var PITBrackets = []PITBracket{
 	{80_000_000, 0.30, 5_850_000},
 	{999_999_999_999, 0.35, 9_850_000},
 }
+
+// PITBracketsNew — 5-bracket schedule (Law 109/2025/QH15, effective 01 Jul 2026).
+// Applies from 01 Jul 2026 onward.
+var PITBracketsNew = []PITBracket{
+	{10_000_000, 0.05, 0},
+	{30_000_000, 0.10, 500_000},
+	{60_000_000, 0.20, 3_500_000},
+	{100_000_000, 0.30, 9_500_000},
+	{999_999_999_999, 0.35, 14_500_000},
+}
+
+// GetPITBrackets returns the applicable brackets for a given month/year.
+func GetPITBrackets(month, year int) []PITBracket {
+	if year > 2026 || (year == 2026 && month >= 7) {
+		return PITBracketsNew
+	}
+	return PITBracketsOld
+}
+
+// PITBrackets is an alias for backward compatibility — uses old 7-bracket schedule.
+// Deprecated: use GetPITBrackets(month, year) instead.
+var PITBrackets = PITBracketsOld
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -66,13 +119,13 @@ func minFloat(a, b float64) float64 {
 
 // ─── Insurance (Employee) ──────────────────────────────────────
 
-func CalcEmployeeSI(base float64) float64 {
-	cap := BaseSalaryCapSI * BaseSalary2026
+func CalcEmployeeSI(base float64, month, year int) float64 {
+	cap := GetSIHICap(month, year)
 	return round0(minFloat(base, cap) * SIEmployeeRate)
 }
 
-func CalcEmployeeHI(base float64) float64 {
-	cap := BaseSalaryCapSI * BaseSalary2026
+func CalcEmployeeHI(base float64, month, year int) float64 {
+	cap := GetSIHICap(month, year)
 	return round0(minFloat(base, cap) * HIEmployeeRate)
 }
 
@@ -86,13 +139,13 @@ func CalcEmployeeUI(base float64, isForeign bool) float64 {
 
 // ─── Insurance (Employer) ──────────────────────────────────────
 
-func CalcEmployerSI(base float64) float64 {
-	cap := BaseSalaryCapSI * BaseSalary2026
+func CalcEmployerSI(base float64, month, year int) float64 {
+	cap := GetSIHICap(month, year)
 	return round0(minFloat(base, cap) * SIEmployerRate)
 }
 
-func CalcEmployerHI(base float64) float64 {
-	cap := BaseSalaryCapSI * BaseSalary2026
+func CalcEmployerHI(base float64, month, year int) float64 {
+	cap := GetSIHICap(month, year)
 	return round0(minFloat(base, cap) * HIEmployerRate)
 }
 
@@ -106,20 +159,29 @@ func CalcEmployerUI(base float64, isForeign bool) float64 {
 
 // ─── Trade Union ────────────────────────────────────────────────
 
-func CalcTradeUnion(base float64, isForeign bool) float64 {
+func CalcTradeUnion(base float64, isForeign bool, month, year int) float64 {
 	if isForeign {
 		return 0
 	}
-	return round0(minFloat(base*TradeUnionRate, TradeUnionCap))
+	cap := GetTradeUnionCap(month, year)
+	return round0(minFloat(base*TradeUnionRate, cap))
 }
 
 // ─── PIT ────────────────────────────────────────────────────────
 
-func CalcPIT(taxableIncome float64) float64 {
+const (
+	// PersonalDeductionMonthly is the monthly personal deduction for PIT (Resolution 110/2025/UBTVQH15, effective 01/01/2026).
+	PersonalDeductionMonthly = 15_500_000.0
+	// DependantDeductionMonthly is the monthly dependent deduction for PIT (Resolution 110/2025/UBTVQH15, effective 01/01/2026).
+	DependantDeductionMonthly = 6_200_000.0
+)
+
+func CalcPIT(taxableIncome float64, month, year int) float64 {
 	if taxableIncome <= 0 {
 		return 0
 	}
-	for _, b := range PITBrackets {
+	brackets := GetPITBrackets(month, year)
+	for _, b := range brackets {
 		if taxableIncome <= b.UpperLimit {
 			return round0(taxableIncome*b.Rate - b.QuickDed)
 		}
@@ -216,24 +278,28 @@ func CalculateEmployeePayroll(info EmployeePayrollInfo, period *PayrollPeriod, t
 	}
 	run.UIBase = info.BaseSalary
 
-	// Employee deductions
-	run.SIDeduction = CalcEmployeeSI(run.InsuranceBase)
-	run.HIDeduction = CalcEmployeeHI(run.InsuranceBase)
-	run.UIDeduction = CalcEmployeeUI(run.UIBase, info.IsForeignEmployee)
-	run.TradeUnionDues = CalcTradeUnion(info.BaseSalary, info.IsForeignEmployee)
+	// Period date for date-ranged calculations
+	month := period.Month
+	year := period.Year
 
-	taxable := run.GrossSalary - run.SIDeduction - run.HIDeduction - run.UIDeduction - run.TradeUnionDues
-	run.PITAmount = CalcPIT(taxable)
+	// Employee deductions
+	run.SIDeduction = CalcEmployeeSI(run.InsuranceBase, month, year)
+	run.HIDeduction = CalcEmployeeHI(run.InsuranceBase, month, year)
+	run.UIDeduction = CalcEmployeeUI(run.UIBase, info.IsForeignEmployee)
+	run.TradeUnionDues = CalcTradeUnion(info.BaseSalary, info.IsForeignEmployee, month, year)
+
+	taxable := run.GrossSalary - run.SIDeduction - run.HIDeduction - run.UIDeduction - run.TradeUnionDues - PersonalDeductionMonthly
+	run.PITAmount = CalcPIT(taxable, month, year)
 
 	run.TotalDeductions = run.SIDeduction + run.HIDeduction + run.UIDeduction +
 		run.TradeUnionDues + run.PITAmount + run.OtherDeductions
 	run.NetPay = run.GrossSalary - run.TotalDeductions
 
 	// Employer costs
-	run.EmployerSI = CalcEmployerSI(run.InsuranceBase)
-	run.EmployerHI = CalcEmployerHI(run.InsuranceBase)
+	run.EmployerSI = CalcEmployerSI(run.InsuranceBase, month, year)
+	run.EmployerHI = CalcEmployerHI(run.InsuranceBase, month, year)
 	run.EmployerUI = CalcEmployerUI(run.UIBase, info.IsForeignEmployee)
-	run.EmployerTradeUnion = CalcTradeUnion(info.BaseSalary, info.IsForeignEmployee)
+	run.EmployerTradeUnion = CalcTradeUnion(info.BaseSalary, info.IsForeignEmployee, month, year)
 	run.TotalEmployerCost = run.EmployerSI + run.EmployerHI + run.EmployerUI + run.EmployerTradeUnion
 
 	run.Status = "CALCULATED"

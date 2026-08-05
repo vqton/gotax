@@ -266,7 +266,12 @@ STEP 4: Calculate Taxable Income
                    - dependant_deduction - ot_income_exempt 
                    - night_shift_income_exempt - unused_leave_exempt
 
-STEP 5: Calculate PIT (Progressive 5-Bracket)
+STEP 5: Calculate PIT
+  ⚠️ TRANSITION: Apply different brackets depending on pay period.
+  - Jan-Jun 2026: OLD 7-bracket schedule (Law 103/2016/QH13)
+  - Jul-Dec 2026: NEW 5-bracket schedule (Law 109/2025/QH15)
+
+  NEW SCHEDULE (from 01 Jul 2026):
   if taxable_income <= 0:
     pit = 0
   elif taxable_income <= 10,000,000:
@@ -279,6 +284,24 @@ STEP 5: Calculate PIT (Progressive 5-Bracket)
     pit = taxable_income × 0.30 - 9,500,000
   else:
     pit = taxable_income × 0.35 - 14,500,000
+
+  OLD SCHEDULE (01 Jan – 30 Jun 2026):
+  if taxable_income <= 0:
+    pit = 0
+  elif taxable_income <= 5,000,000:
+    pit = taxable_income × 0.05
+  elif taxable_income <= 10,000,000:
+    pit = taxable_income × 0.10 - 250,000
+  elif taxable_income <= 18,000,000:
+    pit = taxable_income × 0.15 - 750,000
+  elif taxable_income <= 32,000,000:
+    pit = taxable_income × 0.20 - 1,650,000
+  elif taxable_income <= 52,000,000:
+    pit = taxable_income × 0.25 - 3,250,000
+  elif taxable_income <= 80,000,000:
+    pit = taxable_income × 0.30 - 5,850,000
+  else:
+    pit = taxable_income × 0.35 - 9,850,000
 
 STEP 6: Calculate Net Pay
   total_deductions = si_deduction + hi_deduction + ui_deduction 
@@ -742,13 +765,13 @@ func OTMultiplier(dayType string, isNight bool) float64 {
 
 | Rule ID | Rule | Law Reference |
 |---------|------|---------------|
-| PR-01 | Resident employees: progressive 5-bracket schedule | Law 109/2025/QH15 Art. 9 |
-| PR-02 | Non-resident employees: flat 20% | Law 109/2025/QH15 Art. 9 |
-| PR-03 | Personal deduction: VND 15,500,000/month | Resolution 110/2025 |
-| PR-04 | Dependant deduction: VND 6,200,000/month each | Resolution 110/2025 |
-| PR-05 | OT income fully exempt from PIT (from 01 Jul 2026) | Law 109/2025 Art. 4 |
-| PR-06 | Night shift income fully exempt (from 01 Jul 2026) | Law 109/2025 Art. 4 |
-| PR-07 | Unused leave income fully exempt (from 01 Jul 2026) | Law 109/2025 Art. 4 |
+| PR-01 | Resident employees: progressive schedule (5-bracket from Jul, 7-bracket Jan-Jun) | Law 109/2025 Art. 9, Law 103/2016 |
+| PR-02 | Non-resident employees: flat 20% | Law 109/2025 Art. 9 |
+| PR-03 | Personal deduction: VND 15,500,000/month (from 01 Jan 2026) | Resolution 110/2025 |
+| PR-04 | Dependant deduction: VND 6,200,000/month each (from 01 Jan 2026) | Resolution 110/2025 |
+| PR-05 | OT income fully exempt from PIT (from 01 Jul 2026 only) | Law 109/2025 Art. 4 |
+| PR-06 | Night shift income fully exempt (from 01 Jul 2026 only) | Law 109/2025 Art. 4 |
+| PR-07 | Unused leave income fully exempt (from 01 Jul 2026 only) | Law 109/2025 Art. 4 |
 | PR-08 | High-tech talent: 5-year PIT exemption | Law 109/2025 Art. 5 |
 | PR-09 | Supplementary pension deduction: up to VND 3M/month | Decree 253/2026 |
 | PR-10 | Quarterly PIT declaration (from Q2/2026) | Resolution 66.16/NQ-CP |

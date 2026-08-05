@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/johnfercher/maroto/v2"
@@ -17,6 +18,7 @@ import (
 	"github.com/johnfercher/maroto/v2/pkg/props"
 
 	"gotax/internal/domain"
+	payrollxml "gotax/internal/payroll"
 )
 
 // ─── Repository ─────────────────────────────────────────────────
@@ -87,18 +89,24 @@ type PayrollRepository interface {
 	UpdateTemplate(ctx context.Context, t *domain.SalaryTemplate) error
 	ListTemplates(ctx context.Context, companyID string) ([]domain.SalaryTemplate, error)
 	DeleteTemplate(ctx context.Context, id string) error
+
+	// Holidays
+	CreateHoliday(ctx context.Context, h *domain.PayrollHoliday) error
+	ListHolidays(ctx context.Context, companyID string, year int) ([]domain.PayrollHoliday, error)
+	DeleteHoliday(ctx context.Context, id string) error
 }
 
 // ─── Service ────────────────────────────────────────────────────
 
 // PayrollService implements payroll business logic.
 type PayrollService struct {
-	repo PayrollRepository
+	repo      PayrollRepository
+	companyRepo domain.CompanyRepository
 }
 
 // NewPayrollService creates a new PayrollService.
-func NewPayrollService(repo PayrollRepository) *PayrollService {
-	return &PayrollService{repo: repo}
+func NewPayrollService(repo PayrollRepository, companyRepo domain.CompanyRepository) *PayrollService {
+	return &PayrollService{repo: repo, companyRepo: companyRepo}
 }
 
 // ─── Period Management ──────────────────────────────────────────
@@ -456,6 +464,10 @@ func (s *PayrollService) DeleteTimekeeping(ctx context.Context, id string) error
 	return s.repo.DeleteTimekeeping(ctx, id)
 }
 
+func (s *PayrollService) ParseTimekeepingCSV(_ context.Context, r io.Reader) ([]domain.TimekeepingRecord, error) {
+	return payrollxml.ParseTimekeepingCSV(r)
+}
+
 // ─── Runs ───────────────────────────────────────────────────────
 
 func (s *PayrollService) UpdateRun(ctx context.Context, run *domain.PayrollRun) error {
@@ -548,6 +560,28 @@ func (s *PayrollService) DeleteTemplate(ctx context.Context, id string) error {
 		return err
 	}
 	return s.repo.DeleteTemplate(ctx, id)
+}
+
+// ─── Holidays ───────────────────────────────────────────────────
+
+func (s *PayrollService) CreateHoliday(ctx context.Context, h *domain.PayrollHoliday) error {
+	holidays, _ := s.repo.ListHolidays(ctx, h.CompanyID, h.Year)
+	for _, existing := range holidays {
+		if existing.Date == h.Date && existing.Name == h.Name {
+			return domain.ErrPayrollHolidayExists
+		}
+	}
+	h.ID = generateID()
+	h.CreatedAt = time.Now()
+	return s.repo.CreateHoliday(ctx, h)
+}
+
+func (s *PayrollService) ListHolidays(ctx context.Context, companyID string, year int) ([]domain.PayrollHoliday, error) {
+	return s.repo.ListHolidays(ctx, companyID, year)
+}
+
+func (s *PayrollService) DeleteHoliday(ctx context.Context, id string) error {
+	return s.repo.DeleteHoliday(ctx, id)
 }
 
 // ─── Payslip PDF ────────────────────────────────────────────────
@@ -663,6 +697,67 @@ func (s *PayrollService) SendPayslip(ctx context.Context, runID string) error {
 
 func generateID() string {
 	return time.Now().Format("20060102150405") + "-" + randomHex(8)
+}
+
+// ─── Declaration XML Generation ─────────────────────────────────
+
+func (s *PayrollService) companyInfo(ctx context.Context, companyID string) (name, taxCode string) {
+	if s.companyRepo != nil {
+		if c, err := s.companyRepo.GetByID(ctx, companyID); err == nil {
+			return c.LegalNameVN, c.TaxCode
+		}
+	}
+	return "Unknown", ""
+}
+
+func (s *PayrollService) GenerateD02TS(ctx context.Context, periodID string) ([]byte, error) {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	employees, err := s.repo.ListEmployeePayrollInfos(ctx, period.CompanyID)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	name, taxCode := s.companyInfo(ctx, period.CompanyID)
+	quarter := (period.Month-1)/3 + 1
+	return payrollxml.GenerateD02TS(name, taxCode, period.Year, quarter, employees, runs)
+}
+
+func (s *PayrollService) Generate05KKTNCN(ctx context.Context, periodID string) ([]byte, error) {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	employees, err := s.repo.ListEmployeePayrollInfos(ctx, period.CompanyID)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	name, taxCode := s.companyInfo(ctx, period.CompanyID)
+	quarter := (period.Month-1)/3 + 1
+	key := fmt.Sprintf("Q%d/%d", quarter, period.Year)
+	return payrollxml.Generate05KKTNCN(taxCode, name, key, employees, runs)
+}
+
+func (s *PayrollService) GenerateTK3TS(ctx context.Context, periodID string) ([]byte, error) {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return nil, err
+	}
+	employees, err := s.repo.ListEmployeePayrollInfos(ctx, period.CompanyID)
+	if err != nil {
+		return nil, err
+	}
+	name, taxCode := s.companyInfo(ctx, period.CompanyID)
+	return payrollxml.GenerateTK3TS(name, taxCode, "", employees)
 }
 
 func randomHex(n int) string {

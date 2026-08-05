@@ -341,3 +341,13 @@ type LeaveBalanceReport struct {
 	Used       float64 `json:"used"`
 	Remaining  float64 `json:"remaining"`
 }
+
+// PayrollHoliday represents a public holiday.
+type PayrollHoliday struct {
+	ID        string    `json:"id"`
+	CompanyID string    `json:"company_id"`
+	Name      string    `json:"name"`
+	Date      string    `json:"date"`
+	Year      int       `json:"year"`
+	CreatedAt time.Time `json:"created_at"`
+}

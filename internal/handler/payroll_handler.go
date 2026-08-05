@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -52,6 +53,7 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.PUT("/timekeeping/:id", h.UpdateTimekeeping)
 		pw.DELETE("/timekeeping/:id", h.DeleteTimekeeping)
 		pw.POST("/timekeeping/bulk", h.BulkCreateTimekeeping)
+		pw.POST("/timekeeping/import", h.ImportTimekeepingCSV)
 
 		// Leave
 		pw.POST("/leave", h.RequestLeave)
@@ -87,6 +89,16 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.GET("/reports/pit", h.GetPITSummary)
 		pw.GET("/reports/overtime", h.GetOvertimeSummary)
 		pw.GET("/reports/leave-balance", h.GetLeaveBalanceReport)
+
+		// Declarations
+		pw.GET("/declarations/d02-ts", h.GenerateD02TS)
+		pw.GET("/declarations/05-kk-tncn", h.Generate05KKTNCN)
+		pw.GET("/declarations/tk3-ts", h.GenerateTK3TS)
+
+		// Holiday config
+		pw.GET("/holidays", h.ListHolidays)
+		pw.POST("/holidays", h.CreateHoliday)
+		pw.DELETE("/holidays/:id", h.DeleteHoliday)
 	}
 }
 
@@ -100,12 +112,15 @@ func (h *PayrollHandler) payrollError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrPayrollPayslipNotFound),
 		errors.Is(err, domain.ErrPayrollConfigNotFound),
 		errors.Is(err, domain.ErrPayrollComponentNotFound),
-		errors.Is(err, domain.ErrPayrollTemplateNotFound):
+		errors.Is(err, domain.ErrPayrollTemplateNotFound),
+		errors.Is(err, domain.ErrPayrollHolidayNotFound),
+		errors.Is(err, domain.ErrPayrollTimekeepingNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollComponentExists),
-		errors.Is(err, domain.ErrPayrollTemplateExists):
+		errors.Is(err, domain.ErrPayrollTemplateExists),
+		errors.Is(err, domain.ErrPayrollHolidayExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodNotDraft),
 		errors.Is(err, domain.ErrPayrollLeaveAlreadyProcessed):
@@ -312,6 +327,39 @@ func (h *PayrollHandler) BulkCreateTimekeeping(c *gin.Context) {
 	if err := c.ShouldBindJSON(&records); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if err := h.svc.BulkCreateTimekeeping(c.Request.Context(), records); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"count": len(records)})
+}
+
+func (h *PayrollHandler) ImportTimekeepingCSV(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id required"})
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer f.Close()
+
+	records, err := h.svc.ParseTimekeepingCSV(c.Request.Context(), f)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	for i := range records {
+		records[i].CompanyID = companyID
 	}
 	if err := h.svc.BulkCreateTimekeeping(c.Request.Context(), records); err != nil {
 		h.payrollError(c, err)
@@ -614,4 +662,93 @@ func (h *PayrollHandler) DeleteTemplate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusNoContent, nil)
+}
+
+// ─── Holidays ───────────────────────────────────────────────────
+
+func (h *PayrollHandler) ListHolidays(c *gin.Context) {
+	companyID := c.Query("company_id")
+	year := 0
+	if y := c.Query("year"); y != "" {
+		if v, err := strconv.Atoi(y); err == nil {
+			year = v
+		}
+	}
+	if year == 0 {
+		year = time.Now().Year()
+	}
+	holidays, err := h.svc.ListHolidays(c.Request.Context(), companyID, year)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, holidays)
+}
+
+func (h *PayrollHandler) CreateHoliday(c *gin.Context) {
+	var hol domain.PayrollHoliday
+	if err := c.ShouldBindJSON(&hol); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.CreateHoliday(c.Request.Context(), &hol); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, hol)
+}
+
+func (h *PayrollHandler) DeleteHoliday(c *gin.Context) {
+	if err := h.svc.DeleteHoliday(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
+}
+
+// ─── Declarations ───────────────────────────────────────────────
+
+func (h *PayrollHandler) GenerateD02TS(c *gin.Context) {
+	periodID := c.Query("period_id")
+	if periodID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id required"})
+		return
+	}
+	xmlBytes, err := h.svc.GenerateD02TS(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.Header("Content-Type", "application/xml")
+	c.Data(http.StatusOK, "application/xml", xmlBytes)
+}
+
+func (h *PayrollHandler) Generate05KKTNCN(c *gin.Context) {
+	periodID := c.Query("period_id")
+	if periodID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id required"})
+		return
+	}
+	xmlBytes, err := h.svc.Generate05KKTNCN(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.Header("Content-Type", "application/xml")
+	c.Data(http.StatusOK, "application/xml", xmlBytes)
+}
+
+func (h *PayrollHandler) GenerateTK3TS(c *gin.Context) {
+	periodID := c.Query("period_id")
+	if periodID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id required"})
+		return
+	}
+	xmlBytes, err := h.svc.GenerateTK3TS(c.Request.Context(), periodID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.Header("Content-Type", "application/xml")
+	c.Data(http.StatusOK, "application/xml", xmlBytes)
 }

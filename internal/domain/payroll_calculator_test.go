@@ -33,7 +33,7 @@ func TestCalcDailySalary(t *testing.T) {
 	}{
 		{"standard 26 days", 26_000_000, 26, 1_000_000},
 		{"22 days", 22_000_000, 22, 1_000_000},
-		{"base salary 2,530,000", 2_530_000, 26, 97_307.69},
+		{"base salary 2,340,000", 2_340_000, 26, 90_000},
 		{"10M / 26", 10_000_000, 26, 384_615.38},
 		{"zero days", 10_000_000, 0, 0},
 	}
@@ -107,23 +107,111 @@ func TestCalcHolidayPay(t *testing.T) {
 	assert.Equal(t, float64(3_000_000), got)
 }
 
+// ─── Date-Ranged Constants ─────────────────────────────────────
+
+func TestGetBaseSalary(t *testing.T) {
+	tests := []struct {
+		name     string
+		month    int
+		year     int
+		expected float64
+	}{
+		{"Jan 2026", 1, 2026, 2_340_000},
+		{"Jun 2026", 6, 2026, 2_340_000},
+		{"Jul 2026", 7, 2026, 2_530_000},
+		{"Dec 2026", 12, 2026, 2_530_000},
+		{"Jan 2027", 1, 2027, 2_530_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetBaseSalary(tt.month, tt.year)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestGetSIHICap(t *testing.T) {
+	tests := []struct {
+		name     string
+		month    int
+		year     int
+		expected float64
+	}{
+		{"H1 2026 — 20×2,340,000", 1, 2026, 46_800_000},
+		{"H2 2026 — 20×2,530,000", 7, 2026, 50_600_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetSIHICap(tt.month, tt.year)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestGetTradeUnionCap(t *testing.T) {
+	tests := []struct {
+		name     string
+		month    int
+		year     int
+		expected float64
+	}{
+		{"H1 2026 — 1% of 46,800,000", 1, 2026, 468_000},
+		{"H2 2026 — 1% of 50,600,000", 7, 2026, 506_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetTradeUnionCap(tt.month, tt.year)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestGetPITBrackets(t *testing.T) {
+	tests := []struct {
+		name   string
+		month  int
+		year   int
+		expect int
+	}{
+		{"Jan 2026 → old (7)", 1, 2026, 7},
+		{"Jun 2026 → old (7)", 6, 2026, 7},
+		{"Jul 2026 → new (5)", 7, 2026, 5},
+		{"Dec 2026 → new (5)", 12, 2026, 5},
+		{"Jan 2027 → new (5)", 1, 2027, 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			brackets := GetPITBrackets(tt.month, tt.year)
+			assert.Equal(t, tt.expect, len(brackets))
+		})
+	}
+}
+
 // ─── Insurance (Employee) ───────────────────────────────────────
 
 func TestCalcEmployeeSI(t *testing.T) {
 	tests := []struct {
 		name     string
 		base     float64
+		month    int
+		year     int
 		expected float64
 	}{
-		{"standard 10M", 10_000_000, 800_000},          // 8%
-		{"above cap", 60_000_000, 4_048_000},            // 8% of 50,600,000
-		{"at cap", 50_600_000, 4_048_000},
-		{"below cap", 5_000_000, 400_000},
+		{"standard 10M H2", 10_000_000, 7, 2026, 800_000},       // 8%
+		{"above cap H2", 60_000_000, 7, 2026, 4_048_000},         // 8% of 50,600,000
+		{"at cap H2", 50_600_000, 7, 2026, 4_048_000},
+		{"below cap H2", 5_000_000, 7, 2026, 400_000},
+		{"above cap H1", 60_000_000, 1, 2026, 3_744_000},         // 8% of 46,800,000
+		{"at cap H1", 46_800_000, 1, 2026, 3_744_000},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalcEmployeeSI(tt.base)
+			got := CalcEmployeeSI(tt.base, tt.month, tt.year)
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -133,16 +221,19 @@ func TestCalcEmployeeHI(t *testing.T) {
 	tests := []struct {
 		name     string
 		base     float64
+		month    int
+		year     int
 		expected float64
 	}{
-		{"standard 10M", 10_000_000, 150_000},          // 1.5%
-		{"above cap", 60_000_000, 759_000},              // 1.5% of 50,600,000
-		{"below cap", 5_000_000, 75_000},
+		{"standard 10M H2", 10_000_000, 7, 2026, 150_000},       // 1.5%
+		{"above cap H2", 60_000_000, 7, 2026, 759_000},          // 1.5% of 50,600,000
+		{"below cap H2", 5_000_000, 7, 2026, 75_000},
+		{"above cap H1", 60_000_000, 1, 2026, 702_000},          // 1.5% of 46,800,000
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalcEmployeeHI(tt.base)
+			got := CalcEmployeeHI(tt.base, tt.month, tt.year)
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -169,12 +260,12 @@ func TestCalcEmployeeUI(t *testing.T) {
 // ─── Insurance (Employer) ───────────────────────────────────────
 
 func TestCalcEmployerSI(t *testing.T) {
-	got := CalcEmployerSI(10_000_000)
+	got := CalcEmployerSI(10_000_000, 7, 2026)
 	assert.Equal(t, float64(1_750_000), got) // 17.5%
 }
 
 func TestCalcEmployerHI(t *testing.T) {
-	got := CalcEmployerHI(10_000_000)
+	got := CalcEmployerHI(10_000_000, 7, 2026)
 	assert.Equal(t, float64(300_000), got) // 3%
 }
 
@@ -197,26 +288,28 @@ func TestCalcTradeUnion(t *testing.T) {
 		name     string
 		salary   float64
 		foreign  bool
+		month    int
+		year     int
 		expected float64
 	}{
-		{"standard 10M", 10_000_000, false, 100_000},      // 1%
-		{"high salary capped", 30_000_000, false, 253_000}, // 1% capped
-		{"very high", 50_000_000, false, 253_000},
-		{"low salary", 5_000_000, false, 50_000},
-		{"foreign = 0", 10_000_000, true, 0},
+		{"standard 10M H2", 10_000_000, false, 7, 2026, 100_000},
+		{"high salary capped H2", 60_000_000, false, 7, 2026, 506_000}, // 1% of 50,600,000
+		{"high salary capped H1", 60_000_000, false, 1, 2026, 468_000}, // 1% of 46,800,000
+		{"low salary H2", 5_000_000, false, 7, 2026, 50_000},
+		{"foreign = 0", 10_000_000, true, 7, 2026, 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalcTradeUnion(tt.salary, tt.foreign)
+			got := CalcTradeUnion(tt.salary, tt.foreign, tt.month, tt.year)
 			assert.Equal(t, tt.expected, got)
 		})
 	}
 }
 
-// ─── PIT ────────────────────────────────────────────────────────
+// ─── PIT (Old 7-Bracket — H1) ──────────────────────────────────
 
-func TestCalcPIT(t *testing.T) {
+func TestCalcPITOldBrackets(t *testing.T) {
 	tests := []struct {
 		name     string
 		income   float64
@@ -224,21 +317,49 @@ func TestCalcPIT(t *testing.T) {
 	}{
 		{"zero", 0, 0},
 		{"negative", -1_000_000, 0},
-		{"bracket 1 — 5M (5%)", 5_000_000, 250_000},         // 5M × 5% - 0
-		{"bracket 2 — 10M (10%)", 10_000_000, 750_000},      // 10M × 10% - 250K
-		{"bracket 2 — 12.5M (10%)", 12_500_000, 1_125_000},  // 12.5M × 10% - 250K
-		{"bracket 3 — 18M (15%)", 18_000_000, 1_950_000},    // 18M × 15% - 750K
-		{"bracket 4 — 20M (20%)", 20_000_000, 2_350_000},    // 20M × 20% - 1.65M
-		{"bracket 4 — 32M (20%)", 32_000_000, 4_750_000},    // 32M × 20% - 1.65M
-		{"bracket 5 — 40M (25%)", 40_000_000, 6_750_000},    // 40M × 25% - 3.25M
-		{"bracket 6 — 80M (30%)", 80_000_000, 18_150_000},   // 80M × 30% - 5.85M
-		{"bracket 7 — 100M (35%)", 100_000_000, 25_150_000}, // 100M × 35% - 9.85M
-		{"bracket 7 — 150M (35%)", 150_000_000, 42_650_000}, // 150M × 35% - 9.85M
+		{"bracket 1 — 5M (5%)", 5_000_000, 250_000},
+		{"bracket 2 — 10M (10%)", 10_000_000, 750_000},
+		{"bracket 2 — 12.5M (10%)", 12_500_000, 1_125_000},
+		{"bracket 3 — 18M (15%)", 18_000_000, 1_950_000},
+		{"bracket 4 — 20M (20%)", 20_000_000, 2_350_000},
+		{"bracket 4 — 32M (20%)", 32_000_000, 4_750_000},
+		{"bracket 5 — 40M (25%)", 40_000_000, 6_750_000},
+		{"bracket 6 — 80M (30%)", 80_000_000, 18_150_000},
+		{"bracket 7 — 100M (35%)", 100_000_000, 25_150_000},
+		{"bracket 7 — 150M (35%)", 150_000_000, 42_650_000},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalcPIT(tt.income)
+			got := CalcPIT(tt.income, 6, 2026) // Jun → old brackets
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+// ─── PIT (New 5-Bracket — H2) ──────────────────────────────────
+
+func TestCalcPITNewBrackets(t *testing.T) {
+	tests := []struct {
+		name     string
+		income   float64
+		expected float64
+	}{
+		{"zero", 0, 0},
+		{"bracket 1 — 5M (5%)", 5_000_000, 250_000},
+		{"bracket 1 — 10M (5%)", 10_000_000, 500_000},
+		{"bracket 2 — 15M (10%)", 15_000_000, 1_000_000},     // 15M×10%-500K
+		{"bracket 2 — 30M (10%)", 30_000_000, 2_500_000},     // 30M×10%-500K
+		{"bracket 3 — 40M (20%)", 40_000_000, 4_500_000},     // 40M×20%-3.5M
+		{"bracket 3 — 60M (20%)", 60_000_000, 8_500_000},     // 60M×20%-3.5M
+		{"bracket 4 — 80M (30%)", 80_000_000, 14_500_000},    // 80M×30%-9.5M
+		{"bracket 4 — 100M (30%)", 100_000_000, 20_500_000},  // 100M×30%-9.5M
+		{"bracket 5 — 150M (35%)", 150_000_000, 38_000_000},  // 150M×35%-14.5M
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CalcPIT(tt.income, 7, 2026) // Jul → new brackets
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -274,7 +395,7 @@ func TestCalculateEmployeePayroll(t *testing.T) {
 		// Gross = base + allowances
 		assert.Equal(t, float64(11_000_000), run.GrossSalary)
 
-		// Employee insurance
+		// Employee insurance (H2: cap = 50,600,000)
 		assert.Equal(t, float64(800_000), run.SIDeduction)   // 8%
 		assert.Equal(t, float64(150_000), run.HIDeduction)   // 1.5%
 		assert.Equal(t, float64(100_000), run.UIDeduction)   // 1%
@@ -287,10 +408,10 @@ func TestCalculateEmployeePayroll(t *testing.T) {
 		// Net = gross - deductions
 		assert.Equal(t, run.GrossSalary-run.TotalDeductions, run.NetPay)
 
-		// Employer costs
-		assert.Equal(t, float64(1_750_000), run.EmployerSI)  // 17.5%
-		assert.Equal(t, float64(300_000), run.EmployerHI)    // 3%
-		assert.Equal(t, float64(100_000), run.EmployerUI)    // 1%
+		// Employer costs (H2: cap = 50,600,000)
+		assert.Equal(t, float64(1_750_000), run.EmployerSI)       // 17.5%
+		assert.Equal(t, float64(300_000), run.EmployerHI)         // 3%
+		assert.Equal(t, float64(100_000), run.EmployerUI)         // 1%
 		assert.Equal(t, float64(100_000), run.EmployerTradeUnion) // 1%
 
 		// Status
@@ -342,11 +463,11 @@ func TestCalculateEmployeePayroll(t *testing.T) {
 		assert.Equal(t, float64(0), run.EmployerTradeUnion)
 	})
 
-	t.Run("high salary — SI capped", func(t *testing.T) {
+	t.Run("high salary — SI capped H2", func(t *testing.T) {
 		emp := makeTestEmployee(60_000_000, RegionI)
 		run := CalculateEmployeePayroll(emp, period, nil)
 
-		// SI base capped at 50,600,000
+		// SI base capped at 50,600,000 (H2)
 		assert.Equal(t, float64(4_048_000), run.SIDeduction)
 		assert.Equal(t, float64(759_000), run.HIDeduction)
 	})
@@ -364,6 +485,49 @@ func TestCalculateEmployeePayroll(t *testing.T) {
 	t.Run("employer cost > employee deductions", func(t *testing.T) {
 		run := CalculateEmployeePayroll(employee, period, nil)
 		assert.True(t, run.TotalEmployerCost > run.TotalDeductions)
+	})
+}
+
+// ─── Transition Period: H1 vs H2 ────────────────────────────────
+
+func TestPayrollTransitionPeriod(t *testing.T) {
+	emp := makeTestEmployee(60_000_000, RegionI) // above both H1 and H2 caps
+
+	t.Run("H1 — SI cap 46,800,000", func(t *testing.T) {
+		period := &PayrollPeriod{Year: 2026, Month: 3}
+		run := CalculateEmployeePayroll(emp, period, nil)
+
+		// SI: 8% of 46,800,000 = 3,744,000
+		assert.Equal(t, float64(3_744_000), run.SIDeduction)
+		// HI: 1.5% of 46,800,000 = 702,000
+		assert.Equal(t, float64(702_000), run.HIDeduction)
+		// Trade union: 1% of 46,800,000 = 468,000
+		assert.Equal(t, float64(468_000), run.TradeUnionDues)
+	})
+
+	t.Run("H2 — SI cap 50,600,000", func(t *testing.T) {
+		period := &PayrollPeriod{Year: 2026, Month: 8}
+		run := CalculateEmployeePayroll(emp, period, nil)
+
+		// SI: 8% of 50,600,000 = 4,048,000
+		assert.Equal(t, float64(4_048_000), run.SIDeduction)
+		// HI: 1.5% of 50,600,000 = 759,000
+		assert.Equal(t, float64(759_000), run.HIDeduction)
+		// Trade union: 1% of 50,600,000 = 506,000
+		assert.Equal(t, float64(506_000), run.TradeUnionDues)
+	})
+
+	t.Run("PIT brackets differ H1 vs H2", func(t *testing.T) {
+		taxable := 50_000_000.0
+		pitH1 := CalcPIT(taxable, 6, 2026) // old brackets: 25%
+		pitH2 := CalcPIT(taxable, 7, 2026) // new brackets: 20%
+
+		// Old: 50M × 25% - 3,250,000 = 9,250,000
+		assert.Equal(t, float64(9_250_000), pitH1)
+		// New: 50M × 20% - 3,500,000 = 6,500,000
+		assert.Equal(t, float64(6_500_000), pitH2)
+		// H2 should be lower (new brackets more favorable at this income)
+		assert.True(t, pitH2 < pitH1)
 	})
 }
 
@@ -392,22 +556,26 @@ func TestEdgeCases(t *testing.T) {
 
 		// InsuranceBase stores raw base salary; capping happens in Calc functions
 		assert.Equal(t, float64(100_000_000), run.InsuranceBase)
-		// SI capped at 50,600,000 × 8% = 4,048,000
+		// SI capped at 50,600,000 × 8% = 4,048,000 (H2)
 		assert.Equal(t, float64(4_048_000), run.SIDeduction)
 	})
 
 	t.Run("regional minimum wage affects UI cap", func(t *testing.T) {
 		// Region I: 5,310,000
-		// Region IV: 3,990,000
+		// Region IV: 3,700,000
 		assert.Equal(t, 5_310_000.0, RegionalMinWageI)
-		assert.Equal(t, 3_990_000.0, RegionalMinWageIV)
+		assert.Equal(t, 3_700_000.0, RegionalMinWageIV)
 	})
 
 	t.Run("PIT brackets cover full range", func(t *testing.T) {
-		// Ensure all income levels are covered
-		assert.True(t, CalcPIT(5_000_000) > 0)
-		assert.True(t, CalcPIT(150_000_000) > 0)
-		assert.True(t, CalcPIT(1_000_000_000) > 0)
+		// Old brackets
+		assert.True(t, CalcPIT(5_000_000, 6, 2026) > 0)
+		assert.True(t, CalcPIT(150_000_000, 6, 2026) > 0)
+		assert.True(t, CalcPIT(1_000_000_000, 6, 2026) > 0)
+		// New brackets
+		assert.True(t, CalcPIT(5_000_000, 7, 2026) > 0)
+		assert.True(t, CalcPIT(150_000_000, 7, 2026) > 0)
+		assert.True(t, CalcPIT(1_000_000_000, 7, 2026) > 0)
 	})
 }
 
@@ -422,28 +590,34 @@ func TestInsuranceConstants(t *testing.T) {
 	emplTotal := SIEmployerRate + HIEmployerRate + UIEmployerRate
 	assert.InDelta(t, 0.215, emplTotal, 0.001)
 
-	// SI/HI cap = 20 * 2,530,000 = 50,600,000
-	assert.Equal(t, float64(50_600_000), BaseSalaryCapSI*BaseSalary2026)
+	// H1: SI/HI cap = 20 * 2,340,000 = 46,800,000
+	assert.Equal(t, float64(46_800_000), GetSIHICap(1, 2026))
+
+	// H2: SI/HI cap = 20 * 2,530,000 = 50,600,000
+	assert.Equal(t, float64(50_600_000), GetSIHICap(7, 2026))
 
 	// UI cap = 20 * 5,310,000 = 106,200,000
 	assert.Equal(t, float64(106_200_000), BaseSalaryCapUI*RegionalMinWageI)
 
-	// Trade union cap = 253,000
-	assert.Equal(t, float64(253_000), TradeUnionCap)
+	// Trade union cap H2 = 1% of 50,600,000 = 506,000
+	assert.Equal(t, float64(506_000), GetTradeUnionCap(7, 2026))
+
+	// Trade union cap H1 = 1% of 46,800,000 = 468,000
+	assert.Equal(t, float64(468_000), GetTradeUnionCap(1, 2026))
 }
 
 // ─── PIT Bracket Coverage ───────────────────────────────────────
 
 func TestPITBracketCoverage(t *testing.T) {
-	require.True(t, len(PITBrackets) == 7, "must have 7 brackets")
+	require.Equal(t, 7, len(PITBracketsOld), "old must have 7 brackets")
+	require.Equal(t, 5, len(PITBracketsNew), "new must have 5 brackets")
 
-	// Bracket 1: 0 - 5M (5%)
-	// Bracket 2: 5M - 10M (10%)
-	// Bracket 3: 10M - 18M (20%)
-	// Bracket 4: 18M - 32M (30%)
-	// Bracket 5: 32M+ (35%)
+	for _, b := range PITBracketsOld {
+		require.True(t, b.UpperLimit > 0)
+		require.True(t, b.Rate > 0 && b.Rate <= 0.35)
+	}
 
-	for _, b := range PITBrackets {
+	for _, b := range PITBracketsNew {
 		require.True(t, b.UpperLimit > 0)
 		require.True(t, b.Rate > 0 && b.Rate <= 0.35)
 	}

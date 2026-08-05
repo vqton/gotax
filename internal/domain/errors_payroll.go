@@ -23,4 +23,7 @@ var (
 	ErrPayrollComponentExists    = errors.New("salary component code already exists")
 	ErrPayrollTemplateNotFound   = errors.New("salary template not found")
 	ErrPayrollTemplateExists     = errors.New("salary template name already exists")
+	ErrPayrollHolidayNotFound    = errors.New("holiday not found")
+	ErrPayrollHolidayExists      = errors.New("holiday already exists")
+	ErrPayrollTimekeepingNotFound = errors.New("timekeeping record not found")
 )

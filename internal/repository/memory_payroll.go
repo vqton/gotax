@@ -55,6 +55,10 @@ type MemoryPayrollRepo struct {
 	// Salary templates
 	templates   map[string]*domain.SalaryTemplate
 	tmplByCompany map[string][]string
+
+	// Holidays
+	holidays      map[string]*domain.PayrollHoliday
+	holidayByComp map[string][]string
 }
 
 func NewMemoryPayrollRepo() *MemoryPayrollRepo {
@@ -81,6 +85,8 @@ func NewMemoryPayrollRepo() *MemoryPayrollRepo {
 		compByCompany:   make(map[string][]string),
 		templates:       make(map[string]*domain.SalaryTemplate),
 		tmplByCompany:   make(map[string][]string),
+		holidays:        make(map[string]*domain.PayrollHoliday),
+		holidayByComp:   make(map[string][]string),
 	}
 }
 
@@ -659,6 +665,53 @@ func (r *MemoryPayrollRepo) DeleteTemplate(_ context.Context, id string) error {
 	for i, uid := range ids {
 		if uid == id {
 			r.tmplByCompany[t.CompanyID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+// ─── Holidays ───────────────────────────────────────────────────
+
+func (r *MemoryPayrollRepo) CreateHoliday(_ context.Context, h *domain.PayrollHoliday) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	hp := *h
+	r.holidays[hp.ID] = &hp
+	r.holidayByComp[hp.CompanyID] = append(r.holidayByComp[hp.CompanyID], hp.ID)
+	return nil
+}
+
+func (r *MemoryPayrollRepo) ListHolidays(_ context.Context, companyID string, year int) ([]domain.PayrollHoliday, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.holidayByComp[companyID]
+	var result []domain.PayrollHoliday
+	for _, id := range ids {
+		h, ok := r.holidays[id]
+		if !ok {
+			continue
+		}
+		if h.Year != year {
+			continue
+		}
+		result = append(result, *h)
+	}
+	return result, nil
+}
+
+func (r *MemoryPayrollRepo) DeleteHoliday(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h, ok := r.holidays[id]
+	if !ok {
+		return domain.ErrPayrollHolidayNotFound
+	}
+	delete(r.holidays, id)
+	ids := r.holidayByComp[h.CompanyID]
+	for i, uid := range ids {
+		if uid == id {
+			r.holidayByComp[h.CompanyID] = append(ids[:i], ids[i+1:]...)
 			break
 		}
 	}

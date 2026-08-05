@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,7 +23,7 @@ func setupPayrollHandlerTest(t *testing.T) (*gin.Engine, *service.PayrollService
 	gin.SetMode(gin.TestMode)
 
 	repo := repository.NewMemoryPayrollRepo()
-	svc := service.NewPayrollService(repo)
+	svc := service.NewPayrollService(repo, nil)
 	ph := NewPayrollHandler(svc)
 
 	r := gin.New()
@@ -722,4 +724,147 @@ func TestPayrollGetInsuranceSummary_WithData(t *testing.T) {
 	assert.Equal(t, 2, summary.EmployeeCount)
 	assert.Equal(t, 2_000_000.0, summary.TotalEmployeeSI)
 	assert.Equal(t, 4_375_000.0, summary.TotalEmployerSI)
+}
+
+// ─── Holiday Tests ──────────────────────────────────────────────
+
+func TestCreateHoliday_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+
+	body := `{"name":"Tết Nguyên Đán","date":"2026-01-29","year":2026,"company_id":"CMP001"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/holidays", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var hol domain.PayrollHoliday
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &hol))
+	assert.Equal(t, "Tết Nguyên Đán", hol.Name)
+	assert.Equal(t, 2026, hol.Year)
+}
+
+func TestListHolidays_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+
+	_ = svc.CreateHoliday(testContext(), &domain.PayrollHoliday{
+		CompanyID: "CMP001", Name: "Giỗ Tổ Hùng Vương", Date: "2026-04-02", Year: 2026,
+	})
+	_ = svc.CreateHoliday(testContext(), &domain.PayrollHoliday{
+		CompanyID: "CMP001", Name: "Giải phóng", Date: "2026-04-30", Year: 2026,
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/holidays?company_id=CMP001&year=2026", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var holidays []domain.PayrollHoliday
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &holidays))
+	assert.Equal(t, 2, len(holidays))
+}
+
+func TestDeleteHoliday_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+
+	hol := &domain.PayrollHoliday{CompanyID: "CMP001", Name: "Test", Date: "2026-01-01", Year: 2026}
+	_ = svc.CreateHoliday(testContext(), hol)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/holidays/"+hol.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestDeleteHoliday_NotFound(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/payroll/holidays/nonexistent", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ─── Declaration Tests ──────────────────────────────────────────
+
+func TestGenerateD02TS_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 1)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/declarations/d02-ts?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "D02TS")
+}
+
+func TestGenerate05KKTNCN_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 1)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/declarations/05-kk-tncn?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "KK_TNCN")
+}
+
+func TestGenerateTK3TS_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 1)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/payroll/declarations/tk3-ts?period_id="+period.ID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "TK3TS")
+}
+
+// ─── CSV Import Test ────────────────────────────────────────────
+
+func TestImportTimekeepingCSV_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+
+	csvContent := "employee_code,date,clock_in,clock_out,ot_hours,night_hours,leave_type,notes\nEMP001,2026-01-15,08:00,17:00,2,1,,overtime\n"
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "timekeeping.csv")
+	part.Write([]byte(csvContent))
+	writer.Close()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/timekeeping/import?company_id=CMP001", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestImportTimekeepingCSV_NoFile(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/timekeeping/import?company_id=CMP001", nil)
+	req.Header.Set("Content-Type", "multipart/form-data")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestImportTimekeepingCSV_NoCompanyID(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/timekeeping/import", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

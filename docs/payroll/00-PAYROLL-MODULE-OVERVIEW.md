@@ -76,15 +76,22 @@ GoTax currently has **no payroll module**. The codebase contains only:
 | Unemployment Insurance | N/A | N/A | N/A |
 | **Total** | **9.5%** | **20.5%** | **30%** |
 
-### Salary Caps (From 01 Jul 2026)
+### Salary Caps (2026)
 
-| Cap Type | Calculation | Amount (VND/month) |
-|----------|-------------|---------------------|
-| SI/HI contribution base | 20 × base salary (VND 2,530,000) | 50,600,000 |
-| UI contribution base (Region I) | 20 × VND 5,310,000 | 106,200,000 |
-| Trade union dues (members) | 1% × 20 × base salary | 253,000 |
+| Cap Type | Period | Calculation | Amount (VND/month) |
+|----------|--------|-------------|---------------------|
+| SI/HI contribution base | 01 Jan – 30 Jun 2026 | 20 × reference level (VND 2,340,000) | 46,800,000 |
+| SI/HI contribution base | 01 Jul – 31 Dec 2026 | 20 × base salary (VND 2,530,000) | 50,600,000 |
+| UI contribution base (Region I) | All year | 20 × VND 5,310,000 | 106,200,000 |
+| Trade union dues (members) | All year | 1% × 20 × reference level/base salary | 234,000 / 253,000 |
 
-### PIT Progressive Schedule (From 01 Jan 2026)
+**Note:** Reference level (mức tham chiếu) = VND 2,340,000 from 01 Jan. Base salary (mức lương cơ sở) increases to VND 2,530,000 from 01 Jul per Decree 161/2026/NĐ-CP.
+
+### PIT Progressive Schedule
+
+**⚠️ TRANSITION PERIOD:** From 01 Jan to 30 Jun 2026, the OLD 7-bracket schedule applies (Law 103/2016/QH13 as amended). From 01 Jul 2026, the NEW 5-bracket schedule applies (Law 109/2025/QH15). Both apply to tax year 2026.
+
+#### New Schedule (From 01 Jul 2026 — Law 109/2025/QH15)
 
 | Bracket | Monthly Taxable Income (VND) | Rate |
 |---------|------------------------------|------|
@@ -94,12 +101,26 @@ GoTax currently has **no payroll module**. The codebase contains only:
 | 4 | Over 60,000,000 to 100,000,000 | 30% |
 | 5 | Over 100,000,000 | 35% |
 
+#### Old Schedule (01 Jan – 30 Jun 2026 — Law 103/2016/QH13)
+
+| Bracket | Monthly Taxable Income (VND) | Rate |
+|---------|------------------------------|------|
+| 1 | Up to 5,000,000 | 5% |
+| 2 | Over 5,000,000 to 10,000,000 | 10% |
+| 3 | Over 10,000,000 to 18,000,000 | 15% |
+| 4 | Over 18,000,000 to 32,000,000 | 20% |
+| 5 | Over 32,000,000 to 52,000,000 | 25% |
+| 6 | Over 52,000,000 to 80,000,000 | 30% |
+| 7 | Over 80,000,000 | 35% |
+
 **Deductions:**
-- Personal: VND 15,500,000/month
-- Per dependant: VND 6,200,000/month
-- Overtime income: FULLY EXEMPT from PIT (from 01 Jul 2026)
+- Personal: VND 15,500,000/month (from 01 Jan 2026 — Resolution 110/2025/UBTVQH15)
+- Per dependant: VND 6,200,000/month (from 01 Jan 2026)
+- Overtime income: FULLY EXEMPT from PIT (from 01 Jul 2026 — Law 109/2025 Art. 4)
 - Night shift income: FULLY EXEMPT from PIT (from 01 Jul 2026)
 - Unused paid leave: FULLY EXEMPT from PIT (from 01 Jul 2026)
+
+**⚠️ Note:** From 01 Jan to 30 Jun 2026, OT/night/leave income IS subject to PIT under the old law. Only the new deductions (15.5M personal, 6.2M dependent) apply from 01 Jan.
 
 ### Overtime Rules (Labour Code 2019)
 
@@ -119,12 +140,20 @@ GoTax currently has **no payroll module**. The codebase contains only:
 
 ### Public Holidays (2026)
 
-1. New Year: 01 Jan (1 day)
-2. Tet: 16-20 Feb (5 days)
-3. Hung Kings: 26-27 Apr (2 days)
-4. Reunification Day: 30 Apr (1 day)
-5. International Labour Day: 01 May (1 day)
-6. National Day: 31 Aug - 02 Sep (3 days)
+Per Labour Code 2019 Art. 112 + Decree 128/2025/NĐ-CP + Official Letter 9859/VPCP-KGVX:
+
+| # | Holiday | Official Date | Days Off | Notes |
+|---|---------|--------------|----------|-------|
+| 1 | New Year's Day | 01 Jan | 1 | |
+| 2 | Tet Nguyen Dan | 16-20 Feb | 5 | 1 day before Tet + 4 days after. Full break: 14-22 Feb (9 days incl. weekends) |
+| 3 | Hung Kings Commemoration | 26 Apr | 1 | 10/3 lunar calendar |
+| 4 | Reunification Day | 30 Apr | 1 | |
+| 5 | International Labour Day | 01 May | 1 | |
+| 6 | National Day | 01-02 Sep | 2 | Aug 31 (Mon) swapped to Aug 22 (Sat). Break: 29 Aug - 02 Sep |
+
+**Total statutory paid holidays: 11 days** (5 Tet + 1 New Year + 1 Hung Kings + 1 Reunification + 1 Labour Day + 2 National Day)
+
+**Note:** Employers may choose alternative Tet/National Day arrangements per Decree 128/2025 Art. 7. Private sector gets 5 Tet days (1 before + 4 after) or alternative split.
 
 ---
 

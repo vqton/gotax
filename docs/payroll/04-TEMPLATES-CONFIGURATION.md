@@ -106,10 +106,16 @@ E002,Tran Thi D,SPOUSE,1990-01-10,1234567890,FALSE
 
 ```json
 {
-  "effective_from": "2026-07-01",
-  "base_salary": 2530000,
+  "effective_from": "2026-01-01",
+  "base_salary": {
+    "2026-01-01_to_2026-06-30": 2340000,
+    "2026-07-01_to_2026-12-31": 2530000
+  },
   "si_hi_cap_multiplier": 20,
-  "si_hi_cap": 50600000,
+  "si_hi_cap": {
+    "2026-01-01_to_2026-06-30": 46800000,
+    "2026-07-01_to_2026-12-31": 50600000
+  },
   "regional_minimum_wages": {
     "I": 5310000,
     "II": 4730000,
@@ -145,14 +151,28 @@ E002,Tran Thi D,SPOUSE,1990-01-10,1234567890,FALSE
     "supplementary_pension_cap": 3000000,
     "life_insurance_cap": 0
   },
-  "pit_brackets": [
-    {"min": 0, "max": 10000000, "rate": 0.05, "constant": 0},
-    {"min": 10000000, "max": 30000000, "rate": 0.10, "constant": 500000},
-    {"min": 30000000, "max": 60000000, "rate": 0.20, "constant": 3500000},
-    {"min": 60000000, "max": 100000000, "rate": 0.30, "constant": 9500000},
-    {"min": 100000000, "max": null, "rate": 0.35, "constant": 14500000}
-  ],
-  "trade_union_cap": 253000,
+  "pit_brackets": {
+    "old_7bracket_2026H1": [
+      {"min": 0, "max": 5000000, "rate": 0.05, "constant": 0},
+      {"min": 5000000, "max": 10000000, "rate": 0.10, "constant": 250000},
+      {"min": 10000000, "max": 18000000, "rate": 0.15, "constant": 750000},
+      {"min": 18000000, "max": 32000000, "rate": 0.20, "constant": 1650000},
+      {"min": 32000000, "max": 52000000, "rate": 0.25, "constant": 3250000},
+      {"min": 52000000, "max": 80000000, "rate": 0.30, "constant": 5850000},
+      {"min": 80000000, "max": null, "rate": 0.35, "constant": 9850000}
+    ],
+    "new_5bracket_2026H2": [
+      {"min": 0, "max": 10000000, "rate": 0.05, "constant": 0},
+      {"min": 10000000, "max": 30000000, "rate": 0.10, "constant": 500000},
+      {"min": 30000000, "max": 60000000, "rate": 0.20, "constant": 3500000},
+      {"min": 60000000, "max": 100000000, "rate": 0.30, "constant": 9500000},
+      {"min": 100000000, "max": null, "rate": 0.35, "constant": 14500000}
+    ]
+  },
+  "trade_union_cap": {
+    "2026-01-01_to_2026-06-30": 234000,
+    "2026-07-01_to_2026-12-31": 253000
+  },
   "overtime_rates": {
     "weekday": 1.5,
     "rest_day": 2.0,
@@ -173,24 +193,31 @@ E002,Tran Thi D,SPOUSE,1990-01-10,1234567890,FALSE
 
 ### 5.2 Holiday Calendar (2026)
 
+Per Labour Code 2019 Art. 112, Decree 128/2025/NĐ-CP, Official Letter 9859/VPCP-KGVX:
+
 ```json
 {
   "year": 2026,
+  "statutory_days": 11,
   "holidays": [
-    {"date": "2026-01-01", "name": "New Year's Day", "days": 1},
-    {"date": "2026-02-16", "name": "Tet Eve", "days": 1},
-    {"date": "2026-02-17", "name": "Tet Nguyen Dan", "days": 1},
-    {"date": "2026-02-18", "name": "Tet Holiday Day 2", "days": 1},
-    {"date": "2026-02-19", "name": "Tet Holiday Day 3", "days": 1},
-    {"date": "2026-02-20", "name": "Tet Holiday Day 4", "days": 1},
-    {"date": "2026-04-26", "name": "Hung Kings Commemoration", "days": 1},
-    {"date": "2026-04-27", "name": "Hung Kings Holiday (Observed)", "days": 1},
-    {"date": "2026-04-30", "name": "Reunification Day", "days": 1},
-    {"date": "2026-05-01", "name": "International Labour Day", "days": 1},
-    {"date": "2026-08-31", "name": "National Day Holiday", "days": 1},
-    {"date": "2026-09-01", "name": "National Day Holiday", "days": 1},
-    {"date": "2026-09-02", "name": "National Day (Independence Day)", "days": 1}
-  ]
+    {"date": "2026-01-01", "name": "New Year's Day (Tết Dương lịch)", "days": 1},
+    {"date": "2026-02-16", "name": "Tet Eve (29 Tet)", "days": 1},
+    {"date": "2026-02-17", "name": "Tet Nguyen Dan (Mung 1)", "days": 1},
+    {"date": "2026-02-18", "name": "Tet Holiday (Mung 2)", "days": 1},
+    {"date": "2026-02-19", "name": "Tet Holiday (Mung 3)", "days": 1},
+    {"date": "2026-02-20", "name": "Tet Holiday (Mung 4)", "days": 1},
+    {"date": "2026-04-26", "name": "Hung Kings Commemoration (Giỗ Tổ Hùng Vương)", "days": 1},
+    {"date": "2026-04-30", "name": "Reunification Day (Ngày Giải phóng)", "days": 1},
+    {"date": "2026-05-01", "name": "International Labour Day (Ngày Quốc tế Lao động)", "days": 1},
+    {"date": "2026-09-01", "name": "National Day (Ngày Quốc khánh)", "days": 1},
+    {"date": "2026-09-02", "name": "National Day (Ngày Quốc khánh)", "days": 1}
+  ],
+  "notes": {
+    "tet_full_break": "14 Feb (Sat) - 22 Feb (Sun) = 9 days incl. weekends",
+    "national_day_swap": "31 Aug (Mon) swapped to 22 Aug (Sat). Break: 29 Aug - 02 Sep",
+    "private_sector_tet": "Employer chooses: 1+4 or 2+3 or 3+2 days (Decree 128/2025 Art. 7)",
+    "private_sector_national_day": "2 Sep + 1 of (1 Sep or 3 Sep)"
+  }
 }
 ```
 

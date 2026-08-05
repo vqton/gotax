@@ -14,7 +14,7 @@ import (
 func setupPayrollService(t *testing.T) (*PayrollService, context.Context) {
 	t.Helper()
 	repo := repository.NewMemoryPayrollRepo()
-	svc := NewPayrollService(repo)
+	svc := NewPayrollService(repo, nil)
 	return svc, context.Background()
 }
 

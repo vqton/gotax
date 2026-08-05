@@ -11,7 +11,7 @@
 | Layer | Scope | Status |
 |-------|-------|--------|
 | Domain models | 10 structs, 9 enums | ✅ |
-| Calculation engine | SI/HI/UI (employee+employer), PIT 7-bracket, OT/night/holiday/leave | ✅ |
+| Calculation engine | SI/HI/UI (employee+employer), PIT 7-bracket (Jan-Jun) + 5-bracket (Jul-Dec), OT/night/holiday/leave | ✅ |
 | Memory repo | 31 methods (full CRUD) | ✅ |
 | Service | 30 methods (periods, runs, employees, leave, timekeeping, config) | ✅ |
 | PG repo | 31 methods (GORM, 10 tables) | ✅ |
@@ -34,7 +34,7 @@
 | Foreign employee rates | ✅ 30% total (no UI) | ✅ | ⚠️ Limited | ✅ |
 | Regional insurance | ✅ 4 regions | ✅ | ✅ | ✅ |
 | Insurance caps | ✅ 20× base salary | ✅ | ✅ | ✅ |
-| PIT progressive | ✅ **7 brackets** (10/2026) | ✅ 5 brackets (outdated) | ✅ 5 brackets | ✅ 5 brackets |
+| PIT progressive | ✅ **7→5 brackets** (transition 2026) | ✅ 5 brackets | ✅ 5 brackets | ✅ 5 brackets |
 | OT pay | ✅ 150/200/300% | ✅ | ✅ | ✅ |
 | Night shift premium | ✅ 30% | ✅ | ✅ | ✅ |
 | Holiday pay | ✅ 300% | ✅ | ✅ | ✅ |
@@ -45,7 +45,7 @@
 | Severance pay | ❌ Not yet | ✅ | ✅ | ✅ |
 | Retroactive pay | ❌ Not yet | ✅ | ⚠️ | ✅ |
 
-**GoTax advantage:** 7-bracket PIT (MISA/Fast/Bravo still on 5 brackets). Our implementation follows Decision 253/2026 which is effective 01 Jul 2026.
+**GoTax advantage:** Dual PIT bracket support (7-bracket Jan-Jun, 5-bracket Jul-Dec per Law 109/2025). Competitors only support one schedule.
 
 ### Timekeeping & Attendance
 
@@ -134,7 +134,7 @@
 | **TOTAL** | **27/42 (64%)** | **42/42 (100%)** | **30/42 (71%)** | **37/42 (88%)** |
 
 ### What GoTax Already Beats Competition On
-1. **PIT brackets**: 7 brackets (2026 law) vs competitors still on 5
+1. **PIT brackets**: Dual 7→5 bracket support (transition 2026) vs competitors single schedule
 2. **Foreign employee rates**: Full 30% calculation vs limited support
 3. **Circular 99 compliance**: From day one, not retrofitted
 4. **Open API**: REST endpoints vs proprietary integrations
@@ -158,4 +158,4 @@
 4. **D02-TS declaration** — Decision 366/QĐ-BHXH form format
 5. **13th-month salary** — add to calculation engine
 
-**Verdict:** GoTax payroll at 64% feature parity already exceeds Fast (71% — but with outdated PIT) on compliance. With Phase 3, we'll hit 85%+ and be the most regulation-current payroll system in the Vietnamese SME market.
+**Verdict:** GoTax payroll at 64% feature parity already exceeds Fast (71% — but with outdated PIT transition) on compliance. With Phase 3, we'll hit 85%+ and be the most regulation-current payroll system in the Vietnamese SME market.
