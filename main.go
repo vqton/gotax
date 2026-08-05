@@ -175,7 +175,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 
 		taxRepo := repository.NewPGTaxRepo(gormDB)
 		taxSvc := service.NewTaxService(taxRepo, jeRepo, companyRepo, newGDTClient(), newEInvoiceSigner())
-		taxH := handler.NewTaxHandler(taxSvc)
+		taxH := handler.NewTaxHandler(taxSvc, auditRepo)
 		cashH := handler.NewCashHandler(svc)
 		bankRepo := repository.NewPGBankRepo(gormDB)
 		bankSvc := service.NewBankService(bankRepo)
@@ -255,7 +255,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 
 	taxRepo := repository.NewMemoryTaxRepo()
 	taxSvc := service.NewTaxService(taxRepo, jeRepo, companyRepo, newGDTClient(), newEInvoiceSigner())
-	taxH := handler.NewTaxHandler(taxSvc)
+	taxH := handler.NewTaxHandler(taxSvc, auditRepo)
 	cashH := handler.NewCashHandler(svc)
 	bankRepo := repository.NewMemoryBankRepo()
 	bankSvc := service.NewBankService(bankRepo)
@@ -296,7 +296,16 @@ func newGDTClient() service.GDTClient {
 	if base == "" {
 		return nil
 	}
-	c, err := gdt.New(base, gdt.WithToken(os.Getenv("GDT_TOKEN")))
+	opts := []gdt.Option{gdt.WithToken(os.Getenv("GDT_TOKEN"))}
+	// mTLS: optional client cert for GDT authentication
+	certPath := os.Getenv("GDT_CLIENT_CERT")
+	if certPath != "" {
+		opts = append(opts, gdt.WithClientCert(certPath, os.Getenv("GDT_CA_BUNDLE")))
+	}
+	opts = append(opts, gdt.WithLogger(func(msg string, args ...any) {
+		zap.S().Named("gdt").Infof(msg, args...)
+	}))
+	c, err := gdt.New(base, opts...)
 	if err != nil {
 		zap.L().Fatal("invalid GDT_BASE_URL", zap.Error(err))
 	}

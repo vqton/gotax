@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -108,6 +109,7 @@ type TaxServiceInterface interface {
 	GetPayment(ctx context.Context, id string) (*domain.TaxPayment, error)
 	ListPayments(ctx context.Context, filter domain.PaymentFilter) ([]domain.TaxPayment, error)
 	RecordPayment(ctx context.Context, id string, amount float64, date, ref string) error
+	GetPaymentSummary(ctx context.Context, companyID string) (*domain.PaymentSummary, error)
 
 	// E-Invoices
 	CreateEInvoice(ctx context.Context, inv *domain.EInvoice) error
@@ -115,12 +117,14 @@ type TaxServiceInterface interface {
 	ListEInvoices(ctx context.Context, filter domain.EInvoiceFilter) ([]domain.EInvoice, error)
 	IssueEInvoice(ctx context.Context, id string) error
 	CancelEInvoice(ctx context.Context, id, reason string) error
+	CreateAmendmentInvoice(ctx context.Context, originalID string, invType domain.EInvoiceType, lines []domain.EInvoiceLine, userID string) (*domain.EInvoice, error)
 
 	// Tax Calendar
 	CreateCalendarEntry(ctx context.Context, c *domain.TaxCalendar) error
 	GetCalendarEntry(ctx context.Context, id string) (*domain.TaxCalendar, error)
 	GetCalendarByPeriod(ctx context.Context, companyID string, periodYear, periodNumber int) ([]domain.TaxCalendar, error)
 	GetCalendarByCompany(ctx context.Context, companyID string) ([]domain.TaxCalendar, error)
+	ScanOverdueCalendars(ctx context.Context, companyID string) (int, error)
 
 	// Alerts
 	CreateAlert(ctx context.Context, a *domain.TaxAlert) error
@@ -145,6 +149,15 @@ type TaxServiceInterface interface {
 
 	// VAT Reconciliation (BR-VAT-06): issued e-invoices vs GTGT01 [23].
 	ReconcileVAT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.VATReconciliationResult, error)
+
+	// CIT Reconciliation: declared CIT vs calculated CIT from taxable income.
+	ReconcileCIT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.CITReconciliationResult, error)
+
+	// Penalty calculation per Decree 310/2025/ND-CP.
+	CalculatePenalty(ctx context.Context, declarationDue string) (*domain.PenaltyResult, error)
+
+	// Calendar batch generation for a company's tax types.
+	GenerateCalendarBatch(ctx context.Context, companyID string, year int, taxTypes []domain.TaxType) (int, error)
 
 	// E-Invoice Issuance
 	CheckInvoiceStatus(ctx context.Context, id string) error
@@ -259,6 +272,9 @@ func (s *taxService) SubmitDeclaration(ctx context.Context, id, userID string) e
 		}
 		// 00 / 02 (duplicate — existing ack stands) proceed to SUBMITTED
 		d.GDTSubmissionID = resp.SubmissionID
+		if raw, err := json.Marshal(resp); err == nil {
+			d.GDTResponseXML = string(raw)
+		}
 	}
 	return s.repo.UpdateDeclaration(ctx, d)
 }
@@ -280,6 +296,9 @@ func (s *taxService) CheckDeclarationStatus(ctx context.Context, id string) erro
 	st, err := s.gdt.QueryDeclarationStatus(ctx, d.GDTSubmissionID)
 	if err != nil {
 		return err
+	}
+	if raw, err := json.Marshal(st); err == nil {
+		d.GDTResponseXML = string(raw)
 	}
 	status, err := declarationOutcome(st)
 	if err != nil {
@@ -421,6 +440,139 @@ func (s *taxService) ReconcileVAT(ctx context.Context, companyID string, period 
 	return res, nil
 }
 
+func (s *taxService) ReconcileCIT(ctx context.Context, companyID string, period domain.TaxPeriod) (*domain.CITReconciliationResult, error) {
+	res := &domain.CITReconciliationResult{CompanyID: companyID, Period: period}
+	decls, err := s.repo.GetDeclarations(ctx, domain.TaxDeclarationFilter{
+		CompanyID: companyID,
+		DeclarationType: domain.DeclTypeTNDN03,
+		PeriodYear: period.PeriodYear, PeriodNumber: period.PeriodNumber,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range decls {
+		d := &decls[i]
+		if d.TaxPeriod.PeriodType != period.PeriodType || d.Status == domain.DeclStatusCANCELLED {
+			continue
+		}
+		res.DeclarationID = d.ID
+		for _, l := range d.Lines {
+			switch l.LineCode {
+			case "10": // taxable income
+				res.DeclaredTaxable = l.Amount
+			case "14": // CIT payable
+				res.DeclaredTax = l.Amount
+			}
+		}
+		break
+	}
+	if res.DeclarationID == "" {
+		res.Notes = append(res.Notes, "no TNDN03 declaration for period")
+		return res, nil
+	}
+	// Look up CIT rate from tax_rates table
+	rate, err := s.resolveRate(ctx, domain.TaxTypeCIT, "STANDARD",
+		fmt.Sprintf("%d-%02d-01", period.PeriodYear, period.PeriodNumber))
+	if err == nil {
+		res.TaxRate = rate.RateValue
+	} else {
+		res.TaxRate = 20 // statutory default
+	}
+	res.CalculatedTax = round2(res.DeclaredTaxable * res.TaxRate / 100)
+	res.Variance = round2(res.DeclaredTax - res.CalculatedTax)
+	res.Matched = res.Variance == 0
+	return res, nil
+}
+
+// CalculatePenalty returns the penalty range per Decree 310/2025/ND-CP
+// for late declaration submission.
+func (s *taxService) CalculatePenalty(ctx context.Context, declarationDue string) (*domain.PenaltyResult, error) {
+	due, err := time.Parse("2006-01-02", declarationDue)
+	if err != nil {
+		return nil, domain.ErrValidationFailed
+	}
+	daysLate := int(s.now().Sub(due).Hours() / 24)
+	if daysLate <= 0 {
+		return &domain.PenaltyResult{DaysLate: 0}, nil
+	}
+	switch {
+	case daysLate < 30:
+		return &domain.PenaltyResult{DaysLate: daysLate, PenaltyMin: 2000000, PenaltyMax: 5000000,
+			Description: fmt.Sprintf("Late %d days: 2-5M VND penalty", daysLate)}, nil
+	case daysLate < 60:
+		return &domain.PenaltyResult{DaysLate: daysLate, PenaltyMin: 5000000, PenaltyMax: 8000000,
+			Description: fmt.Sprintf("Late %d days: 5-8M VND penalty", daysLate)}, nil
+	case daysLate < 90:
+		return &domain.PenaltyResult{DaysLate: daysLate, PenaltyMin: 8000000, PenaltyMax: 15000000,
+			Description: fmt.Sprintf("Late %d days: 8-15M VND penalty", daysLate)}, nil
+	default:
+		return &domain.PenaltyResult{DaysLate: daysLate, PenaltyMin: 15000000, PenaltyMax: 25000000,
+			Description: fmt.Sprintf("Late %d days: 15-25M VND penalty", daysLate)}, nil
+	}
+}
+
+// GenerateCalendarBatch creates TaxCalendar entries for a company for a
+// given year and set of tax types. Skips entries that already exist.
+// Returns the number of new entries created.
+func (s *taxService) GenerateCalendarBatch(ctx context.Context, companyID string, year int, taxTypes []domain.TaxType) (int, error) {
+	existing, err := s.repo.GetCalendarByCompany(ctx, companyID)
+	if err != nil {
+		return 0, err
+	}
+	existingSet := map[string]bool{}
+	for _, e := range existing {
+		key := fmt.Sprintf("%s:%s:%d:%d", e.CompanyID, e.TaxType, e.PeriodYear, e.PeriodNumber)
+		existingSet[key] = true
+	}
+	count := 0
+	for _, tt := range taxTypes {
+		switch tt {
+		case domain.TaxTypeVAT:
+			for m := 1; m <= 12; m++ {
+				key := fmt.Sprintf("%s:%s:%d:%d", companyID, tt, year, m)
+				if existingSet[key] {
+					continue
+				}
+				cal := &domain.TaxCalendar{
+					ID: fmt.Sprintf("CAL-%s-%d-%02d", tt, year, m), CompanyID: companyID,
+					TaxType: tt, PeriodType: domain.PeriodTypeMonthly,
+					PeriodYear: year, PeriodNumber: m,
+					StartDate: time.Date(year, time.Month(m), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					EndDate: time.Date(year, time.Month(m)+1, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					DeclarationDue: time.Date(year, time.Month(m)+1, 20, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					PaymentDue: time.Date(year, time.Month(m)+1, 20, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					Status: domain.CalStatusPENDING, CreatedAt: s.now().Format(time.RFC3339),
+				}
+				if err := s.repo.CreateCalendarEntry(ctx, cal); err == nil {
+					count++
+				}
+			}
+		case domain.TaxTypeCIT:
+			for q := 1; q <= 4; q++ {
+				key := fmt.Sprintf("%s:%s:%d:%d", companyID, tt, year, q)
+				if existingSet[key] {
+					continue
+				}
+				endMonth := time.Month(q * 3)
+				cal := &domain.TaxCalendar{
+					ID: fmt.Sprintf("CAL-%s-%d-Q%d", tt, year, q), CompanyID: companyID,
+					TaxType: tt, PeriodType: domain.PeriodTypeQuarterly,
+					PeriodYear: year, PeriodNumber: q,
+					StartDate: time.Date(year, endMonth-2, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					EndDate: time.Date(year, endMonth+1, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					DeclarationDue: time.Date(year, endMonth+1, 30, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					PaymentDue: time.Date(year, endMonth+1, 30, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+					Status: domain.CalStatusPENDING, CreatedAt: s.now().Format(time.RFC3339),
+				}
+				if err := s.repo.CreateCalendarEntry(ctx, cal); err == nil {
+					count++
+				}
+			}
+		}
+	}
+	return count, nil
+}
+
 func inPeriod(date string, from, to time.Time) bool {
 	t, err := time.Parse(time.DateOnly, date)
 	if err != nil {
@@ -545,6 +697,28 @@ func (s *taxService) ListPayments(ctx context.Context, filter domain.PaymentFilt
 	return s.repo.GetPayments(ctx, filter)
 }
 
+func (s *taxService) GetPaymentSummary(ctx context.Context, companyID string) (*domain.PaymentSummary, error) {
+	payments, err := s.repo.GetPayments(ctx, domain.PaymentFilter{CompanyID: companyID})
+	if err != nil {
+		return nil, err
+	}
+	summary := &domain.PaymentSummary{
+		CompanyID: companyID,
+		ByStatus:  make(map[string]int),
+	}
+	for _, p := range payments {
+		summary.TotalPayments++
+		summary.TotalDeclared += p.DeclaredAmount
+		summary.TotalPaid += p.PaidAmount
+		summary.ByStatus[string(p.Status)]++
+	}
+	summary.TotalOutstanding = summary.TotalDeclared - summary.TotalPaid
+	if summary.TotalOutstanding < 0 {
+		summary.TotalOutstanding = 0
+	}
+	return summary, nil
+}
+
 func (s *taxService) RecordPayment(ctx context.Context, id string, amount float64, date, ref string) error {
 	p, err := s.repo.GetPaymentByID(ctx, id)
 	if err != nil {
@@ -557,8 +731,113 @@ func (s *taxService) RecordPayment(ctx context.Context, id string, amount float6
 	if p.PaidAmount < p.DeclaredAmount {
 		p.Status = domain.PayStatusPARTIAL
 	}
+	if p.PaidAmount > p.DeclaredAmount {
+		p.Status = domain.PayStatusOVERPAID
+	}
+
+	// Auto-calculate late days from DueDate → PaymentDate
+	if p.DueDate != "" && p.PaymentDate != "" {
+		due, errD := time.Parse("2006-01-02", p.DueDate)
+		pay, errP := time.Parse("2006-01-02", p.PaymentDate)
+		if errD == nil && errP == nil && pay.After(due) {
+			p.LateDays = int(pay.Sub(due).Hours() / 24)
+		}
+	}
 	p.CalculateLateInterest()
-	return s.repo.UpdatePayment(ctx, p)
+
+	// Post journal entry: Dr tax payable / Cr bank
+	if amount > 0 {
+		entryDate, _ := time.Parse("2006-01-02", date)
+		je := &domain.JournalEntry{
+			CompanyID:    p.CompanyID,
+			EntryDate:    entryDate,
+			Description:  fmt.Sprintf("Tax payment %s", p.ID),
+			CurrencyCode: "VND",
+			ExchangeRate: 1,
+			VoucherType:  domain.VoucherTypePayment,
+			Lines: []domain.JournalLine{
+				{AccountCode: taxAccountCode(p.TaxType), DebitAmount: amount},
+				{AccountCode: "112", CreditAmount: amount},
+			},
+		}
+		if err := je.Validate(); err == nil {
+			if err := s.jeRepo.Create(ctx, je); err == nil {
+				p.GLJournalID = je.ID
+			}
+		}
+	}
+
+	// Post late interest journal entry: Dr 6275 (tax/fee expenses) / Cr 112 (bank)
+	if p.LateInterest > 0 {
+		entryDate, _ := time.Parse("2006-01-02", date)
+		lateJE := &domain.JournalEntry{
+			CompanyID:    p.CompanyID,
+			EntryDate:    entryDate,
+			Description:  fmt.Sprintf("Late interest %s", p.ID),
+			CurrencyCode: "VND",
+			ExchangeRate: 1,
+			VoucherType:  domain.VoucherTypePayment,
+			Lines: []domain.JournalLine{
+				{AccountCode: "6275", DebitAmount: p.LateInterest},
+				{AccountCode: "112", CreditAmount: p.LateInterest},
+			},
+		}
+		if err := lateJE.Validate(); err == nil {
+			s.jeRepo.Create(ctx, lateJE)
+		}
+	}
+
+	if err := s.repo.UpdatePayment(ctx, p); err != nil {
+		return err
+	}
+
+	// Update calendar status after payment is persisted
+	s.updateCalendarForPayment(ctx, p)
+
+	return nil
+}
+
+// updateCalendarForPayment transitions the matching TaxCalendar entry
+// to PAID when a payment is fully paid (or overpaid).
+func (s *taxService) updateCalendarForPayment(ctx context.Context, p *domain.TaxPayment) {
+	if p.Status != domain.PayStatusPAID && p.Status != domain.PayStatusOVERPAID {
+		return
+	}
+	cals, err := s.repo.GetCalendarByPeriod(ctx, p.CompanyID, p.PeriodYear, p.PeriodNumber)
+	if err != nil || len(cals) == 0 {
+		return
+	}
+	for _, c := range cals {
+		if c.TaxType == p.TaxType && c.Status != domain.CalStatusPAID {
+			s.repo.UpdateCalendarStatus(ctx, c.ID, domain.CalStatusPAID)
+		}
+	}
+}
+
+// ScanOverdueCalendars marks all PENDING calendar entries with PaymentDue
+// before today as OVERDUE. Returns the number of entries updated.
+func (s *taxService) ScanOverdueCalendars(ctx context.Context, companyID string) (int, error) {
+	cals, err := s.repo.GetCalendarByCompany(ctx, companyID)
+	if err != nil {
+		return 0, err
+	}
+	today := s.now()
+	count := 0
+	for _, c := range cals {
+		if c.Status != domain.CalStatusPENDING {
+			continue
+		}
+		due, err := time.Parse("2006-01-02", c.PaymentDue)
+		if err != nil {
+			continue
+		}
+		if today.After(due) {
+			if err := s.repo.UpdateCalendarStatus(ctx, c.ID, domain.CalStatusOVERDUE); err == nil {
+				count++
+			}
+		}
+	}
+	return count, nil
 }
 
 // ─── E-Invoices ────────────────────────────────────────────────────────
@@ -613,6 +892,9 @@ func (s *taxService) IssueEInvoice(ctx context.Context, id string) error {
 		return err
 	}
 	inv.GDTTransactionID = resp.TransactionID
+	if raw, err := json.Marshal(resp); err == nil {
+		inv.GDTResponse = string(raw)
+	}
 	inv.Status = domain.EInvStatusSUBMITTED
 	return s.repo.UpdateEInvoice(ctx, inv)
 }
@@ -634,6 +916,9 @@ func (s *taxService) CheckInvoiceStatus(ctx context.Context, id string) error {
 	st, err := s.gdt.GetInvoiceStatus(ctx, inv.GDTTransactionID)
 	if err != nil {
 		return err
+	}
+	if raw, err := json.Marshal(st); err == nil {
+		inv.GDTResponse = string(raw)
 	}
 	switch st.Status {
 	case "ACKNOWLEDGED":
@@ -663,6 +948,54 @@ func (s *taxService) CancelEInvoice(ctx context.Context, id, reason string) erro
 	inv.CancelledAt = s.now().Format(time.RFC3339)
 	inv.CancelReason = reason
 	return s.repo.UpdateEInvoice(ctx, inv)
+}
+
+// CreateAmendmentInvoice creates an adjustment or replacement invoice based on
+// an existing issued invoice. The new invoice links to the original via
+// OriginalInvoiceID and carries the same line items with adjusted amounts.
+func (s *taxService) CreateAmendmentInvoice(ctx context.Context, originalID string, invType domain.EInvoiceType, lines []domain.EInvoiceLine, userID string) (*domain.EInvoice, error) {
+	if invType != domain.EInvTypeADJUSTMENT && invType != domain.EInvTypeREPLACEMENT && invType != domain.EInvTypeCANCELLATION_NOTE {
+		return nil, domain.ErrInvoiceStatusInvalid
+	}
+	original, err := s.repo.GetEInvoiceByID(ctx, originalID)
+	if err != nil {
+		return nil, err
+	}
+	if original.Status != domain.EInvStatusISSUED {
+		return nil, domain.ErrInvoiceStatusInvalid
+	}
+	amendment := &domain.EInvoice{
+		CompanyID:         original.CompanyID,
+		Pattern:           original.Pattern,
+		Serial:            original.Serial,
+		InvoiceType:       invType,
+		BuyerName:         original.BuyerName,
+		BuyerTaxCode:      original.BuyerTaxCode,
+		BuyerAddress:      original.BuyerAddress,
+		BuyerEmail:        original.BuyerEmail,
+		CurrencyCode:      original.CurrencyCode,
+		ExchangeRate:      original.ExchangeRate,
+		Lines:             lines,
+		OriginalInvoiceID: originalID,
+		Status:            domain.EInvStatusDRAFT,
+		CreatedAt:         s.now().Format(time.RFC3339),
+	}
+	// Recalculate totals
+	var subtotal, vatTotal float64
+	for _, l := range lines {
+		subtotal += l.LineTotal
+		vatTotal += l.VATAmount
+	}
+	amendment.Subtotal = subtotal
+	amendment.VATAmount = vatTotal
+	amendment.GrandTotal = subtotal + vatTotal
+	if err := amendment.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateEInvoice(ctx, amendment); err != nil {
+		return nil, err
+	}
+	return amendment, nil
 }
 
 // ─── Tax Calendar ──────────────────────────────────────────────────────
@@ -1005,7 +1338,18 @@ func (s *taxService) CalculatePIT(ctx context.Context, companyID string, period 
 // Unsupported types (payroll-dependent, e.g. KK_TNCN) are rejected.
 
 func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error) {
-	if declType != domain.DeclTypeGTGT01 && declType != domain.DeclTypeTNDN03 {
+	switch declType {
+	case domain.DeclTypeGTGT01, domain.DeclTypeGTGT02, domain.DeclTypeGTGT03, domain.DeclTypeGTGT04, domain.DeclTypeGTGT05:
+		// VAT declaration — deduction, direct, per-occurrence, or non-VAT
+	case domain.DeclTypeTNDN02, domain.DeclTypeTNDN03, domain.DeclTypeTNDN04, domain.DeclTypeTNDN05, domain.DeclTypeTNDN06:
+		// CIT declaration — quarterly, annual, finalization, restructuring, petroleum
+	case domain.DeclTypeKKTNCN, domain.DeclTypeQTTTNCN:
+		// PIT declaration — withholding or quarterly
+	case domain.DeclTypeTTDB01, domain.DeclTypeBVMT01:
+		// Resource tax or environmental protection tax — no auto-calc
+	case domain.DeclTypeNTNN01, domain.DeclTypeNTNN02, domain.DeclTypeNTNN03:
+		// Non-resident income tax — no auto-calc
+	default:
 		return nil, domain.ErrDeclarationTypeInvalid
 	}
 	existing, err := s.repo.GetDeclarations(ctx, domain.TaxDeclarationFilter{
@@ -1042,18 +1386,40 @@ func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, 
 		CreatedAt:       s.now().Format(time.RFC3339),
 	}
 	switch declType {
-	case domain.DeclTypeGTGT01:
+	case domain.DeclTypeGTGT01, domain.DeclTypeGTGT03, domain.DeclTypeGTGT04:
+		// VAT declaration — deduction method
 		res, err := s.CalculateVAT(ctx, companyID, period, posted)
 		if err != nil {
 			return nil, err
 		}
 		decl.Lines = vatDeclarationLines(res, posted)
-	case domain.DeclTypeTNDN03:
+	case domain.DeclTypeGTGT02:
+		// VAT declaration — direct method (small enterprise)
+		res, err := s.CalculateVAT(ctx, companyID, period, posted)
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = vatDirectMethodLines(res)
+	case domain.DeclTypeGTGT05:
+		// VAT declaration — non-VAT paysubmit (same as direct method)
+		res, err := s.CalculateVAT(ctx, companyID, period, posted)
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = vatDirectMethodLines(res)
+	case domain.DeclTypeTNDN02, domain.DeclTypeTNDN03, domain.DeclTypeTNDN04, domain.DeclTypeTNDN05, domain.DeclTypeTNDN06:
+		// CIT declaration — quarterly, annual, finalization, restructuring, petroleum
 		res, err := s.CalculateCIT(ctx, companyID, period.PeriodYear, posted)
 		if err != nil {
 			return nil, err
 		}
 		decl.Lines = citDeclarationLines(res, posted)
+	case domain.DeclTypeKKTNCN, domain.DeclTypeQTTTNCN:
+		// PIT declaration — withholding or quarterly, lines provided by payroll engine
+	case domain.DeclTypeTTDB01, domain.DeclTypeBVMT01:
+		// Resource tax or environmental protection tax — no auto-calc
+	case domain.DeclTypeNTNN01, domain.DeclTypeNTNN02, domain.DeclTypeNTNN03:
+		// Non-resident income tax — no auto-calc
 	}
 	if err := validateDeclarationRules(decl); err != nil {
 		return nil, err
@@ -1115,6 +1481,19 @@ func vatDeclarationLines(res *domain.VATResult, entries []domain.JournalEntry) [
 	}
 }
 
+// GTGT02 lines (direct method — small enterprise): [10] revenue, [20] rate, [30] payable.
+func vatDirectMethodLines(res *domain.VATResult) []domain.TaxDeclarationLine {
+	revenue := res.SalesTotal
+	rate := 5.0
+	tax := revenue * rate / 100
+	return []domain.TaxDeclarationLine{
+		{LineCode: "10", LineName: "Doanh thu bán hàng", Amount: revenue, SourceType: domain.SrcTypeFROM_LEDGER, SortOrder: 10},
+		{LineCode: "20", LineName: "Thuế suất (%)", Amount: rate, SourceType: domain.SrcTypeFROM_LEDGER, SortOrder: 20},
+		{LineCode: "30", LineName: "Thuế GTGT phải nộp", Amount: tax, SourceType: domain.SrcTypeFROM_LEDGER, SortOrder: 30},
+		{LineCode: "40", LineName: "Thuế GTGT đã nộp theo TMPH", Amount: 0, SourceType: domain.SrcTypeFROM_LEDGER, SortOrder: 40},
+	}
+}
+
 // TNDN03 lines per TAX_RULES §2.1: [04]>=[06], [14]<=[12]*[13].
 func citDeclarationLines(res *domain.CITResult, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
 	src := domain.SrcTypeFROM_LEDGER
@@ -1141,7 +1520,7 @@ const vatEpsilon = 1.0 // 1 VND rounding tolerance
 
 func validateDeclarationRules(decl *domain.TaxDeclaration) error {
 	switch decl.DeclarationType {
-	case domain.DeclTypeGTGT01:
+	case domain.DeclTypeGTGT01, domain.DeclTypeGTGT03, domain.DeclTypeGTGT04:
 		// [16], [23], [30] are algebraic sums — [30] may be negative when
 		// input VAT exceeds output VAT (refundable direction).
 		if lineAmount(decl.Lines, "16") != lineAmount(decl.Lines, "14")+lineAmount(decl.Lines, "15") {
@@ -1159,7 +1538,14 @@ func validateDeclarationRules(decl *domain.TaxDeclaration) error {
 		if lineAmount(decl.Lines, "31") > 0 && lineAmount(decl.Lines, "32") > 0 {
 			return domain.ErrValidationFailed
 		}
-	case domain.DeclTypeTNDN03:
+	case domain.DeclTypeGTGT02, domain.DeclTypeGTGT05:
+		// Direct method: [30] = [10] * [20] / 100
+		expected := lineAmount(decl.Lines, "10") * lineAmount(decl.Lines, "20") / 100
+		actual := lineAmount(decl.Lines, "30")
+		if actual > expected+vatEpsilon || actual < expected-vatEpsilon {
+			return domain.ErrValidationFailed
+		}
+	case domain.DeclTypeTNDN02, domain.DeclTypeTNDN03, domain.DeclTypeTNDN04, domain.DeclTypeTNDN05, domain.DeclTypeTNDN06:
 		for _, l := range decl.Lines {
 			if l.Amount < 0 {
 				return domain.ErrValidationFailed
@@ -1226,6 +1612,31 @@ func declarationTaxType(dt domain.DeclarationType) domain.TaxType {
 		return domain.TaxTypePIT
 	}
 	return domain.TaxTypeVAT
+}
+
+// taxAccountCode maps a TaxType to the Vietnamese liability account for
+// that tax kind (Circular 99 chart of accounts).
+func taxAccountCode(t domain.TaxType) string {
+	switch t {
+	case domain.TaxTypeVAT:
+		return "33311"
+	case domain.TaxTypeCIT:
+		return "3334"
+	case domain.TaxTypePIT:
+		return "3335"
+	case domain.TaxTypeTTDB:
+		return "3332"
+	case domain.TaxTypeBVMT:
+		return "33381"
+	case domain.TaxTypeRESOURCE:
+		return "3336"
+	case domain.TaxTypeLAND:
+		return "3337"
+	case domain.TaxTypeFCT:
+		return "3339"
+	default:
+		return "33382" // other taxes
+	}
 }
 
 // Statutory deadlines: VAT monthly = 20th next month (VAT-12); VAT/CIT

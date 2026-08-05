@@ -79,7 +79,8 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 		ID: "company-1", TaxCode: "0100123456", LegalNameVN: "CONG TY TEST",
 	})
 	taxSvc := service.NewTaxService(taxRepo, jeRepo, companyRepo, gdtStub, signerStub)
-	th := NewTaxHandler(taxSvc)
+	auditRepo := repository.NewMemoryAuditLogRepo()
+	th := NewTaxHandler(taxSvc, auditRepo)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -449,6 +450,12 @@ func TestRecordPayment(t *testing.T) {
 	updated, _ := ts.svc.GetPayment(nil, p.ID)
 	assert.Equal(t, domain.PayStatusPAID, updated.Status)
 	assert.Equal(t, 5000000.0, updated.PaidAmount)
+	assert.NotEmpty(t, updated.GLJournalID, "journal entry should be created")
+
+	je, err := ts.jeRepo.GetByID(nil, updated.GLJournalID)
+	require.NoError(t, err)
+	assert.Equal(t, "33311", je.Lines[0].AccountCode, "Dr VAT payable")
+	assert.Equal(t, "112", je.Lines[1].AccountCode, "Cr bank")
 }
 
 // ─── E-Invoices ────────────────────────────────────────────────────────
@@ -818,6 +825,37 @@ func TestTimeDependentOperations(t *testing.T) {
 	require.NoError(t, ts.svc.CancelDeclaration(nil, d2.ID))
 	updated4, _ := ts.svc.GetDeclaration(nil, d2.ID)
 	assert.Equal(t, domain.DeclStatusCANCELLED, updated4.Status)
+}
+
+func TestGenerateDeclaration_GTGT03(t *testing.T) {
+	ts := setupTaxTest(t)
+	je := &domain.JournalEntry{
+		ID: "JE1", EntryNumber: "JE1", CompanyID: ts.compID,
+		EntryDate: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC),
+		Status:    domain.JournalEntryPosted,
+		Lines: []domain.JournalLine{
+			{AccountCode: "5111", CreditAmount: 10000000},
+			{AccountCode: "33311", CreditAmount: 1000000},
+		},
+	}
+	require.NoError(t, ts.jeRepo.Create(context.Background(), je))
+
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"declaration_type":"GTGT03",
+		"tax_period":{"period_type":"QUARTERLY","period_year":2026,"period_number":2}
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/declarations/generate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp domain.TaxDeclaration
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, domain.DeclTypeGTGT03, resp.DeclarationType)
+	assert.Equal(t, domain.DeclStatusVALIDATED, resp.Status)
+	assert.Equal(t, "QUARTERLY", string(resp.TaxPeriod.PeriodType))
 }
 
 func TestReconcileVAT(t *testing.T) {

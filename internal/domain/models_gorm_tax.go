@@ -77,6 +77,7 @@ type TaxPaymentGORM struct {
 	Status          string    `gorm:"column:status;not null;size:20;default:'PENDING';index" json:"status"`
 	LateDays        int       `gorm:"column:late_days;default:0" json:"lateDays"`
 	LateInterest    float64   `gorm:"column:late_interest;default:0" json:"lateInterest"`
+	GLJournalID     *string   `gorm:"column:gl_journal_id;size:36" json:"glJournalId"`
 	Notes           *string   `gorm:"column:notes;type:text" json:"notes"`
 	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }

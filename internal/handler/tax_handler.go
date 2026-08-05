@@ -12,11 +12,23 @@ import (
 )
 
 type TaxHandler struct {
-	svc service.TaxServiceInterface
+	svc   service.TaxServiceInterface
+	audit domain.AuditLogRepository
 }
 
-func NewTaxHandler(svc service.TaxServiceInterface) *TaxHandler {
-	return &TaxHandler{svc: svc}
+func NewTaxHandler(svc service.TaxServiceInterface, audit domain.AuditLogRepository) *TaxHandler {
+	return &TaxHandler{svc: svc, audit: audit}
+}
+
+func (h *TaxHandler) logAudit(c *gin.Context, action domain.AuditAction, entityType, entityID string) {
+	_ = h.audit.Create(c.Request.Context(), &domain.AuditEntry{
+		UserID:     GetUserID(c),
+		Username:   GetUsername(c),
+		IPAddress:  c.ClientIP(),
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+	})
 }
 
 func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
@@ -44,13 +56,14 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			rates.GET("/:id", h.GetRate)
 			rates.PUT("/:id", h.UpdateRate)
 		}
-		payments := tax.Group("/payments")
-		{
-			payments.POST("", h.CreatePayment)
-			payments.GET("", h.ListPayments)
-			payments.GET("/:id", h.GetPayment)
-			payments.POST("/:id/record", h.RecordPayment)
-		}
+	payments := tax.Group("/payments")
+	{
+		payments.POST("", h.CreatePayment)
+		payments.GET("", h.ListPayments)
+		payments.GET("/summary", h.GetPaymentSummary)
+		payments.GET("/:id", h.GetPayment)
+		payments.POST("/:id/record", h.RecordPayment)
+	}
 		invoices := tax.Group("/e-invoices")
 		{
 			invoices.POST("", h.CreateEInvoice)
@@ -59,6 +72,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			invoices.POST("/:id/issue", h.IssueEInvoice)
 			invoices.POST("/:id/status", h.CheckInvoiceStatus)
 			invoices.POST("/:id/cancel", h.CancelEInvoice)
+			invoices.POST("/:id/amend", h.CreateAmendmentInvoice)
 		}
 		calendar := tax.Group("/calendar")
 		{
@@ -66,6 +80,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			calendar.GET("/company/:companyID", h.GetCalendarByCompany)
 			calendar.GET("/period/:companyID/:year/:number", h.GetCalendarByPeriod)
 			calendar.GET("/:id", h.GetCalendarEntry)
+			calendar.POST("/scan-overdue", h.ScanOverdueCalendars)
 		}
 		alerts := tax.Group("/alerts")
 		{
@@ -86,10 +101,15 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			calc.POST("/cit", h.CalculateCIT)
 			calc.POST("/pit", h.CalculatePIT)
 		}
-		reconcile := tax.Group("/reconcile")
-		{
-			reconcile.POST("/vat", h.ReconcileVAT)
-		}
+	reconcile := tax.Group("/reconcile")
+	{
+		reconcile.POST("/vat", h.ReconcileVAT)
+		reconcile.POST("/cit", h.ReconcileCIT)
+	}
+	penalty := tax.Group("/penalty")
+	{
+		penalty.POST("/calculate", h.CalculatePenalty)
+	}
 	}
 }
 
@@ -134,6 +154,7 @@ func (h *TaxHandler) CreateDeclaration(c *gin.Context) {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionCreate, "tax_declaration", d.ID)
 	c.JSON(http.StatusCreated, d)
 }
 
@@ -201,10 +222,12 @@ func (h *TaxHandler) UpdateDeclaration(c *gin.Context) {
 
 func (h *TaxHandler) SubmitDeclaration(c *gin.Context) {
 	userID := c.GetString("user_id")
-	if err := h.svc.SubmitDeclaration(c.Request.Context(), c.Param("id"), userID); err != nil {
+	id := c.Param("id")
+	if err := h.svc.SubmitDeclaration(c.Request.Context(), id, userID); err != nil {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionPost, "tax_declaration", id)
 	c.JSON(http.StatusOK, gin.H{"message": "declaration submitted to GDT"})
 }
 
@@ -226,6 +249,39 @@ func (h *TaxHandler) ReconcileVAT(c *gin.Context) {
 		return
 	}
 	res, err := h.svc.ReconcileVAT(c.Request.Context(), req.CompanyID, req.Period)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *TaxHandler) ReconcileCIT(c *gin.Context) {
+	var req struct {
+		CompanyID string           `json:"company_id"`
+		Period    domain.TaxPeriod `json:"period"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	res, err := h.svc.ReconcileCIT(c.Request.Context(), req.CompanyID, req.Period)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *TaxHandler) CalculatePenalty(c *gin.Context) {
+	var req struct {
+		DeclarationDue string `json:"declaration_due"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	res, err := h.svc.CalculatePenalty(c.Request.Context(), req.DeclarationDue)
 	if err != nil {
 		h.taxError(c, err)
 		return
@@ -381,6 +437,20 @@ func (h *TaxHandler) ListPayments(c *gin.Context) {
 	c.JSON(http.StatusOK, payments)
 }
 
+func (h *TaxHandler) GetPaymentSummary(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id required"})
+		return
+	}
+	summary, err := h.svc.GetPaymentSummary(c.Request.Context(), companyID)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
 func (h *TaxHandler) RecordPayment(c *gin.Context) {
 	var req struct {
 		Amount float64 `json:"amount"`
@@ -391,10 +461,12 @@ func (h *TaxHandler) RecordPayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	if err := h.svc.RecordPayment(c.Request.Context(), c.Param("id"), req.Amount, req.Date, req.Ref); err != nil {
+	id := c.Param("id")
+	if err := h.svc.RecordPayment(c.Request.Context(), id, req.Amount, req.Date, req.Ref); err != nil {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionPost, "tax_payment", id)
 	c.JSON(http.StatusOK, gin.H{"message": "payment recorded"})
 }
 
@@ -461,10 +533,12 @@ func (h *TaxHandler) ListEInvoices(c *gin.Context) {
 }
 
 func (h *TaxHandler) IssueEInvoice(c *gin.Context) {
-	if err := h.svc.IssueEInvoice(c.Request.Context(), c.Param("id")); err != nil {
+	id := c.Param("id")
+	if err := h.svc.IssueEInvoice(c.Request.Context(), id); err != nil {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionPost, "e_invoice", id)
 	c.JSON(http.StatusOK, gin.H{"message": "invoice submitted to GDT"})
 }
 
@@ -484,11 +558,31 @@ func (h *TaxHandler) CancelEInvoice(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
 		return
 	}
-	if err := h.svc.CancelEInvoice(c.Request.Context(), c.Param("id"), req.Reason); err != nil {
+	id := c.Param("id")
+	if err := h.svc.CancelEInvoice(c.Request.Context(), id, req.Reason); err != nil {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionCancel, "e_invoice", id)
 	c.JSON(http.StatusOK, gin.H{"message": "invoice cancelled"})
+}
+
+func (h *TaxHandler) CreateAmendmentInvoice(c *gin.Context) {
+	var req struct {
+		InvoiceType string               `json:"invoice_type" binding:"required"`
+		Lines       []domain.EInvoiceLine `json:"lines" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	invType := domain.EInvoiceType(req.InvoiceType)
+	inv, err := h.svc.CreateAmendmentInvoice(c.Request.Context(), c.Param("id"), invType, req.Lines, GetUserID(c))
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, inv)
 }
 
 // ─── Calendar ──────────────────────────────────────────────────────────
@@ -533,6 +627,20 @@ func (h *TaxHandler) GetCalendarByCompany(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, entries)
+}
+
+func (h *TaxHandler) ScanOverdueCalendars(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id required"})
+		return
+	}
+	count, err := h.svc.ScanOverdueCalendars(c.Request.Context(), companyID)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"overdue_count": count})
 }
 
 // ─── Alerts ────────────────────────────────────────────────────────────
@@ -611,10 +719,12 @@ func (h *TaxHandler) CloseAuditCase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	if err := h.svc.CloseAuditCase(c.Request.Context(), c.Param("id"), req.Findings, req.Penalty); err != nil {
+	id := c.Param("id")
+	if err := h.svc.CloseAuditCase(c.Request.Context(), id, req.Findings, req.Penalty); err != nil {
 		h.taxError(c, err)
 		return
 	}
+	h.logAudit(c, domain.AuditActionClose, "tax_audit_case", id)
 	c.JSON(http.StatusOK, gin.H{"message": "audit case closed"})
 }
 

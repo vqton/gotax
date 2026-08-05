@@ -25,8 +25,38 @@ func formCode(t domain.DeclarationType) string {
 	switch t {
 	case domain.DeclTypeGTGT01:
 		return "01/GTGT"
+	case domain.DeclTypeGTGT02:
+		return "02/GTGT"
+	case domain.DeclTypeGTGT03:
+		return "03/GTGT"
+	case domain.DeclTypeGTGT04:
+		return "04/GTGT"
+	case domain.DeclTypeGTGT05:
+		return "05/GTGT"
+	case domain.DeclTypeTNDN02:
+		return "02/TNDN"
 	case domain.DeclTypeTNDN03:
 		return "03/TNDN"
+	case domain.DeclTypeTNDN04:
+		return "04/TNDN"
+	case domain.DeclTypeTNDN05:
+		return "05/TNDN"
+	case domain.DeclTypeTNDN06:
+		return "06/TNDN"
+	case domain.DeclTypeKKTNCN:
+		return "KK/TNCN"
+	case domain.DeclTypeQTTTNCN:
+		return "QTT/TNCN"
+	case domain.DeclTypeTTDB01:
+		return "TTDB/01"
+	case domain.DeclTypeBVMT01:
+		return "BVMT/01"
+	case domain.DeclTypeNTNN01:
+		return "NTNN/01"
+	case domain.DeclTypeNTNN02:
+		return "NTNN/02"
+	case domain.DeclTypeNTNN03:
+		return "NTNN/03"
 	default:
 		return ""
 	}

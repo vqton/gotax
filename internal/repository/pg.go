@@ -828,7 +828,7 @@ func (r *PGTaxRepo) CreatePayment(ctx context.Context, p *domain.TaxPayment) err
 		ID: p.ID, CompanyID: p.CompanyID, DeclarationID: nullStrG(p.DeclarationID),
 		TaxType: string(p.TaxType), PeriodYear: p.PeriodYear, PeriodNumber: p.PeriodNumber,
 		DeclaredAmount: p.DeclaredAmount, PaidAmount: p.PaidAmount, DueDate: parseDate(p.DueDate),
-		Status: string(p.Status),
+		Status: string(p.Status), GLJournalID: nullStrG(p.GLJournalID),
 	}).Error
 }
 
@@ -854,8 +854,10 @@ func (r *PGTaxRepo) GetPayments(ctx context.Context, filter domain.PaymentFilter
 
 func (r *PGTaxRepo) UpdatePayment(ctx context.Context, p *domain.TaxPayment) error {
 	return r.db.WithContext(ctx).Model(&domain.TaxPaymentGORM{}).Where("id = ?", p.ID).Updates(map[string]interface{}{
-		"paid_amount": p.PaidAmount, "payment_ref": p.PaymentRef,
-		"status": string(p.Status), "late_days": p.LateDays, "late_interest": p.LateInterest, "notes": p.Notes,
+		"paid_amount": p.PaidAmount, "payment_ref": p.PaymentRef, "payment_date": nullStrG(p.PaymentDate),
+		"payment_method": nullStrG(string(p.PaymentMethod)),
+		"status": string(p.Status), "late_days": p.LateDays, "late_interest": p.LateInterest,
+		"gl_journal_id": nullStrG(p.GLJournalID), "notes": p.Notes,
 	}).Error
 }
 
@@ -869,6 +871,7 @@ func gormTaxPaymentToDomain(m *domain.TaxPaymentGORM) *domain.TaxPayment {
 		PaymentMethod: domain.PaymentMethod(safeStr(m.PaymentMethod)),
 		Status: domain.PaymentStatus(m.Status),
 		LateDays: m.LateDays, LateInterest: m.LateInterest,
+		GLJournalID: safeStr(m.GLJournalID),
 		Notes: safeStr(m.Notes), CreatedAt: safeTimeStr(m.CreatedAt),
 	}
 }

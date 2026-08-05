@@ -98,6 +98,8 @@ const MODULE_GROUPS = [
     label: "Thuế",
     items: [
       { href: "/app/tax-declarations.html", icon: "📋", label: "Tờ khai" },
+      { href: "/app/tax-payments.html", icon: "💳", label: "Thanh toán" },
+      { href: "/app/tax-reconciliation.html", icon: "🔍", label: "Đối chiếu" },
       { href: "/app/tax-calendar.html", icon: "📅", label: "Lịch thuế" },
       { href: "/app/vat-report.html", icon: "📊", label: "Báo cáo GTGT" },
     ]
@@ -285,6 +287,7 @@ const STATUS_COLORS = {
   EXPIRED: "bg-gray-200 text-gray-500",
   DELIVERED: "bg-blue-100 text-blue-700",
   INVOICED: "bg-amber-100 text-amber-700",
+  OVERPAID: "bg-purple-100 text-purple-700",
 };
 
 function statusBadge(status) {

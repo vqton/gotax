@@ -137,6 +137,15 @@ const (
 	PayStatusOVERPAID PaymentStatus = "OVERPAID"
 )
 
+type PaymentSummary struct {
+	CompanyID       string         `json:"company_id"`
+	TotalPayments   int            `json:"total_payments"`
+	TotalDeclared   float64        `json:"total_declared"`
+	TotalPaid       float64        `json:"total_paid"`
+	TotalOutstanding float64       `json:"total_outstanding"`
+	ByStatus        map[string]int `json:"by_status"`
+}
+
 type AdjustmentType string
 const (
 	AdjTypeNONE       AdjustmentType = "NONE"
@@ -286,6 +295,7 @@ type TaxPayment struct {
 	Status          PaymentStatus `json:"status"`
 	LateDays        int           `json:"late_days,omitempty"`
 	LateInterest    float64       `json:"late_interest,omitempty"`
+	GLJournalID     string        `json:"gl_journal_id,omitempty"`
 	Notes           string        `json:"notes,omitempty"`
 	CreatedAt       string        `json:"created_at"`
 }
@@ -535,15 +545,35 @@ type VATRateReconciliation struct {
 // VATReconciliationResult compares issued e-invoices against the GTGT01
 // declaration's output VAT ([23]) for the same company + period.
 type VATReconciliationResult struct {
-	CompanyID        string                    `json:"company_id"`
-	Period           TaxPeriod                 `json:"period"`
-	DeclarationID    string                    `json:"declaration_id,omitempty"`
-	DeclarationTotal float64                   `json:"declaration_total"`
-	InvoiceTotal     float64                   `json:"invoice_total"`
-	Variance         float64                   `json:"variance"`
-	Matched          bool                      `json:"matched"`
-	InvoiceCount     int                       `json:"invoice_count"`
-	ByRate           []VATRateReconciliation   `json:"by_rate"`
-	ExcludedInvoices []string                  `json:"excluded_invoices,omitempty"`
-	Notes            []string                  `json:"notes,omitempty"`
+	CompanyID        string                  `json:"company_id"`
+	Period           TaxPeriod               `json:"period"`
+	DeclarationID    string                  `json:"declaration_id,omitempty"`
+	DeclarationTotal float64                 `json:"declaration_total"`
+	InvoiceTotal     float64                 `json:"invoice_total"`
+	Variance         float64                 `json:"variance"`
+	Matched          bool                    `json:"matched"`
+	InvoiceCount     int                     `json:"invoice_count"`
+	ByRate           []VATRateReconciliation `json:"by_rate"`
+	ExcludedInvoices []string                `json:"excluded_invoices,omitempty"`
+	Notes            []string                `json:"notes,omitempty"`
+}
+
+type CITReconciliationResult struct {
+	CompanyID        string   `json:"company_id"`
+	Period           TaxPeriod `json:"period"`
+	DeclarationID    string   `json:"declaration_id,omitempty"`
+	DeclaredTaxable  float64  `json:"declared_taxable"`
+	DeclaredTax      float64  `json:"declared_tax"`
+	CalculatedTax    float64  `json:"calculated_tax"`
+	Variance         float64  `json:"variance"`
+	Matched          bool     `json:"matched"`
+	TaxRate          float64  `json:"tax_rate"`
+	Notes            []string `json:"notes,omitempty"`
+}
+
+type PenaltyResult struct {
+	DaysLate     int     `json:"daysLate"`
+	PenaltyMin   float64 `json:"penaltyMin"`
+	PenaltyMax   float64 `json:"penaltyMax"`
+	Description  string  `json:"description"`
 }

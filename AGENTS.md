@@ -216,7 +216,7 @@ r.Static("/app", "./web/app")         // Main app pages
 | Cash | PROD | Receipts, payments, transfers, petty cash, advances |
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
-| Tax | ~60% | Rate resolver + VAT/CIT/PIT engines, declaration engine, payment automation. Missing: form XML gen, GDT API push |
+| Tax | ~90% | Full CRUD + 17 declaration types, payment automation (GL journal, late interest, calendar sync), reconciliation, penalty calc, batch generation. Missing: form XML gen, GDT API push |
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
 | Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
 | Warehouse | ~30% | Interface + PG + memory repos. Service incomplete |
@@ -270,7 +270,7 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 | COA Management | `/api/v1/coa/*` | 14 | ↑ | PROD |
 | User Auth (2FA/sessions) | `/api/v1/auth/*` | 10 | ↑ | PROD |
 | Company | `/api/v1/companies` | 48 | 714 | PROD |
-| Tax | `/api/v1/tax` | 41 | 675 | ~60% |
+| Tax | `/api/v1/tax` | 53 | 1656 | ~90% |
 | Cash | `/api/v1/cash` | 40 | 639 | PROD |
 | Bank | `/api/v1/bank` | 37 | 563 | PROD |
 | Purchase (P2P) | `/api/v1/purchase` | 55 | 870 | PROD |

@@ -444,8 +444,64 @@ func TestGenerateDeclaration_Duplicate(t *testing.T) {
 func TestGenerateDeclaration_UnsupportedType(t *testing.T) {
 	svc, _ := newTaxTestSvcWithGL()
 	ctx := context.Background()
-	_, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeKKTNCN, vatPeriod(), "u1")
+	_, err := svc.GenerateDeclaration(ctx, "c1", "INVALID", vatPeriod(), "u1")
 	assert.ErrorIs(t, err, domain.ErrDeclarationTypeInvalid)
+}
+
+func TestGenerateDeclaration_GTGT02(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	// Revenue = 50M (5111 credit), Output VAT = 2.5M (33311 credit)
+	je := postedEntry("JE1", "2026-06-15",
+		vatLine("5111", 0, 50000000), vatLine("33311", 0, 2500000))
+	require.NoError(t, jeRepo.Create(ctx, &je))
+
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 6}
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT02, period, "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.DeclTypeGTGT02, decl.DeclarationType)
+	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
+
+	amounts := map[string]float64{}
+	for _, l := range decl.Lines {
+		amounts[l.LineCode] = l.Amount
+	}
+	// GTGT02 direct method: [10]=revenue(SalesTotal), [20]=rate(5%), [30]=tax
+	assert.Equal(t, 50000000.0, amounts["10"]) // revenue from SalesTotal
+	assert.Equal(t, 5.0, amounts["20"])         // rate
+	assert.Equal(t, 2500000.0, amounts["30"])   // 50M * 5%
+}
+
+func TestGenerateDeclaration_GTGT03(t *testing.T) {
+	svc, jeRepo := newTaxTestSvcWithGL()
+	ctx := context.Background()
+	je1 := postedEntry("JE1", "2026-04-10",
+		vatLine("5111", 0, 10000000), vatLine("33311", 0, 1000000))
+	require.NoError(t, jeRepo.Create(ctx, &je1))
+	je2 := postedEntry("JE2", "2026-05-15",
+		vatLine("152", 5000000, 0), vatLine("1331", 500000, 0))
+	require.NoError(t, jeRepo.Create(ctx, &je2))
+
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 2}
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT03, period, "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.DeclTypeGTGT03, decl.DeclarationType)
+	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
+	assert.Equal(t, domain.PeriodTypeQuarterly, decl.TaxPeriod.PeriodType)
+
+	amounts := map[string]float64{}
+	for _, l := range decl.Lines {
+		amounts[l.LineCode] = l.Amount
+	}
+	assert.Equal(t, 500000.0, amounts["14"])  // input VAT goods/services
+	assert.Equal(t, 0.0, amounts["15"])       // input VAT FA
+	assert.Equal(t, 500000.0, amounts["16"])  // 14 + 15
+	assert.Equal(t, 1000000.0, amounts["21"]) // output VAT domestic
+	assert.Equal(t, 0.0, amounts["22"])
+	assert.Equal(t, 1000000.0, amounts["23"]) // 21 + 22
+	assert.Equal(t, 500000.0, amounts["30"])  // 23 - 16
+	assert.Equal(t, 500000.0, amounts["31"])  // payable
+	assert.Equal(t, 0.0, amounts["32"])       // refundable (XOR)
 }
 
 func TestGenerateDeclaration_ZeroDeclaration(t *testing.T) {
@@ -762,6 +818,48 @@ func TestCancelEInvoice_NotCancellableBeforeIssued(t *testing.T) {
 	}
 }
 
+func TestCreateAmendmentInvoice_Adjustment(t *testing.T) {
+	g := &stubGDT{}
+	svc, invRepo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	original := testEInvoice(domain.EInvStatusISSUED)
+	require.NoError(t, invRepo.CreateEInvoice(ctx, original))
+
+	adjLines := []domain.EInvoiceLine{{LineNumber: 1, Description: "Item adjusted", LineTotal: 2000000, VATRate: 10, VATAmount: 200000}}
+	adj, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeADJUSTMENT, adjLines, "user-1")
+	require.NoError(t, err)
+
+	assert.Equal(t, domain.EInvTypeADJUSTMENT, adj.InvoiceType)
+	assert.Equal(t, original.ID, adj.OriginalInvoiceID)
+	assert.Equal(t, domain.EInvStatusDRAFT, adj.Status)
+	assert.Equal(t, 2000000.0, adj.Subtotal)
+	assert.Equal(t, 200000.0, adj.VATAmount)
+	assert.Equal(t, 2200000.0, adj.GrandTotal)
+	assert.Equal(t, original.CompanyID, adj.CompanyID)
+}
+
+func TestCreateAmendmentInvoice_InvalidType(t *testing.T) {
+	g := &stubGDT{}
+	svc, invRepo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	original := testEInvoice(domain.EInvStatusISSUED)
+	require.NoError(t, invRepo.CreateEInvoice(ctx, original))
+
+	_, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeORIGINAL, nil, "user-1")
+	assert.Error(t, err)
+}
+
+func TestCreateAmendmentInvoice_NotIssued(t *testing.T) {
+	g := &stubGDT{}
+	svc, invRepo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	original := testEInvoice(domain.EInvStatusDRAFT)
+	require.NoError(t, invRepo.CreateEInvoice(ctx, original))
+
+	_, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeREPLACEMENT, nil, "user-1")
+	assert.Error(t, err)
+}
+
 func TestPEMSigner_SignsAndVerifies(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -831,6 +929,8 @@ func TestSubmitDeclaration_FullPipeline(t *testing.T) {
 	assert.Contains(t, updated.DeclarationXML, "0100123456")
 	assert.Len(t, updated.Signatures, 1)
 	assert.Equal(t, "user-1", updated.SubmittedBy)
+	assert.NotEmpty(t, updated.GDTResponseXML, "GDT response should be stored")
+	assert.Contains(t, updated.GDTResponseXML, "SUB-1")
 	// GDT received the signed XML (signer got it)
 	assert.True(t, strings.HasPrefix(g.submittedXML, "<BK:BoKe"))
 }
@@ -1163,4 +1263,491 @@ func TestReconcileVAT_FallbackLine23Notes(t *testing.T) {
 	assert.True(t, res.Matched)
 	assert.Equal(t, 70000.0, res.DeclarationTotal)
 	assert.Contains(t, strings.Join(res.Notes, " "), "[22]")
+}
+
+// ─── A6: Payment Journal Entry ──────────────────────────────────────────
+
+func TestRecordPayment_CreatesJournalEntry_VAT(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-VAT-1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-30", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	err := svc.RecordPayment(ctx, "TP-VAT-1", 5000000, "2026-07-25", "EFT-001")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-VAT-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayStatusPAID, pay.Status)
+	assert.Equal(t, 5000000.0, pay.PaidAmount)
+	assert.NotEmpty(t, pay.GLJournalID)
+
+	je, err := svc.jeRepo.GetByID(ctx, pay.GLJournalID)
+	require.NoError(t, err)
+	assert.Equal(t, "Tax payment TP-VAT-1", je.Description)
+	assert.Equal(t, domain.VoucherTypePayment, je.VoucherType)
+	assert.Len(t, je.Lines, 2)
+	// Dr 33311 (VAT payable) / Cr 112 (Bank)
+	assert.Equal(t, "33311", je.Lines[0].AccountCode)
+	assert.Equal(t, 5000000.0, je.Lines[0].DebitAmount)
+	assert.Equal(t, "112", je.Lines[1].AccountCode)
+	assert.Equal(t, 5000000.0, je.Lines[1].CreditAmount)
+}
+
+func TestRecordPayment_CreatesJournalEntry_CIT(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-CIT-1", CompanyID: "c1", TaxType: domain.TaxTypeCIT,
+		PeriodYear: 2026, PeriodNumber: 3, DeclaredAmount: 10000000,
+		DueDate: "2026-04-30", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	err := svc.RecordPayment(ctx, "TP-CIT-1", 10000000, "2026-04-28", "BANK-002")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-CIT-1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, pay.GLJournalID)
+
+	je, err := svc.jeRepo.GetByID(ctx, pay.GLJournalID)
+	require.NoError(t, err)
+	assert.Equal(t, "3334", je.Lines[0].AccountCode)
+	assert.Equal(t, "112", je.Lines[1].AccountCode)
+}
+
+func TestRecordPayment_CreatesJournalEntry_PartialPayment(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-VAT-2", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-30", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	err := svc.RecordPayment(ctx, "TP-VAT-2", 3000000, "2026-07-25", "EFT-002")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-VAT-2")
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayStatusPARTIAL, pay.Status)
+	assert.NotEmpty(t, pay.GLJournalID)
+
+	je, err := svc.jeRepo.GetByID(ctx, pay.GLJournalID)
+	require.NoError(t, err)
+	assert.Equal(t, 3000000.0, je.Lines[0].DebitAmount)
+	assert.Equal(t, 3000000.0, je.Lines[1].CreditAmount)
+}
+
+func TestRecordPayment_NoJournalForZeroAmount(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-ZERO2", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 100,
+		DueDate: "2026-07-30", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+	err := svc.RecordPayment(ctx, "TP-ZERO2", 0, "2026-07-25", "")
+	require.NoError(t, err)
+	pay, _ := svc.repo.GetPaymentByID(ctx, "TP-ZERO2")
+	assert.Equal(t, domain.PayStatusPARTIAL, pay.Status)
+	assert.Empty(t, pay.GLJournalID, "no journal for zero amount")
+}
+
+func TestRecordPayment_AutoLateDays(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-LATE-1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-20", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	// Pay 5 days late, partial payment
+	err := svc.RecordPayment(ctx, "TP-LATE-1", 3000000, "2026-07-25", "EFT-LATE")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-LATE-1")
+	require.NoError(t, err)
+	assert.Equal(t, 5, pay.LateDays, "auto-calculated late days from due date")
+	underpaid := 5000000.0 - 3000000.0
+	expectedInterest := underpaid * 0.0003 * 5.0
+	assert.InDelta(t, expectedInterest, pay.LateInterest, 0.01, "late interest = underpaid * 0.03% * late days")
+}
+
+func TestRecordPayment_NoLateDays_WhenOnTime(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-ONTIME", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-20", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	// Pay on time
+	err := svc.RecordPayment(ctx, "TP-ONTIME", 5000000, "2026-07-20", "EFT-ONTIME")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-ONTIME")
+	require.NoError(t, err)
+	assert.Equal(t, 0, pay.LateDays)
+	assert.Equal(t, 0.0, pay.LateInterest)
+}
+
+func TestRecordPayment_LateInterestJournalEntry(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-LATEINT", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-20", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	// Pay 10 days late, partial payment
+	err := svc.RecordPayment(ctx, "TP-LATEINT", 3000000, "2026-07-30", "EFT-LATEINT")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-LATEINT")
+	require.NoError(t, err)
+	assert.Equal(t, 10, pay.LateDays)
+	assert.True(t, pay.LateInterest > 0, "late interest should be positive")
+
+	// Should have 2 journal entries: tax payment + late interest
+	entries, _ := svc.jeRepo.GetByVoucherType(ctx, domain.VoucherTypePayment)
+	taxEntries := 0
+	lateEntries := 0
+	for _, e := range entries {
+		if e.CompanyID != "c1" {
+			continue
+		}
+		if strings.Contains(e.Description, "Tax payment") {
+			taxEntries++
+			// Tax payment: Dr 33311 / Cr 112
+			assert.Equal(t, "33311", e.Lines[0].AccountCode)
+			assert.Equal(t, "112", e.Lines[1].AccountCode)
+			assert.Equal(t, 3000000.0, e.Lines[0].DebitAmount)
+		}
+		if strings.Contains(e.Description, "Late interest") {
+			lateEntries++
+			// Late interest: Dr 6275 / Cr 112
+			assert.Equal(t, "6275", e.Lines[0].AccountCode)
+			assert.Equal(t, "112", e.Lines[1].AccountCode)
+			assert.Equal(t, pay.LateInterest, e.Lines[0].DebitAmount)
+		}
+	}
+	assert.Equal(t, 1, taxEntries, "one tax payment entry")
+	assert.Equal(t, 1, lateEntries, "one late interest entry")
+}
+
+func TestRecordPayment_OverpaymentStatus(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	p := &domain.TaxPayment{
+		ID: "TP-OVER", CompanyID: "c1", TaxType: domain.TaxTypeCIT,
+		PeriodYear: 2026, PeriodNumber: 3, DeclaredAmount: 10000000,
+		DueDate: "2026-04-30", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, svc.repo.CreatePayment(ctx, p))
+
+	// Pay more than declared
+	err := svc.RecordPayment(ctx, "TP-OVER", 12000000, "2026-04-28", "BANK-OVER")
+	require.NoError(t, err)
+
+	pay, err := svc.repo.GetPaymentByID(ctx, "TP-OVER")
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayStatusOVERPAID, pay.Status)
+	assert.Equal(t, 12000000.0, pay.PaidAmount)
+	assert.Equal(t, 0, pay.LateDays, "no late days for overpayment")
+	assert.Equal(t, 0.0, pay.LateInterest)
+}
+
+func TestRecordPayment_UpdatesCalendarStatus(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	// Create calendar entry
+	cal := &domain.TaxCalendar{
+		ID: "CAL-1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 6,
+		DeclarationDue: "2026-07-20", PaymentDue: "2026-07-20",
+		Status: domain.CalStatusPENDING,
+	}
+	require.NoError(t, repo.CreateCalendarEntry(ctx, cal))
+
+	// Create payment linked to same period
+	p := &domain.TaxPayment{
+		ID: "TP-CAL-1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-20", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, repo.CreatePayment(ctx, p))
+
+	// Record full payment
+	err := svc.RecordPayment(ctx, "TP-CAL-1", 5000000, "2026-07-18", "EFT-CAL")
+	require.NoError(t, err)
+
+	// Calendar should be updated to PAID
+	entries, err := repo.GetCalendarByPeriod(ctx, "c1", 2026, 6)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, domain.CalStatusPAID, entries[0].Status, "calendar status updated to PAID")
+}
+
+func TestRecordPayment_UpdatesCalendarStatus_Partial(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	cal := &domain.TaxCalendar{
+		ID: "CAL-2", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 6,
+		DeclarationDue: "2026-07-20", PaymentDue: "2026-07-20",
+		Status: domain.CalStatusPENDING,
+	}
+	require.NoError(t, repo.CreateCalendarEntry(ctx, cal))
+
+	p := &domain.TaxPayment{
+		ID: "TP-CAL-2", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodYear: 2026, PeriodNumber: 6, DeclaredAmount: 5000000,
+		DueDate: "2026-07-20", Status: domain.PayStatusPENDING,
+	}
+	require.NoError(t, repo.CreatePayment(ctx, p))
+
+	// Partial payment — calendar stays PENDING
+	err := svc.RecordPayment(ctx, "TP-CAL-2", 3000000, "2026-07-18", "EFT-CAL2")
+	require.NoError(t, err)
+
+	entries, err := repo.GetCalendarByPeriod(ctx, "c1", 2026, 6)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, domain.CalStatusPENDING, entries[0].Status, "partial payment does not mark calendar PAID")
+}
+
+func TestScanOverdueCalendars(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	// PENDING calendar past due
+	cal1 := &domain.TaxCalendar{
+		ID: "CAL-OV1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 1,
+		DeclarationDue: "2026-02-20", PaymentDue: "2026-02-20",
+		Status: domain.CalStatusPENDING,
+	}
+	require.NoError(t, repo.CreateCalendarEntry(ctx, cal1))
+
+	// PENDING calendar still due in future
+	cal2 := &domain.TaxCalendar{
+		ID: "CAL-OV2", CompanyID: "c1", TaxType: domain.TaxTypeCIT,
+		PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 4,
+		DeclarationDue: "2026-12-30", PaymentDue: "2026-12-30",
+		Status: domain.CalStatusPENDING,
+	}
+	require.NoError(t, repo.CreateCalendarEntry(ctx, cal2))
+
+	// Already PAID — should not be touched
+	cal3 := &domain.TaxCalendar{
+		ID: "CAL-OV3", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 2,
+		DeclarationDue: "2026-03-20", PaymentDue: "2026-03-20",
+		Status: domain.CalStatusPAID,
+	}
+	require.NoError(t, repo.CreateCalendarEntry(ctx, cal3))
+
+	// Scan with "today" = 2026-08-05 (simulated via svc.now override)
+	svc.now = func() time.Time { return time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC) }
+	count, err := svc.ScanOverdueCalendars(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "only cal1 should be marked overdue")
+
+	entries, _ := repo.GetCalendarByCompany(ctx, "c1")
+	for _, e := range entries {
+		switch e.ID {
+		case "CAL-OV1":
+			assert.Equal(t, domain.CalStatusOVERDUE, e.Status)
+		case "CAL-OV2":
+			assert.Equal(t, domain.CalStatusPENDING, e.Status, "future deadline stays PENDING")
+		case "CAL-OV3":
+			assert.Equal(t, domain.CalStatusPAID, e.Status, "PAID calendar untouched")
+		}
+	}
+}
+
+func TestGetPaymentSummary(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	// Create payments with different statuses
+	payments := []domain.TaxPayment{
+		{ID: "TP-S1", CompanyID: "c1", TaxType: domain.TaxTypeVAT, PeriodYear: 2026, PeriodNumber: 1, DeclaredAmount: 5000000, PaidAmount: 5000000, DueDate: "2026-02-20", Status: domain.PayStatusPAID},
+		{ID: "TP-S2", CompanyID: "c1", TaxType: domain.TaxTypeVAT, PeriodYear: 2026, PeriodNumber: 2, DeclaredAmount: 3000000, PaidAmount: 1000000, DueDate: "2026-03-20", Status: domain.PayStatusPARTIAL},
+		{ID: "TP-S3", CompanyID: "c1", TaxType: domain.TaxTypeCIT, PeriodYear: 2026, PeriodNumber: 1, DeclaredAmount: 10000000, PaidAmount: 0, DueDate: "2026-04-30", Status: domain.PayStatusPENDING},
+		{ID: "TP-S4", CompanyID: "c2", TaxType: domain.TaxTypeVAT, PeriodYear: 2026, PeriodNumber: 1, DeclaredAmount: 2000000, PaidAmount: 2000000, DueDate: "2026-02-20", Status: domain.PayStatusPAID},
+	}
+	for i := range payments {
+		require.NoError(t, repo.CreatePayment(ctx, &payments[i]))
+	}
+
+	summary, err := svc.GetPaymentSummary(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", summary.CompanyID)
+	assert.Equal(t, 3, summary.TotalPayments)
+	assert.Equal(t, 18000000.0, summary.TotalDeclared)
+	assert.Equal(t, 6000000.0, summary.TotalPaid)
+	assert.Equal(t, 12000000.0, summary.TotalOutstanding)
+	assert.Equal(t, 1, summary.ByStatus["PAID"])
+	assert.Equal(t, 1, summary.ByStatus["PARTIAL"])
+	assert.Equal(t, 1, summary.ByStatus["PENDING"])
+}
+
+func TestReconcileCIT(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 1}
+
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-CIT-1", CompanyID: "c1", DeclarationType: domain.DeclTypeTNDN03,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED,
+		Lines: []domain.TaxDeclarationLine{
+			{LineCode: "10", LineName: "Taxable income", Amount: 50000000},
+			{LineCode: "14", LineName: "CIT payable", Amount: 10000000},
+		},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+
+	res, err := svc.ReconcileCIT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.Equal(t, "DECL-CIT-1", res.DeclarationID)
+	assert.Equal(t, 50000000.0, res.DeclaredTaxable)
+	assert.Equal(t, 10000000.0, res.DeclaredTax)
+	assert.Equal(t, 20.0, res.TaxRate)
+	assert.Equal(t, 10000000.0, res.CalculatedTax)
+	assert.Equal(t, 0.0, res.Variance)
+	assert.True(t, res.Matched)
+}
+
+func TestReconcileCIT_Variance(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 1}
+
+	decl := &domain.TaxDeclaration{
+		ID: "DECL-CIT-2", CompanyID: "c1", DeclarationType: domain.DeclTypeTNDN03,
+		TaxPeriod: period, Status: domain.DeclStatusACKNOWLEDGED,
+		Lines: []domain.TaxDeclarationLine{
+			{LineCode: "10", LineName: "Taxable income", Amount: 50000000},
+			{LineCode: "14", LineName: "CIT payable", Amount: 9500000},
+		},
+	}
+	require.NoError(t, repo.CreateDeclaration(ctx, decl))
+
+	res, err := svc.ReconcileCIT(ctx, "c1", period)
+	require.NoError(t, err)
+	assert.False(t, res.Matched)
+	assert.Equal(t, -500000.0, res.Variance, "declared less than calculated")
+}
+
+func TestCalculatePenalty_LateSubmission(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		daysLate int
+		min      float64
+		max      float64
+	}{
+		{"15 days late", 15, 2000000, 5000000},
+		{"45 days late", 45, 5000000, 8000000},
+		{"75 days late", 75, 8000000, 15000000},
+		{"100 days late", 100, 15000000, 25000000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			due := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+		_today := due.AddDate(0, 0, tt.daysLate)
+			svc.now = func() time.Time { return _today }
+
+			res, err := svc.CalculatePenalty(ctx, due.Format("2006-01-02"))
+			require.NoError(t, err)
+			assert.Equal(t, tt.daysLate, res.DaysLate)
+			assert.Equal(t, tt.min, res.PenaltyMin)
+			assert.Equal(t, tt.max, res.PenaltyMax)
+		})
+	}
+}
+
+func TestCalculatePenalty_OnTime(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	svc.now = func() time.Time { return time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC) }
+
+	res, err := svc.CalculatePenalty(ctx, "2026-03-20")
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.DaysLate)
+	assert.Equal(t, 0.0, res.PenaltyMin)
+	assert.Equal(t, 0.0, res.PenaltyMax)
+}
+
+func TestGenerateCalendarBatch(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	count, err := svc.GenerateCalendarBatch(ctx, "c1", 2026, []domain.TaxType{domain.TaxTypeVAT, domain.TaxTypeCIT})
+	require.NoError(t, err)
+	// VAT: 12 monthly + CIT: 4 quarterly = 16 entries
+	assert.Equal(t, 16, count)
+
+	entries, err := repo.GetCalendarByCompany(ctx, "c1")
+	require.NoError(t, err)
+	assert.Len(t, entries, 16)
+
+	// Verify VAT monthly entries exist
+	vatCount := 0
+	for _, e := range entries {
+		if e.TaxType == domain.TaxTypeVAT {
+			vatCount++
+			assert.Equal(t, domain.PeriodTypeMonthly, e.PeriodType)
+			assert.Equal(t, 2026, e.PeriodYear)
+			assert.Equal(t, domain.CalStatusPENDING, e.Status)
+		}
+	}
+	assert.Equal(t, 12, vatCount, "12 VAT monthly entries")
+
+	// Verify CIT quarterly entries exist
+	citCount := 0
+	for _, e := range entries {
+		if e.TaxType == domain.TaxTypeCIT {
+			citCount++
+			assert.Equal(t, domain.PeriodTypeQuarterly, e.PeriodType)
+		}
+	}
+	assert.Equal(t, 4, citCount, "4 CIT quarterly entries")
+}
+
+func TestGenerateCalendarBatch_SkipsDuplicates(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	// Generate once
+	_, err := svc.GenerateCalendarBatch(ctx, "c1", 2026, []domain.TaxType{domain.TaxTypeVAT})
+	require.NoError(t, err)
+
+	// Generate again — should skip existing
+	count, err := svc.GenerateCalendarBatch(ctx, "c1", 2026, []domain.TaxType{domain.TaxTypeVAT})
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no new entries created")
+
+	entries, _ := repo.GetCalendarByCompany(ctx, "c1")
+	assert.Len(t, entries, 12, "still only 12 entries")
 }

@@ -1,0 +1,1 @@
+ALTER TABLE tax_payments ADD COLUMN IF NOT EXISTS gl_journal_id VARCHAR(36);

@@ -24,15 +24,36 @@ package gdt
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"gotax/internal/domain"
 )
+
+// GDTError is a structured error from the GDT API. It wraps domain errors
+// with HTTP-level details for debugging and audit trails.
+type GDTError struct {
+	Err        error  // underlying domain error (ErrGDTRejected, etc.)
+	StatusCode int    // HTTP status code
+	Body       string // raw response body (truncated to 4KB)
+	Path       string // request path
+}
+
+func (e *GDTError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("gdt: %s (HTTP %d): %s", e.Path, e.StatusCode, e.Body)
+	}
+	return fmt.Sprintf("gdt: %s (HTTP %d)", e.Path, e.StatusCode)
+}
+
+func (e *GDTError) Unwrap() error { return e.Err }
 
 // Client is a GDT API client.
 type Client struct {
@@ -40,6 +61,7 @@ type Client struct {
 	http      *http.Client
 	retries   []time.Duration
 	authToken string
+	logger    func(string, ...any)
 }
 
 // Option configures a Client.
@@ -58,6 +80,47 @@ func WithRetry(delays ...time.Duration) Option {
 // WithToken sets a static bearer token on every request.
 func WithToken(token string) Option {
 	return func(c *Client) { c.authToken = token }
+}
+
+// WithLogger sets a logger for request/response debugging.
+func WithLogger(l func(string, ...any)) Option {
+	return func(c *Client) { c.logger = l }
+}
+
+// WithClientCert configures mTLS with a client certificate and CA bundle.
+// certPath: PEM file with client cert + key. caPath: PEM file with CA certs (empty = system roots).
+func WithClientCert(certPath, caPath string) Option {
+	return func(c *Client) {
+		cert, err := tls.LoadX509KeyPair(certPath, certPath)
+		if err != nil {
+			if c.logger != nil {
+				c.logger("gdt: load client cert: %v", err)
+			}
+			return
+		}
+		tlsCfg := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		if caPath != "" {
+			ca, err := os.ReadFile(caPath)
+			if err != nil {
+				if c.logger != nil {
+					c.logger("gdt: read CA bundle: %v", err)
+				}
+				return
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(ca) {
+				if c.logger != nil {
+					c.logger("gdt: parse CA bundle: no valid certs")
+				}
+				return
+			}
+			tlsCfg.RootCAs = pool
+		}
+		c.http.Transport = &http.Transport{TLSClientConfig: tlsCfg}
+	}
 }
 
 // New builds a Client. url must be an absolute http(s) base URL.
@@ -147,15 +210,26 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Request-ID", fmt.Sprintf("gotax-%d", time.Now().UnixNano()))
 		if c.authToken != "" {
 			req.Header.Set("Authorization", "Bearer "+c.authToken)
+		}
+		if c.logger != nil {
+			c.logger("gdt: %s %s attempt=%d/%d", method, path, i+1, attempts)
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
 			lastErr = domain.ErrGDTUnavailable // network error → retry
+			if c.logger != nil {
+				c.logger("gdt: %s %s error=%v (retry)", method, path, err)
+			}
 		} else {
 			respBody, readErr := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			bodyStr := string(respBody)
+			if len(bodyStr) > 4096 {
+				bodyStr = bodyStr[:4096] + "...(truncated)"
+			}
 			switch {
 			case resp.StatusCode >= 200 && resp.StatusCode < 300:
 				if readErr != nil {
@@ -163,16 +237,22 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 				}
 				if out != nil && len(respBody) > 0 {
 					if err := json.Unmarshal(respBody, out); err != nil {
-						return fmt.Errorf("gdt: decode response: %w", err)
+						return &GDTError{Err: fmt.Errorf("gdt: decode response: %w", err), StatusCode: resp.StatusCode, Body: bodyStr, Path: path}
 					}
+				}
+				if c.logger != nil {
+					c.logger("gdt: %s %s → %d OK", method, path, resp.StatusCode)
 				}
 				return nil
 			case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-				return domain.ErrGDTUnauthorized
+				return &GDTError{Err: domain.ErrGDTUnauthorized, StatusCode: resp.StatusCode, Body: bodyStr, Path: path}
 			case resp.StatusCode >= 400 && resp.StatusCode < 500:
-				return domain.ErrGDTRejected
+				return &GDTError{Err: domain.ErrGDTRejected, StatusCode: resp.StatusCode, Body: bodyStr, Path: path}
 			default: // 5xx → retry
-				lastErr = domain.ErrGDTUnavailable
+				lastErr = &GDTError{Err: domain.ErrGDTUnavailable, StatusCode: resp.StatusCode, Body: bodyStr, Path: path}
+				if c.logger != nil {
+					c.logger("gdt: %s %s → %d (retry)", method, path, resp.StatusCode)
+				}
 			}
 		}
 		if i < len(c.retries) {
