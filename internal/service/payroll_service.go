@@ -23,6 +23,11 @@ import (
 
 // ─── Repository ─────────────────────────────────────────────────
 
+// PayrollJEWriter creates journal entries for payroll posting.
+type PayrollJEWriter interface {
+	CreateEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error
+}
+
 // PayrollRepository defines payroll data access.
 type PayrollRepository interface {
 	// Employee payroll info
@@ -100,13 +105,18 @@ type PayrollRepository interface {
 
 // PayrollService implements payroll business logic.
 type PayrollService struct {
-	repo      PayrollRepository
+	repo        PayrollRepository
 	companyRepo domain.CompanyRepository
+	jeWriter    PayrollJEWriter
 }
 
 // NewPayrollService creates a new PayrollService.
-func NewPayrollService(repo PayrollRepository, companyRepo domain.CompanyRepository) *PayrollService {
-	return &PayrollService{repo: repo, companyRepo: companyRepo}
+func NewPayrollService(repo PayrollRepository, companyRepo domain.CompanyRepository, jeWriter ...PayrollJEWriter) *PayrollService {
+	var jew PayrollJEWriter
+	if len(jeWriter) > 0 {
+		jew = jeWriter[0]
+	}
+	return &PayrollService{repo: repo, companyRepo: companyRepo, jeWriter: jew}
 }
 
 // ─── Period Management ──────────────────────────────────────────
@@ -166,6 +176,28 @@ func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy
 
 	if period.Status != domain.PayrollProcessing {
 		return domain.ErrPayrollPeriodNotDraft
+	}
+
+	// Generate GL journal entries before approving
+	if s.jeWriter != nil {
+		runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+		if err != nil {
+			return err
+		}
+		if len(runs) > 0 {
+			journalResult := domain.GeneratePayrollJournalEntries(domain.PayrollJEInput{
+				PeriodID:    periodID,
+				CompanyID:   period.CompanyID,
+				PeriodMonth: period.Month,
+				PeriodYear:  period.Year,
+				Runs:        runs,
+			})
+			for _, entry := range journalResult.Entries {
+				if err := s.jeWriter.CreateEntry(ctx, entry, approvedBy); err != nil {
+					return fmt.Errorf("create payroll journal entry: %w", err)
+				}
+			}
+		}
 	}
 
 	now := time.Now()

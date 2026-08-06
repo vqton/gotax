@@ -1,6 +1,10 @@
 package domain
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"time"
+)
 
 // ─── Insurance Constants ────────────────────────────────────────
 
@@ -212,6 +216,135 @@ func CalcLeavePay(dailySalary, days float64) float64 {
 
 func CalcHolidayPay(dailySalary float64) float64 {
 	return round0(dailySalary * HolidayPayRate)
+}
+
+// ─── Payroll Journal Entry Generation ───────────────────────────
+
+// PayrollJEInput holds data for generating payroll journal entries.
+type PayrollJEInput struct {
+	PeriodID    string
+	CompanyID   string
+	PeriodMonth int
+	PeriodYear  int
+	Runs        []PayrollRun
+}
+
+// PayrollJournalEntries holds the generated journal entries for a payroll period.
+type PayrollJournalEntries struct {
+	Entries []*JournalEntry
+}
+
+// GeneratePayrollJournalEntries creates journal entries from approved payroll runs.
+// Account codes per Circular 99/2025/TT-BTC:
+//
+//	6421 — Salary expense
+//	6422 — Overtime expense
+//	6423 — Allowance expense
+//	6424 — Insurance expense (employer)
+//	3331 — Salary payable
+//	3332 — SI payable (employer)
+//	3333 — HI payable (employer)
+//	3334 — UI payable (employer)
+//	3335 — SI payable (employee)
+//	3336 — HI payable (employee)
+//	3337 — UI payable (employee)
+//	3338 — PIT payable
+//	3339 — Trade union payable
+func GeneratePayrollJournalEntries(input PayrollJEInput) PayrollJournalEntries {
+	if len(input.Runs) == 0 {
+		return PayrollJournalEntries{}
+	}
+
+	var totalBaseSalary, totalOTPay, totalNightPay, totalLeavePay, totalHolidayPay float64
+	var totalAllowances, totalBonuses, totalOtherIncome float64
+	var totalSIDeduction, totalHIDeduction, totalUIDeduction float64
+	var totalTradeUnion, totalPIT float64
+	var totalEmployerSI, totalEmployerHI, totalEmployerUI float64
+	var totalEmployerTU float64
+
+	for _, r := range input.Runs {
+		totalBaseSalary += r.BaseSalary
+		totalOTPay += r.OTPay
+		totalNightPay += r.NightShiftPay
+		totalLeavePay += r.LeavePay
+		totalHolidayPay += r.HolidayPay
+		totalAllowances += r.Allowances
+		totalBonuses += r.Bonuses
+		totalOtherIncome += r.OtherIncome
+		totalSIDeduction += r.SIDeduction
+		totalHIDeduction += r.HIDeduction
+		totalUIDeduction += r.UIDeduction
+		totalTradeUnion += r.TradeUnionDues
+		totalPIT += r.PITAmount
+		totalEmployerSI += r.EmployerSI
+		totalEmployerHI += r.EmployerHI
+		totalEmployerUI += r.EmployerUI
+		totalEmployerTU += r.EmployerTradeUnion
+	}
+
+	totalGross := totalBaseSalary + totalOTPay + totalNightPay + totalLeavePay +
+		totalHolidayPay + totalAllowances + totalBonuses + totalOtherIncome
+
+	desc := fmt.Sprintf("Payroll %02d/%d", input.PeriodMonth, input.PeriodYear)
+
+	lines1 := []JournalLine{
+		{LineNumber: 1, AccountCode: "6421", DebitAmount: totalBaseSalary, Description: "Lương cơ bản"},
+		{LineNumber: 2, AccountCode: "6422", DebitAmount: totalOTPay + totalNightPay, Description: "Lương tăng ca ca đêm"},
+		{LineNumber: 3, AccountCode: "6423", DebitAmount: totalAllowances + totalHolidayPay + totalBonuses + totalOtherIncome, Description: "Phụ cấp & thưởng"},
+		{LineNumber: 4, AccountCode: "3331", CreditAmount: totalGross, Description: "Phải trả người lao động"},
+	}
+
+	lines2 := []JournalLine{
+		{LineNumber: 1, AccountCode: "6424", DebitAmount: totalEmployerSI + totalEmployerHI + totalEmployerUI + totalEmployerTU, Description: "Chi phí bảo hiểm NSDLĐ"},
+		{LineNumber: 2, AccountCode: "3332", CreditAmount: totalEmployerSI, Description: "BHXH phần sử dụng lao động"},
+		{LineNumber: 3, AccountCode: "3333", CreditAmount: totalEmployerHI, Description: "BHYT phần sử dụng lao động"},
+		{LineNumber: 4, AccountCode: "3334", CreditAmount: totalEmployerUI, Description: "BHTN phần sử dụng lao động"},
+		{LineNumber: 5, AccountCode: "3339", CreditAmount: totalEmployerTU, Description: "Công đoàn phần sử dụng lao động"},
+	}
+
+	// Entry 3: Employee deductions (offset against salary payable)
+	lines3 := []JournalLine{
+		{LineNumber: 1, AccountCode: "3331", DebitAmount: totalSIDeduction + totalHIDeduction + totalUIDeduction + totalTradeUnion + totalPIT, Description: "Trừ tiền lương NLĐ"},
+		{LineNumber: 2, AccountCode: "3335", CreditAmount: totalSIDeduction, Description: "BHXH phần NLĐ"},
+		{LineNumber: 3, AccountCode: "3336", CreditAmount: totalHIDeduction, Description: "BHYT phần NLĐ"},
+		{LineNumber: 4, AccountCode: "3337", CreditAmount: totalUIDeduction, Description: "BHTN phần NLĐ"},
+		{LineNumber: 5, AccountCode: "3339", CreditAmount: totalTradeUnion, Description: "Công đoàn phần NLĐ"},
+		{LineNumber: 6, AccountCode: "3338", CreditAmount: totalPIT, Description: "Thuế TNCN"},
+	}
+
+	salaryEntry := &JournalEntry{
+		CompanyID:   input.CompanyID,
+		EntryNumber: fmt.Sprintf("PC-%02d%04d", input.PeriodMonth, input.PeriodYear),
+		EntryDate:   time.Now(),
+		Description: desc + " — Lương và phân bổ",
+		Status:      JournalEntryDraft,
+		Lines:       lines1,
+	}
+
+	insuranceEntry := &JournalEntry{
+		CompanyID:   input.CompanyID,
+		EntryNumber: fmt.Sprintf("PC-BH-%02d%04d", input.PeriodMonth, input.PeriodYear),
+		EntryDate:   time.Now(),
+		Description: desc + " — Bảo hiểm NSDLĐ",
+		Status:      JournalEntryDraft,
+		Lines:       lines2,
+	}
+
+	deductionEntry := &JournalEntry{
+		CompanyID:   input.CompanyID,
+		EntryNumber: fmt.Sprintf("PC-TRU-%02d%04d", input.PeriodMonth, input.PeriodYear),
+		EntryDate:   time.Now(),
+		Description: desc + " — Trừ tiền lương NLĐ",
+		Status:      JournalEntryDraft,
+		Lines:       lines3,
+	}
+
+	_ = insuranceEntry
+	_ = deductionEntry
+
+	return PayrollJournalEntries{
+		Entries: []*JournalEntry{salaryEntry, insuranceEntry, deductionEntry},
+	}
 }
 
 // ─── Net-to-Gross (Reverse Calculation) ─────────────────────────

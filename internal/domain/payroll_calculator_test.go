@@ -899,3 +899,99 @@ func TestPITBracketCoverage(t *testing.T) {
 		require.True(t, b.Rate > 0 && b.Rate <= 0.35)
 	}
 }
+
+// ─── Payroll Journal Entry Generation ──────────────────────────
+
+func TestGeneratePayrollJournalEntries_Empty(t *testing.T) {
+	result := GeneratePayrollJournalEntries(PayrollJEInput{})
+	assert.Empty(t, result.Entries)
+}
+
+func TestGeneratePayrollJournalEntries_SingleEmployee(t *testing.T) {
+	emp := makeTestEmployee(10_000_000, RegionI)
+	period := &PayrollPeriod{Year: 2026, Month: 7}
+	run := CalculateEmployeePayroll(emp, period, nil)
+
+	result := GeneratePayrollJournalEntries(PayrollJEInput{
+		PeriodID:    "PER001",
+		CompanyID:   "CMP001",
+		PeriodMonth: 7,
+		PeriodYear:  2026,
+		Runs:        []PayrollRun{run},
+	})
+
+	require.Len(t, result.Entries, 3)
+
+	// Entry 1: Salary expense
+	je1 := result.Entries[0]
+	assert.Equal(t, "CMP001", je1.CompanyID)
+	assert.Equal(t, "PC-072026", je1.EntryNumber)
+	assert.Equal(t, JournalEntryDraft, je1.Status)
+	assert.True(t, je1.HasDebit())
+	assert.True(t, je1.HasCredit())
+	assert.True(t, je1.TotalDebit() > 0)
+	assert.Equal(t, je1.TotalDebit(), je1.TotalCredit(), "entry 1 must balance")
+
+	// Entry 2: Insurance expense
+	je2 := result.Entries[1]
+	assert.Equal(t, "PC-BH-072026", je2.EntryNumber)
+	assert.Equal(t, je2.TotalDebit(), je2.TotalCredit(), "entry 2 must balance")
+
+	// Entry 3: Employee deductions
+	je3 := result.Entries[2]
+	assert.Equal(t, "PC-TRU-072026", je3.EntryNumber)
+	assert.Equal(t, je3.TotalDebit(), je3.TotalCredit(), "entry 3 must balance")
+}
+
+func TestGeneratePayrollJournalEntries_MultipleEmployees(t *testing.T) {
+	emp1 := makeTestEmployee(10_000_000, RegionI)
+	emp2 := makeTestEmployee(15_000_000, RegionI)
+	period := &PayrollPeriod{Year: 2026, Month: 8}
+	run1 := CalculateEmployeePayroll(emp1, period, nil)
+	run2 := CalculateEmployeePayroll(emp2, period, nil)
+
+	result := GeneratePayrollJournalEntries(PayrollJEInput{
+		PeriodID:    "PER002",
+		CompanyID:   "CMP001",
+		PeriodMonth: 8,
+		PeriodYear:  2026,
+		Runs:        []PayrollRun{run1, run2},
+	})
+
+	require.Len(t, result.Entries, 3)
+
+	// Entry 1 debit should be sum of both employees
+	je1 := result.Entries[0]
+	assert.True(t, je1.TotalDebit() > 10_000_000, "should aggregate multiple employees")
+}
+
+func TestGeneratePayrollJournalEntries_AccountCodes(t *testing.T) {
+	emp := makeTestEmployee(10_000_000, RegionI)
+	period := &PayrollPeriod{Year: 2026, Month: 7}
+	run := CalculateEmployeePayroll(emp, period, nil)
+
+	result := GeneratePayrollJournalEntries(PayrollJEInput{
+		PeriodID: "PER001", CompanyID: "CMP001",
+		PeriodMonth: 7, PeriodYear: 2026,
+		Runs: []PayrollRun{run},
+	})
+
+	// Check account codes in entry 1
+	je1 := result.Entries[0]
+	codes := make(map[string]bool)
+	for _, l := range je1.Lines {
+		codes[l.AccountCode] = true
+	}
+	assert.True(t, codes["6421"], "should have salary expense 6421")
+	assert.True(t, codes["3331"], "should have salary payable 3331")
+
+	// Check account codes in entry 2
+	je2 := result.Entries[1]
+	codes2 := make(map[string]bool)
+	for _, l := range je2.Lines {
+		codes2[l.AccountCode] = true
+	}
+	assert.True(t, codes2["6424"], "should have insurance expense 6424")
+	assert.True(t, codes2["3332"], "should have SI payable 3332")
+	assert.True(t, codes2["3333"], "should have HI payable 3333")
+}

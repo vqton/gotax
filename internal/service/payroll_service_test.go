@@ -18,6 +18,24 @@ func setupPayrollService(t *testing.T) (*PayrollService, context.Context) {
 	return svc, context.Background()
 }
 
+// mockJEWriter records journal entries created during payroll approval.
+type mockJEWriter struct {
+	entries []*domain.JournalEntry
+}
+
+func (m *mockJEWriter) CreateEntry(ctx context.Context, entry *domain.JournalEntry, userID string) error {
+	m.entries = append(m.entries, entry)
+	return nil
+}
+
+func setupPayrollServiceWithGL(t *testing.T) (*PayrollService, *mockJEWriter, context.Context) {
+	t.Helper()
+	repo := repository.NewMemoryPayrollRepo()
+	writer := &mockJEWriter{}
+	svc := NewPayrollService(repo, nil, writer)
+	return svc, writer, context.Background()
+}
+
 // ─── EmployeePayrollInfo ────────────────────────────────────────
 
 func TestCreateEmployeePayrollInfo_Success(t *testing.T) {
@@ -544,4 +562,57 @@ func TestGetPeriodSummary_WithData(t *testing.T) {
 	assert.Equal(t, 25_000_000.0, summary.TotalGross)
 	assert.Equal(t, 21_000_000.0, summary.TotalNetPay)
 	assert.Equal(t, 4_000_000.0, summary.TotalDeductions)
+}
+
+// ─── GL Journal Entry Posting on Approval ───────────────────────
+
+func TestApprovePeriod_CreatesGLEntries(t *testing.T) {
+	svc, writer, ctx := setupPayrollServiceWithGL(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+
+	// Create employee info and runs
+	info := &domain.EmployeePayrollInfo{
+		EmployeeID:   "NV001",
+		BaseSalary:   10_000_000,
+		ContractType: domain.ContractIndefinite,
+		Region:       domain.RegionI,
+	}
+	require.NoError(t, svc.CreateEmployeePayrollInfo(ctx, info))
+
+	// Calculate period → PROCESSING (with runs)
+	require.NoError(t, svc.CalculatePeriod(ctx, period.ID))
+
+	// Approve — should create GL entries
+	require.NoError(t, svc.ApprovePeriod(ctx, period.ID, "admin"))
+
+	// Verify GL entries created
+	require.Len(t, writer.entries, 3, "should create 3 journal entries (salary, insurance, deductions)")
+	for _, je := range writer.entries {
+		assert.Equal(t, "CMP001", je.CompanyID)
+		assert.True(t, je.HasDebit(), "should have debit: %s", je.EntryNumber)
+		assert.True(t, je.HasCredit(), "should have credit: %s", je.EntryNumber)
+		assert.Equal(t, je.TotalDebit(), je.TotalCredit(), "must balance: %s", je.EntryNumber)
+	}
+
+	// Verify period status updated
+	got, err := svc.GetPeriod(ctx, period.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayrollApproved, got.Status)
+}
+
+func TestApprovePeriod_NoGLWriter_SkipsEntries(t *testing.T) {
+	svc, ctx := setupPayrollService(t) // no writer
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+
+	info := &domain.EmployeePayrollInfo{
+		EmployeeID: "NV001", BaseSalary: 10_000_000,
+		ContractType: domain.ContractIndefinite, Region: domain.RegionI,
+	}
+	require.NoError(t, svc.CreateEmployeePayrollInfo(ctx, info))
+	require.NoError(t, svc.CalculatePeriod(ctx, period.ID))
+	require.NoError(t, svc.ApprovePeriod(ctx, period.ID, "admin"))
+
+	got, err := svc.GetPeriod(ctx, period.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayrollApproved, got.Status)
 }
