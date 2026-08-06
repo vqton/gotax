@@ -595,6 +595,12 @@ var (
 	ErrFAResumeNotApplicable        = errors.New("asset is not suspended, cannot resume")
 )
 
+// Cost Center errors
+var (
+	ErrCostCenterNotFound   = errors.New("cost center not found")
+	ErrCostCenterCodeExists = errors.New("cost center code already exists")
+)
+
 // Budget module errors
 var (
 	ErrBudgetNotFound = errors.New("budget not found")

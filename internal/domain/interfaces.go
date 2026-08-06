@@ -647,6 +647,17 @@ type InventoryValuationRunRepository interface {
 	UpdateValuationRun(ctx context.Context, v *InventoryValuationRun) error
 }
 
+// ─── Cost Center Repository ──────────────────────────────────────
+
+type CostCenterRepository interface {
+	Create(ctx context.Context, cc *CostCenter) error
+	GetByID(ctx context.Context, id string) (*CostCenter, error)
+	List(ctx context.Context, companyID string) ([]CostCenter, error)
+	Update(ctx context.Context, cc *CostCenter) error
+	Delete(ctx context.Context, id string) error
+	GetByCode(ctx context.Context, companyID, code string) (*CostCenter, error)
+}
+
 // ─── Recurring Entry Repository ─────────────────────────────────────
 
 // ─── Notification Repository ──────────────────────────────────────

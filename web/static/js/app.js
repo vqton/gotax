@@ -40,6 +40,7 @@ const MODULE_GROUPS = [
       { href: "/app/exchange-rates.html", icon: "💱", label: "Tỷ giá" },
       { href: "/app/opening-balances.html", icon: "⚖️", label: "Số dư đầu kỳ" },
       { href: "/app/budget.html", icon: "💰", label: "Ngân sách" },
+      { href: "/app/cost-centers.html", icon: "🏗️", label: "Trung tâm chi phí" },
     ]
   },
   {
