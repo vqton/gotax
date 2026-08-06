@@ -164,7 +164,7 @@ func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy
 		return err
 	}
 
-	if period.Status != domain.PayrollDraft {
+	if period.Status != domain.PayrollProcessing {
 		return domain.ErrPayrollPeriodNotDraft
 	}
 
@@ -174,6 +174,27 @@ func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy
 	period.ApprovedAt = &now
 	period.UpdatedAt = now
 
+	return s.repo.UpdatePeriod(ctx, period)
+}
+
+func (s *PayrollService) SubmitPeriod(ctx context.Context, periodID string) error {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	if period.Status != domain.PayrollDraft {
+		return domain.ErrPayrollPeriodNotDraft
+	}
+	runs, err := s.repo.ListRunsByPeriod(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	if len(runs) == 0 {
+		return domain.ErrPayrollNoEmployees
+	}
+	now := time.Now()
+	period.Status = domain.PayrollProcessing
+	period.UpdatedAt = now
 	return s.repo.UpdatePeriod(ctx, period)
 }
 

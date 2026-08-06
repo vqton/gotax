@@ -240,8 +240,11 @@ func (h *PayrollHandler) GetPeriod(c *gin.Context) {
 }
 
 func (h *PayrollHandler) SubmitPeriod(c *gin.Context) {
-	// TODO: implement submit for review workflow
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not yet implemented"})
+	if err := h.svc.SubmitPeriod(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "processing"})
 }
 
 func (h *PayrollHandler) ApprovePeriod(c *gin.Context) {

@@ -141,12 +141,64 @@ func TestListPeriods_Success(t *testing.T) {
 	assert.Equal(t, 1, list[5].Month)
 }
 
+// ─── Submit Period ──────────────────────────────────────────────
+
+func TestSubmitPeriod_Success(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, err := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	require.NoError(t, err)
+
+	// Create a payroll run so SubmitPeriod validates
+	run := &domain.PayrollRun{
+		ID: "RUN001", PeriodID: period.ID, EmployeeID: "NV001",
+		GrossSalary: 10_000_000, NetPay: 8_500_000,
+	}
+	require.NoError(t, svc.repo.CreateRun(ctx, run))
+
+	err = svc.SubmitPeriod(ctx, period.ID)
+	require.NoError(t, err)
+
+	got, err := svc.GetPeriod(ctx, period.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayrollProcessing, got.Status)
+}
+
+func TestSubmitPeriod_NoRuns(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, err := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	require.NoError(t, err)
+
+	err = svc.SubmitPeriod(ctx, period.ID)
+	require.ErrorIs(t, err, domain.ErrPayrollNoEmployees)
+}
+
+func TestSubmitPeriod_AlreadySubmitted(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, err := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	require.NoError(t, err)
+	run := &domain.PayrollRun{
+		ID: "RUN001", PeriodID: period.ID, EmployeeID: "NV001",
+		GrossSalary: 10_000_000, NetPay: 8_500_000,
+	}
+	require.NoError(t, svc.repo.CreateRun(ctx, run))
+	require.NoError(t, svc.SubmitPeriod(ctx, period.ID))
+
+	err = svc.SubmitPeriod(ctx, period.ID)
+	require.ErrorIs(t, err, domain.ErrPayrollPeriodNotDraft)
+}
+
 // ─── Approve Period ─────────────────────────────────────────────
 
 func TestApprovePeriod_Success(t *testing.T) {
 	svc, ctx := setupPayrollService(t)
 	period, err := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
 	require.NoError(t, err)
+	run := &domain.PayrollRun{
+		ID: "RUN001", PeriodID: period.ID, EmployeeID: "NV001",
+		GrossSalary: 10_000_000, NetPay: 8_500_000,
+	}
+	require.NoError(t, svc.repo.CreateRun(ctx, run))
+	require.NoError(t, svc.SubmitPeriod(ctx, period.ID))
 
 	err = svc.ApprovePeriod(ctx, period.ID, "admin")
 	require.NoError(t, err)
@@ -157,13 +209,12 @@ func TestApprovePeriod_Success(t *testing.T) {
 	assert.Equal(t, "admin", got.ApprovedBy)
 }
 
-func TestApprovePeriod_NotDraft(t *testing.T) {
+func TestApprovePeriod_NotProcessing(t *testing.T) {
 	svc, ctx := setupPayrollService(t)
 	period, err := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
 	require.NoError(t, err)
-	require.NoError(t, svc.ApprovePeriod(ctx, period.ID, "admin"))
 
-	err = svc.ApprovePeriod(ctx, period.ID, "admin2")
+	err = svc.ApprovePeriod(ctx, period.ID, "admin")
 	require.ErrorIs(t, err, domain.ErrPayrollPeriodNotDraft)
 }
 

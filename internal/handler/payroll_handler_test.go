@@ -139,6 +139,10 @@ func TestPayrollGetPeriod_NotFound(t *testing.T) {
 func TestPayrollApprovePeriod_Success(t *testing.T) {
 	r, svc := setupPayrollHandlerTest(t)
 	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	_ = svc.CreateRun(testContext(), &domain.PayrollRun{
+		PeriodID: period.ID, EmployeeID: "NV001", CompanyID: "CMP001", BaseSalary: 10_000_000,
+	})
+	_ = svc.SubmitPeriod(testContext(), period.ID)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/approve", nil)
@@ -147,10 +151,9 @@ func TestPayrollApprovePeriod_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestPayrollApprovePeriod_NotDraft(t *testing.T) {
+func TestPayrollApprovePeriod_NotProcessing(t *testing.T) {
 	r, svc := setupPayrollHandlerTest(t)
 	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
-	_ = svc.ApprovePeriod(testContext(), period.ID, "admin")
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/approve", nil)
