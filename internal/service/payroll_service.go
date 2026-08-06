@@ -333,6 +333,12 @@ func (s *PayrollService) CalcNetToGross(ctx context.Context, input domain.NetToG
 	return domain.CalcNetToGross(input)
 }
 
+// ─── 13th-Month Salary ─────────────────────────────────────────
+
+func (s *PayrollService) CalcThirteenthMonth(ctx context.Context, input domain.ThirteenthMonthInput) domain.ThirteenthMonthResult {
+	return domain.CalcThirteenthMonth(input)
+}
+
 // ─── Summary ────────────────────────────────────────────────────
 
 func (s *PayrollService) GetPeriodSummary(ctx context.Context, periodID string) (*domain.PayrollSummary, error) {

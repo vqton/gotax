@@ -531,6 +531,149 @@ func TestPayrollTransitionPeriod(t *testing.T) {
 	})
 }
 
+// ─── 13th-Month Salary ──────────────────────────────────────────
+
+func TestCalcThirteenthMonth(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        ThirteenthMonthInput
+		expectGross  float64
+		expectNet    bool // just check > 0
+	}{
+		{
+			name: "full year — 10M base",
+			input: ThirteenthMonthInput{
+				BaseSalary:   10_000_000,
+				MonthsWorked: 12,
+				InsuranceBase: 10_000_000,
+				UIBase:       10_000_000,
+				Month:        12, Year: 2026,
+			},
+			expectGross: 10_000_000, // 10M × 12/12
+		},
+		{
+			name: "half year — 10M base",
+			input: ThirteenthMonthInput{
+				BaseSalary:   10_000_000,
+				MonthsWorked: 6,
+				InsuranceBase: 10_000_000,
+				UIBase:       10_000_000,
+				Month:        12, Year: 2026,
+			},
+			expectGross: 5_000_000, // 10M × 6/12
+		},
+		{
+			name: "3 months worked — 20M base",
+			input: ThirteenthMonthInput{
+				BaseSalary:   20_000_000,
+				MonthsWorked: 3,
+				InsuranceBase: 20_000_000,
+				UIBase:       20_000_000,
+				Month:        12, Year: 2026,
+			},
+			expectGross: 5_000_000, // 20M × 3/12
+		},
+		{
+			name: "zero months = zero",
+			input: ThirteenthMonthInput{
+				BaseSalary:   10_000_000,
+				MonthsWorked: 0,
+				Month:        12, Year: 2026,
+			},
+			expectGross: 0,
+		},
+		{
+			name: "foreign employee — no UI",
+			input: ThirteenthMonthInput{
+				BaseSalary:   15_000_000,
+				MonthsWorked: 12,
+				IsForeign:    true,
+				InsuranceBase: 15_000_000,
+				UIBase:       15_000_000,
+				Month:        12, Year: 2026,
+			},
+			expectGross: 15_000_000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CalcThirteenthMonth(tt.input)
+			assert.Equal(t, tt.expectGross, result.GrossAmount)
+			if tt.expectNet {
+				assert.True(t, result.NetPay > 0)
+			}
+			if tt.expectGross > 0 {
+				assert.True(t, result.NetPay > 0, "net must be positive")
+				assert.True(t, result.GrossAmount > result.NetPay, "gross > net")
+				assert.True(t, result.TotalDeductions > 0, "has deductions")
+			}
+		})
+	}
+}
+
+func TestCalcThirteenthMonth_FullDeductions(t *testing.T) {
+	result := CalcThirteenthMonth(ThirteenthMonthInput{
+		BaseSalary:    20_000_000,
+		MonthsWorked:  12,
+		InsuranceBase: 20_000_000,
+		UIBase:        20_000_000,
+		Month:         12, Year: 2026,
+	})
+
+	// Gross = 20M
+	assert.Equal(t, float64(20_000_000), result.GrossAmount)
+	// SI: 8% of 20M = 1,600,000
+	assert.Equal(t, float64(1_600_000), result.SIDeduction)
+	// HI: 1.5% of 20M = 300,000
+	assert.Equal(t, float64(300_000), result.HIDeduction)
+	// UI: 1% of 20M = 200,000
+	assert.Equal(t, float64(200_000), result.UIDeduction)
+	// Employer SI: 17.5% of 20M = 3,500,000
+	assert.Equal(t, float64(3_500_000), result.EmployerSI)
+	// Employer HI: 3% of 20M = 600,000
+	assert.Equal(t, float64(600_000), result.EmployerHI)
+	// Employer UI: 1% of 20M = 200,000
+	assert.Equal(t, float64(200_000), result.EmployerUI)
+
+	// Net = gross - deductions
+	assert.Equal(t, result.GrossAmount-result.TotalDeductions, result.NetPay)
+}
+
+func TestCalcThirteenthMonth_CappedInsurance(t *testing.T) {
+	// High salary above cap
+	result := CalcThirteenthMonth(ThirteenthMonthInput{
+		BaseSalary:    60_000_000,
+		MonthsWorked:  12,
+		InsuranceBase: 60_000_000,
+		UIBase:        60_000_000,
+		Month:         12, Year: 2026,
+	})
+
+	// SI capped at 50,600,000 × 8% = 4,048,000
+	assert.Equal(t, float64(4_048_000), result.SIDeduction)
+	assert.Equal(t, float64(759_000), result.HIDeduction)
+}
+
+func TestCalcThirteenthMonth_H1vsH2(t *testing.T) {
+	rH1 := CalcThirteenthMonth(ThirteenthMonthInput{
+		BaseSalary: 50_000_000, MonthsWorked: 12,
+		InsuranceBase: 50_000_000, UIBase: 50_000_000,
+		Month: 6, Year: 2026, // H1
+	})
+	rH2 := CalcThirteenthMonth(ThirteenthMonthInput{
+		BaseSalary: 50_000_000, MonthsWorked: 12,
+		InsuranceBase: 50_000_000, UIBase: 50_000_000,
+		Month: 12, Year: 2026, // H2
+	})
+
+	// H1 SI: 8% of 46,800,000 = 3,744,000
+	assert.Equal(t, float64(3_744_000), rH1.SIDeduction)
+	// H2 SI: 8% of 50,000,000 = 4,000,000 (below 50.6M cap)
+	assert.Equal(t, float64(4_000_000), rH2.SIDeduction)
+	assert.NotEqual(t, rH1.SIDeduction, rH2.SIDeduction)
+}
+
 // ─── Net-to-Gross ──────────────────────────────────────────────
 
 func TestCalcNetToGross(t *testing.T) {

@@ -901,3 +901,35 @@ func TestCalcNetToGross_ZeroTarget(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+// ─── 13th-Month Salary ───────────────────────────────────────────
+
+func TestCalcThirteenthMonth_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"base_salary":20000000,"months_worked":12,"insurance_base":20000000,"ui_base":20000000,"month":12,"year":2026}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/13th-month", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.ThirteenthMonthResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, float64(20_000_000), result.GrossAmount)
+	assert.True(t, result.NetPay > 0)
+	assert.True(t, result.TotalDeductions > 0)
+}
+
+func TestCalcThirteenthMonth_Proportional(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"base_salary":12000000,"months_worked":6,"insurance_base":12000000,"ui_base":12000000,"month":12,"year":2026}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/13th-month", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.ThirteenthMonthResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, float64(6_000_000), result.GrossAmount) // 12M × 6/12
+}

@@ -316,6 +316,98 @@ func calcGrossNet(gross float64, input NetToGrossInput) GrossNetPair {
 	return GrossNetPair{Gross: gross, Net: net, SI: si, HI: hi, UI: ui, TU: tu, PIT: pit}
 }
 
+// ─── 13th-Month Salary ──────────────────────────────────────────
+
+// ThirteenthMonthInput holds inputs for 13th-month salary calculation.
+type ThirteenthMonthInput struct {
+	BaseSalary      float64 `json:"base_salary"`
+	MonthsWorked    int     `json:"months_worked"`     // 1-12
+	Allowances      float64 `json:"allowances"`         // monthly allowances total
+	IsForeign       bool    `json:"is_foreign"`
+	DependantCount  int     `json:"dependant_count"`
+	InsuranceBase   float64 `json:"insurance_base"`
+	UIBase          float64 `json:"ui_base"`
+	Month           int     `json:"month"`              // payout month (for PIT bracket selection)
+	Year            int     `json:"year"`
+}
+
+// ThirteenthMonthResult holds the 13th-month salary breakdown.
+type ThirteenthMonthResult struct {
+	GrossAmount     float64 `json:"gross_amount"`
+	SIDeduction     float64 `json:"si_deduction"`
+	HIDeduction     float64 `json:"hi_deduction"`
+	UIDeduction     float64 `json:"ui_deduction"`
+	TradeUnionDues  float64 `json:"trade_union_dues"`
+	PITAmount       float64 `json:"pit_amount"`
+	TotalDeductions float64 `json:"total_deductions"`
+	NetPay          float64 `json:"net_pay"`
+	EmployerSI      float64 `json:"employer_si"`
+	EmployerHI      float64 `json:"employer_hi"`
+	EmployerUI      float64 `json:"employer_ui"`
+	TotalEmployerCost float64 `json:"total_employer_cost"`
+}
+
+// CalcThirteenthMonth computes 13th-month salary with full deductions.
+// Per Vietnamese Labour Code Art. 103: employees with <12 months get proportional amount.
+func CalcThirteenthMonth(input ThirteenthMonthInput) ThirteenthMonthResult {
+	if input.MonthsWorked <= 0 || input.BaseSalary <= 0 {
+		return ThirteenthMonthResult{}
+	}
+	if input.MonthsWorked > 12 {
+		input.MonthsWorked = 12
+	}
+
+	// Gross = (months worked / 12) × base salary
+	gross := round0(input.BaseSalary * float64(input.MonthsWorked) / 12.0)
+
+	// Insurance base for 13th month = proportional insurance base
+	insBase := input.InsuranceBase
+	if insBase == 0 {
+		insBase = input.BaseSalary
+	}
+	monthInsBase := insBase * float64(input.MonthsWorked) / 12.0
+
+	uiBase := input.UIBase
+	if uiBase == 0 {
+		uiBase = input.BaseSalary
+	}
+	monthUIBase := uiBase * float64(input.MonthsWorked) / 12.0
+
+	// Employee deductions
+	si := CalcEmployeeSI(monthInsBase, input.Month, input.Year)
+	hi := CalcEmployeeHI(monthInsBase, input.Month, input.Year)
+	ui := CalcEmployeeUI(monthUIBase, input.IsForeign)
+	tu := CalcTradeUnion(monthInsBase, input.IsForeign, input.Month, input.Year)
+
+	// PIT: taxable = gross - insurance - personal deduction
+	// 13th month is separate from regular salary for PIT purposes
+	taxable := gross - si - hi - ui - tu - PersonalDeductionMonthly
+	pit := CalcPIT(taxable, input.Month, input.Year)
+
+	totalDed := si + hi + ui + tu + pit
+	net := gross - totalDed
+
+	// Employer costs
+	emplSI := CalcEmployerSI(monthInsBase, input.Month, input.Year)
+	emplHI := CalcEmployerHI(monthInsBase, input.Month, input.Year)
+	emplUI := CalcEmployerUI(monthUIBase, input.IsForeign)
+
+	return ThirteenthMonthResult{
+		GrossAmount:       gross,
+		SIDeduction:       si,
+		HIDeduction:       hi,
+		UIDeduction:       ui,
+		TradeUnionDues:    tu,
+		PITAmount:         pit,
+		TotalDeductions:   totalDed,
+		NetPay:            net,
+		EmployerSI:        emplSI,
+		EmployerHI:        emplHI,
+		EmployerUI:        emplUI,
+		TotalEmployerCost: emplSI + emplHI + emplUI,
+	}
+}
+
 // ─── Full Employee Payroll ──────────────────────────────────────
 
 // CalculateEmployeePayroll computes gross → deductions → net for one employee.

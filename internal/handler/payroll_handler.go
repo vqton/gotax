@@ -90,6 +90,7 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.GET("/reports/overtime", h.GetOvertimeSummary)
 		pw.GET("/reports/leave-balance", h.GetLeaveBalanceReport)
 		pw.POST("/net-to-gross", h.CalcNetToGross)
+		pw.POST("/13th-month", h.CalcThirteenthMonth)
 
 		// Declarations
 		pw.GET("/declarations/d02-ts", h.GenerateD02TS)
@@ -557,6 +558,16 @@ func (h *PayrollHandler) CalcNetToGross(c *gin.Context) {
 		return
 	}
 	result := h.svc.CalcNetToGross(c.Request.Context(), input)
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *PayrollHandler) CalcThirteenthMonth(c *gin.Context) {
+	var input domain.ThirteenthMonthInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result := h.svc.CalcThirteenthMonth(c.Request.Context(), input)
 	c.JSON(http.StatusOK, result)
 }
 
