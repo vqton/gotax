@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lịch sử giao dịch kho · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="transactionsPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Lịch sử giao dịch kho</h2>
+      </div>
+
+      <!-- Filters -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Từ ngày</label>
+            <input type="date" x-model="filters.from_date" @change="load()" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Đến ngày</label>
+            <input type="date" x-model="filters.to_date" @change="load()" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Kho</label>
+            <select x-model="filters.warehouse_id" @change="page=1; load()" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tất cả kho</option>
+              <template x-for="wh in warehouses" :key="wh.id || wh.code">
+                <option :value="wh.id || wh.code" x-text="wh.name || wh.code"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Loại giao dịch</label>
+            <select x-model="filters.type" @change="page=1; load()" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tất cả</option>
+              <option value="RECEIPT">Nhập kho</option>
+              <option value="ISSUE">Xuất kho</option>
+              <option value="TRANSFER">Chuyển kho</option>
+              <option value="ADJUSTMENT">Điều chỉnh</option>
+              <option value="STOCKTAKE">Kiểm kê</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Tìm mã hàng</label>
+            <input type="text" x-model="filters.item_code" @keyup.enter="page=1; load()" placeholder="Mã hàng..." class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+        <div class="mt-3 flex gap-2">
+          <button @click="page=1; load()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">Tìm kiếm</button>
+          <button @click="resetFilters()" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Xóa bộ lọc</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Giao dịch kho</h3>
+          <span class="text-xs text-gray-400" x-text="totalCount + ' giao dịch'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã hàng</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Kho</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại giao dịch</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số lượng</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Đơn giá</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng tiền</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in items" :key="t.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 text-gray-900" x-text="fmtDate(t.date)"></td>
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="t.item_code"></td>
+                  <td class="px-5 py-3 text-gray-700" x-text="t.warehouse_code || t.warehouse_id"></td>
+                  <td class="px-5 py-3" x-html="typeBadge(t.type)"></td>
+                  <td class="px-5 py-3 text-right" :class="t.type === 'ISSUE' ? 'text-red-600' : 'text-gray-900'" x-text="fmtNum(t.quantity)"></td>
+                  <td class="px-5 py-3 text-right text-gray-900" x-text="fmtMoney(t.unit_price)"></td>
+                  <td class="px-5 py-3 text-right font-medium text-gray-900" x-text="fmtMoney(t.total_price)"></td>
+                  <td class="px-5 py-3 text-gray-500 max-w-[200px] truncate" x-text="t.notes || '—'"></td>
+                </tr>
+              </template>
+              <tr x-show="!items.length && !loading">
+                <td colspan="8" class="px-5 py-12 text-center text-gray-400">
+                  <span class="text-3xl block mb-2">📦</span>
+                  Không có giao dịch nào
+                </td>
+              </tr>
+              <tr x-show="loading">
+                <td colspan="8" class="px-5 py-8 text-center text-gray-400">
+                  <span class="text-sm">Đang tải...</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+          <span class="text-xs text-gray-500">
+            Trang <span x-text="page"></span> / <span x-text="totalPages"></span>
+            — Hiển thị <span x-text="items.length"></span> / <span x-text="totalCount"></span>
+          </span>
+          <div class="flex gap-2">
+            <button @click="page > 1 && (page--, load())" :disabled="page <= 1"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border transition disabled:opacity-40 disabled:cursor-not-allowed"
+              :class="page > 1 ? 'border-gray-200 text-gray-700 hover:bg-gray-50' : 'border-gray-100 text-gray-300'">
+              Trước
+            </button>
+            <button @click="page < totalPages && (page++, load())" :disabled="page >= totalPages"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border transition disabled:opacity-40 disabled:cursor-not-allowed"
+              :class="page < totalPages ? 'border-gray-200 text-gray-700 hover:bg-gray-50' : 'border-gray-100 text-gray-300'">
+              Sau
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+const TYPE_LABELS = {
+  RECEIPT:    { text: 'Nhập kho',   cls: 'bg-green-100 text-green-800' },
+  ISSUE:      { text: 'Xuất kho',   cls: 'bg-red-100 text-red-800' },
+  TRANSFER:   { text: 'Chuyển kho', cls: 'bg-blue-100 text-blue-800' },
+  ADJUSTMENT: { text: 'Điều chỉnh', cls: 'bg-yellow-100 text-yellow-800' },
+  STOCKTAKE:  { text: 'Kiểm kê',    cls: 'bg-purple-100 text-purple-800' },
+};
+
+function transactionsPage() {
+  return {
+    items: [],
+    warehouses: [],
+    totalCount: 0,
+    totalPages: 1,
+    page: 1,
+    limit: 20,
+    loading: false,
+    filters: {
+      from_date: '',
+      to_date: '',
+      warehouse_id: '',
+      item_code: '',
+      type: '',
+    },
+
+    async init() {
+      mountAppShell("Lịch sử giao dịch kho", "/app/warehouses.html");
+      try {
+        const cid = App.companyId();
+        const whRes = await apiGet(`/warehouse/warehouses?company_id=${cid}`);
+        this.warehouses = Array.isArray(whRes) ? whRes : (whRes?.data || []);
+      } catch (e) {
+        console.error("transactions init:", e);
+      }
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const cid = App.companyId();
+        const p = new URLSearchParams({
+          company_id: cid,
+          page: this.page,
+          limit: this.limit,
+        });
+        if (this.filters.warehouse_id) p.set('warehouse_id', this.filters.warehouse_id);
+        if (this.filters.item_code)     p.set('item_code', this.filters.item_code);
+        if (this.filters.type)          p.set('type', this.filters.type);
+        if (this.filters.from_date)     p.set('from_date', this.filters.from_date);
+        if (this.filters.to_date)       p.set('to_date', this.filters.to_date);
+
+        const res = await apiGet(`/warehouse/transactions?${p.toString()}`);
+        if (Array.isArray(res)) {
+          this.items = res;
+          this.totalCount = res.length;
+          this.totalPages = 1;
+        } else {
+          this.items = res?.data || [];
+          this.totalCount = res?.total || this.items.length;
+          this.totalPages = res?.total_pages || Math.max(1, Math.ceil(this.totalCount / this.limit));
+        }
+      } catch (e) {
+        console.error("transactions load:", e);
+        $store.app.flashError(e.error || "Không thể tải lịch sử giao dịch");
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    resetFilters() {
+      this.filters = { from_date: '', to_date: '', warehouse_id: '', item_code: '', type: '' };
+      this.page = 1;
+      this.load();
+    },
+
+    fmtDate(d) {
+      if (!d) return '—';
+      return new Date(d).toLocaleDateString('vi-VN');
+    },
+
+    fmtNum(n) {
+      if (n == null) return '—';
+      return Number(n).toLocaleString('vi-VN');
+    },
+
+    fmtMoney(n) {
+      if (n == null) return '—';
+      return Number(n).toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
+    },
+
+    typeBadge(type) {
+      const t = TYPE_LABELS[type] || { text: type || '—', cls: 'bg-gray-100 text-gray-800' };
+      return '<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ' + t.cls + '">' + t.text + '</span>';
+    },
+  };
+}
+</script>
+
+</body>
+</html>

@@ -71,9 +71,15 @@ const MODULE_GROUPS = [
   {
     label: "Kho",
     items: [
-      { href: "/app/stock-balances.html", icon: "📊", label: "Tồn kho" },
-      { href: "/app/stock-transfers.html", icon: "🔄", label: "Chuyển kho" },
-      { href: "/app/stock-adjustments.html", icon: "📝", label: "Điều chỉnh" },
+      { href: "/app/warehouses.html", icon: "🏬", label: "Danh sách kho" },
+      { href: "/app/warehouse-categories.html", icon: "📁", label: "Loại hàng hóa" },
+      { href: "/app/warehouse-items.html", icon: "📦", label: "Hàng hóa" },
+      { href: "/app/warehouse-balances.html", icon: "📊", label: "Tồn kho" },
+      { href: "/app/warehouse-transfers.html", icon: "🔄", label: "Chuyển kho" },
+      { href: "/app/warehouse-adjustments.html", icon: "📝", label: "Điều chỉnh" },
+      { href: "/app/warehouse-takes.html", icon: "🔍", label: "Kiểm kê" },
+      { href: "/app/warehouse-valuations.html", icon: "💰", label: "Định giá" },
+      { href: "/app/warehouse-transactions.html", icon: "📜", label: "Lịch sử giao dịch" },
     ]
   },
   {

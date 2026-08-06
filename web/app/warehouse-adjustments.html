@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Điều chỉnh kho · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="adjustmentsPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Điều chỉnh tồn kho</h2>
+        <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Tạo phiếu điều chỉnh
+        </button>
+      </div>
+
+      <!-- Search -->
+      <div class="mb-4">
+        <input type="text" x-model="search" placeholder="Tìm mã phiếu..." class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách phiếu điều chỉnh</h3>
+          <span class="text-xs text-gray-400" x-text="filtered.length + ' phiếu'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã phiếu</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại điều chỉnh</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Kho</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày tạo</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in filtered" :key="a.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="a.code"></td>
+                  <td class="px-5 py-3">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="a.adjustment_type === 'INCREASE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                      <span x-text="a.adjustment_type === 'INCREASE' ? 'Tăng' : 'Giảm'"></span>
+                    </span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-900" x-text="warehouseName(a.warehouse_id)"></td>
+                  <td class="px-5 py-3" x-html="adjustmentStatusBadge(a.status)"></td>
+                  <td class="px-5 py-3 text-gray-500" x-text="formatDate(a.created_at)"></td>
+                  <td class="px-5 py-3 text-right space-x-3">
+                    <template x-if="a.status === 'DRAFT'">
+                      <span class="space-x-3">
+                        <button @click="submitAdj(a)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Gửi duyệt</button>
+                        <button @click="cancelAdj(a)" class="text-red-600 hover:text-red-800 text-xs font-medium">Hủy</button>
+                      </span>
+                    </template>
+                    <template x-if="a.status === 'SUBMITTED'">
+                      <span class="space-x-3">
+                        <button @click="approveAdj(a)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Duyệt</button>
+                        <button @click="rejectAdj(a)" class="text-red-600 hover:text-red-800 text-xs font-medium">Từ chối</button>
+                      </span>
+                    </template>
+                    <template x-if="a.status === 'APPROVED'">
+                      <button @click="postAdj(a)" class="text-green-600 hover:text-green-800 text-xs font-medium">Ghi sổ</button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!filtered.length">
+                <td colspan="6" class="px-5 py-12 text-center text-gray-400">
+                  <span class="text-3xl block mb-2">📦</span>
+                  Không có phiếu điều chỉnh nào
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create modal -->
+  <template x-if="showModal">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showModal=false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4" @click.stop>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h3 class="text-lg font-semibold text-gray-900">Tạo phiếu điều chỉnh</h3>
+          <button @click="showModal=false" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Kho <span class="text-red-500">*</span></label>
+              <select x-model="form.warehouse_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">-- Chọn kho --</option>
+                <template x-for="wh in warehouses" :key="wh.id">
+                  <option :value="wh.id" x-text="wh.name"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Loại điều chỉnh <span class="text-red-500">*</span></label>
+              <select x-model="form.adjustment_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="INCREASE">Tăng (INCREASE)</option>
+                <option value="DECREASE">Giảm (DECREASE)</option>
+              </select>
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-gray-500 mb-1">Lý do điều chỉnh <span class="text-red-500">*</span></label>
+              <textarea x-model="form.reason" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Nhập lý do điều chỉnh..."></textarea>
+            </div>
+          </div>
+
+          <!-- Items -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-xs font-medium text-gray-500">Chi tiết hàng hóa <span class="text-red-500">*</span></label>
+              <button @click="addItem()" type="button" class="text-xs text-blue-600 hover:text-blue-800 font-medium">+ Thêm hàng hóa</button>
+            </div>
+            <template x-for="(item, idx) in form.items" :key="idx">
+              <div class="flex items-center gap-3 mb-2">
+                <select x-model="item.item_id" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                  <option value="">-- Chọn hàng hóa --</option>
+                  <template x-for="it in items" :key="it.id">
+                    <option :value="it.id" x-text="it.name"></option>
+                  </template>
+                </select>
+                <input type="number" x-model.number="item.quantity" min="1" class="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="SL">
+                <input type="number" x-model.number="item.unit_cost" min="0" step="1000" class="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Đơn giá">
+                <button @click="removeItem(idx)" type="button" class="text-red-500 hover:text-red-700 text-xs">✕</button>
+              </div>
+            </template>
+            <p x-show="!form.items.length" class="text-xs text-gray-400">Chưa có hàng hóa nào. Nhấn "+ Thêm hàng hóa" để bắt đầu.</p>
+          </div>
+        </div>
+        <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button @click="showModal=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Hủy</button>
+          <button @click="saveAdjustment()" :disabled="saving"
+            class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition">
+            <span x-show="!saving">Tạo phiếu</span>
+            <span x-show="saving">Đang lưu...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+<script>
+function adjustmentsPage() {
+  return {
+    search: "",
+    showModal: false,
+    saving: false,
+    items: [],
+    warehouses: [],
+    form: { warehouse_id: "", adjustment_type: "INCREASE", reason: "", items: [] },
+
+    get filtered() {
+      const q = this.search.toLowerCase();
+      if (!q) return this.items;
+      return this.items.filter(a => a.code.toLowerCase().includes(q));
+    },
+
+    async init() {
+      mountAppShell("Điều chỉnh tồn kho", "/app/warehouse-adjustments.html");
+      try {
+        const cid = App.companyId();
+        const [adjRes, whRes, itRes] = await Promise.all([
+          apiGet(`/warehouse/adjustments?company_id=${cid}`),
+          apiGet(`/warehouse/warehouses?company_id=${cid}`),
+          apiGet(`/warehouse/items?company_id=${cid}`)
+        ]);
+        this.items = Array.isArray(adjRes) ? adjRes : (adjRes?.data || []);
+        this.warehouses = Array.isArray(whRes) ? whRes : (whRes?.data || []);
+        this.items_raw = Array.isArray(itRes) ? itRes : (itRes?.data || []);
+      } catch (e) {
+        console.error("adjustments init:", e);
+        $store.app.flashError(e.error || "Không thể tải dữ liệu điều chỉnh kho");
+      }
+    },
+
+    warehouseName(id) {
+      const wh = this.warehouses.find(w => w.id === id);
+      return wh ? wh.name : id || '—';
+    },
+
+    formatDate(d) {
+      if (!d) return '—';
+      try { return new Date(d).toLocaleDateString('vi-VN'); } catch { return d; }
+    },
+
+    openCreate() {
+      this.form = { warehouse_id: "", adjustment_type: "INCREASE", reason: "", items: [] };
+      this.showModal = true;
+    },
+
+    addItem() {
+      this.form.items.push({ item_id: "", quantity: 1, unit_cost: 0 });
+    },
+
+    removeItem(idx) {
+      this.form.items.splice(idx, 1);
+    },
+
+    async saveAdjustment() {
+      if (!this.form.warehouse_id) {
+        $store.app.flashError("Vui lòng chọn kho");
+        return;
+      }
+      if (!this.form.reason) {
+        $store.app.flashError("Vui lòng nhập lý do điều chỉnh");
+        return;
+      }
+      if (!this.form.items.length || this.form.items.some(i => !i.item_id || i.quantity <= 0)) {
+        $store.app.flashError("Vui lòng thêm hàng hóa với số lượng hợp lệ");
+        return;
+      }
+      this.saving = true;
+      try {
+        const cid = App.companyId();
+        await apiPost(`/warehouse/adjustments?company_id=${cid}`, this.form);
+        this.showModal = false;
+        $store.app.flashSuccess("Đã tạo phiếu điều chỉnh");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi tạo phiếu điều chỉnh");
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async submitAdj(a) {
+      try {
+        const cid = App.companyId();
+        await apiPatch(`/warehouse/adjustments/${a.id}/submit?company_id=${cid}`);
+        $store.app.flashSuccess("Đã gửi phiếu duyệt");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi gửi phiếu");
+      }
+    },
+
+    async approveAdj(a) {
+      try {
+        const cid = App.companyId();
+        await apiPatch(`/warehouse/adjustments/${a.id}/approve?company_id=${cid}`);
+        $store.app.flashSuccess("Đã duyệt phiếu");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi duyệt phiếu");
+      }
+    },
+
+    async postAdj(a) {
+      try {
+        const cid = App.companyId();
+        await apiPatch(`/warehouse/adjustments/${a.id}/post?company_id=${cid}`);
+        $store.app.flashSuccess("Đã ghi sổ bút toán GL");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi ghi sổ");
+      }
+    },
+
+    async rejectAdj(a) {
+      try {
+        const cid = App.companyId();
+        await apiPatch(`/warehouse/adjustments/${a.id}/reject?company_id=${cid}`);
+        $store.app.flashSuccess("Đã từ chối phiếu");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi từ chối phiếu");
+      }
+    },
+
+    async cancelAdj(a) {
+      if (!confirm("Hủy phiếu điều chỉnh này?")) return;
+      try {
+        const cid = App.companyId();
+        await apiDelete(`/warehouse/adjustments/${a.id}?company_id=${cid}`);
+        $store.app.flashSuccess("Đã hủy phiếu");
+        const res = await apiGet(`/warehouse/adjustments?company_id=${cid}`);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+      } catch (e) {
+        $store.app.flashError(e.error || "Lỗi hủy phiếu");
+      }
+    },
+  };
+}
+
+function adjustmentStatusBadge(status) {
+  const map = {
+    DRAFT:    'bg-gray-100 text-gray-700',
+    SUBMITTED:'bg-yellow-100 text-yellow-700',
+    APPROVED: 'bg-blue-100 text-blue-700',
+    POSTED:   'bg-green-100 text-green-700',
+    REJECTED: 'bg-red-100 text-red-700',
+  };
+  const labels = {
+    DRAFT: 'Nháp', SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', POSTED: 'Đã ghi sổ', REJECTED: 'Từ chối'
+  };
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] || 'bg-gray-100 text-gray-700'}">${labels[status] || status}</span>`;
+}
+</script>
+
+</body>
+</html>
