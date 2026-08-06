@@ -128,6 +128,7 @@ func GenerateTXML(inv *domain.EInvoice) ([]byte, error) {
 			TongTienHang:      money(inv.Subtotal),
 			TongThueGTGT:      money(inv.VATAmount),
 			TongTienThanhToan: money(inv.GrandTotal),
+			SoTienBangChu:     AmountInWords(int64(inv.GrandTotal)),
 		},
 	}
 	body, err := xml.Marshal(doc)

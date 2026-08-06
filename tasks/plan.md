@@ -1,326 +1,372 @@
-# Implementation Plan: Tax Module → 100%
+# Implementation Plan: GoTax Remaining Features
 
 ## Overview
 
-GoTax tax module is ~60% complete. Core engines (VAT/CIT/PIT), declaration engine (GTGT01/TNDN03), GDT pipeline, e-invoice pipeline, and 41 routes exist with 65+ tests. Remaining 40% covers: 13 missing declaration types, CIT advanced logic, e-invoice workflow completion, calendar/alert automation, payment GL posting, and advanced tax modules (FCT, TP, GMT).
+Complete all missing modules and gaps in GoTax Vietnamese ERP. From core (tax, warehouse, payroll) to edge (CCDC, budget, cost accounting). Simple → complex. TDD. One slice at a time, end-to-end.
 
-## Current State
+## Current State (after survey)
 
-| Layer | Status | Coverage |
-|-------|--------|----------|
-| Domain models | DONE | 12 models, 16 enums, 30+ errors |
-| Repository | DONE | 26-method interface, PG + Memory |
-| Service | DONE | 31 methods, 1245 lines |
-| Handler | DONE | 41 routes, 675 lines |
-| HTKK XML | PARTIAL | GTGT01 + TNDN03 only |
-| GDT Client | DONE | Invoice + declaration submit/status |
-| E-Invoice | PARTIAL | TXML + signing, no adjustment workflow |
-| Tests | DONE | 65+ tests |
-| Migration | DONE | 9 tables |
+| Module | Before | Gap |
+|--------|--------|-----|
+| Tax | ~95% | Rate lookup for TTDB/BVMT/NTNN, SoTienBangChu, buyer/seller info |
+| Warehouse | ~30% | Backend 100% complete. Frontend missing 8 sub-pages |
+| Payroll | ~50% | SubmitPeriod stub, no GL posting, no tax module link |
+| Recurring Entries | 0% | Everything |
+| Notifications | ~10% | TaxAlert only. Need general system |
+| Cash Flow | ~20% | Static HTML mock. Need backend |
+| Data Import/Export | ~25% | 3 imports exist. Need export framework |
+| CCDC | 0% | Everything |
+| Budget | 0% | Everything |
+| Cost Accounting | ~15% | Purchase cost allocation only. Need cost center CRUD |
+| Contracts | ~10% | Fields only. Defer — low value for accounting system |
+| CRM | 0% | Defer — not core accounting |
 
 ## Architecture Decisions
 
-1. **Extend existing GenerateDeclaration** — add cases to the switch, not new functions
-2. **One declaration type per task** — each form gets its own HTKK XML mapping + validation rules + tests
-3. **Vertical slicing** — each task: service method + handler route + HTKK XML + tests
-4. **Reuse rate resolver** — all new forms use existing `resolveRate` infrastructure
-5. **Reuse payment automation** — `createPaymentForDeclaration` works for any payable form
-
-## Dependency Graph
-
-```
-Phase 1: Declaration Types (forms foundation)
-    │
-    ├── Phase 2: CIT Advanced (provisional, incentives, loss c/f)
-    │       │
-    │       └── Phase 3: E-Invoice Completion (adjustment, GL posting)
-    │
-    ├── Phase 4: Calendar & Automation (auto-gen, alerts, late interest)
-    │
-    └── Phase 5: Advanced Tax (FCT, TP, GMT, consolidation, audit)
-            │
-            └── Phase 6: Reports & PDF + Phase 7: GDT Production
-```
+1. **Follow existing patterns exactly** — handler→service→repository, PG + memory dual impl
+2. **Domain models in `internal/domain/models_*.go`** — all same package, no sub-packages
+3. **Two backends always** — every new repo gets PG + memory impl
+4. **Migration per feature** — `{next_version}_{title}.up.sql` + `.down.sql`
+5. **Frontend per page** — standalone HTML with Alpine.js, `mountAppShell()`, `apiGet`/`apiPost`
+6. **TDD** — write test alongside implementation, `go test -count=1 ./...` before commit
+7. **Defer Contracts + CRM** — not core accounting, revisit later
 
 ## Task List
 
-### Phase 1: Core Declaration Types (13 tasks)
+### Phase 1: Tax Completion (~95% → 100%)
 
-#### 1.1 VAT Forms
+#### Task 1.1: Tax Rate Lookup for TTDB/BVMT/NTNN
+- **What**: Replace hardcoded rate=0 in `resourceTaxDeclarationLines()` and `ntnnDeclarationLines()` with actual rate lookup from `TaxRate` table
+- **How**: Service calls `GetActiveRates()` filtering by tax type, matches rate to declaration line items
+- **Files**: `tax_service.go:1701-1724`, add rate lookup helper
+- **Verify**: `go test -count=1 ./internal/service/ -run TestGenerateDeclaration`
+- **Size**: S (1-2 files)
 
-- [ ] **Task 1: GTGT03 quarterly VAT declaration**
-  - Extend `GenerateDeclaration` for `DeclTypeGTGT03`
-  - HTKK XML: `formCode` mapping, quarterly period key
-  - Validation: cross-field rules for quarterly
-  - Tests: handler + service
+#### Task 1.2: SoTienBangChu (Amount in Words)
+- **What**: Vietnamese number-to-words converter for e-invoice TXML
+- **How**: Pure function `AmountInWords(amount int64) string` in `internal/einvoice/`, populate `SoTienBangChu` field in `GenerateTXML()`
+- **Files**: `internal/einvoice/txml.go:69`, new `internal/einvoice/words.go` + `words_test.go`
+- **Verify**: `go test -count=1 ./internal/einvoice/ -run TestAmountInWords`
+- **Size**: S (2 files)
 
-- [ ] **Task 2: GTGT02 monthly VAT (small enterprise)**
-  - Extend for `DeclTypeGTGT02`
-  - Uses direct method (revenue × rate, no input deduction)
-  - HTKK XML mapping
-  - Tests
+#### Task 1.3: Buyer/Seller Info in E-Invoice
+- **What**: Wire company profile (seller) and customer (buyer) into TXML generation
+- **How**: `GenerateTXML()` takes company + customer params, populates `BKParty` fields
+- **Files**: `internal/einvoice/txml.go`, `internal/service/tax_service.go:911`
+- **Verify**: `go test -count=1 ./internal/einvoice/ -run TestGenerateTXML`
+- **Size**: S (2 files)
 
-- [ ] **Task 3: GTGT04 per-occurrence VAT**
-  - Extend for `DeclTypeGTGT04`
-  - For non-continuous business (construction, etc.)
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 4: GTGT05 non-VAT paysubmit**
-  - Extend for `DeclTypeGTGT05`
-  - For entities not subject to VAT
-  - HTKK XML mapping
-  - Tests
-
-#### 1.2 CIT Forms
-
-- [ ] **Task 5: TNDN02 CIT quarterly provisional**
-  - Extend for `DeclTypeTNDN02`
-  - Q1-Q3 provisional: taxable income × rate, ≥80% of annual estimate
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 6: TNDN04 CIT annual finalization**
-  - Extend for `DeclTypeTNDN04`
-  - Full annual CIT with loss carry-forward, incentives
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 7: TNDN05 CIT restructuring**
-  - Extend for `DeclTypeTNDN05`
-  - For enterprise mergers/splits
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 8: TNDN06 CIT petroleum**
-  - Extend for `DeclTypeTNDN06`
-  - Petroleum-specific CIT rules
-  - HTKK XML mapping
-  - Tests
-
-#### 1.3 PIT & Other Forms
-
-- [ ] **Task 9: KK_TNCN PIT withholding declaration**
-  - Extend for `DeclTypeKKTNCN`
-  - Employer PIT withholding for employees
-  - Input: payroll data (gross, deductions, dependants)
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 10: QTT_TNCN PIT quarterly declaration**
-  - Extend for `DeclTypeQTTTNCN`
-  - Quarterly PIT finalization
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 11: TTDB01 resource tax**
-  - Extend for `DeclTypeTTDB01`
-  - Oil/gas/mineral resource tax
-  - Rate: volume or value-based
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 12: BVMT01 environmental protection tax**
-  - Extend for `DeclTypeBVMT01`
-  - Fuel, chemicals, batteries, etc.
-  - Rate: per-unit (VND/liter, VND/kg)
-  - HTKK XML mapping
-  - Tests
-
-- [ ] **Task 13: NTNN01-03 non-resident income tax**
-  - Extend for `DeclTypeNTNN01`, `NTNN02`, `NTNN03`
-  - Foreign contractor withholding
-  - Flat 20% on gross (or treaty rate)
-  - HTKK XML mapping
-  - Tests
-
-### Checkpoint: Phase 1
-- [ ] `go test -count=1 ./internal/service/ ./internal/handler/`
-- [ ] All 17 declaration types generate valid XML
-- [ ] Each form has handler + service tests
-- [ ] HTKK XML validates against BK:BoKe structure
+**Checkpoint 1**: Tax 100%. `go test -count=1 ./...` passes. Commit.
 
 ---
 
-### Phase 2: CIT Advanced Logic (4 tasks)
+### Phase 2: Warehouse Frontend (Backend done, frontend missing)
 
-- [ ] **Task 14: CIT incentive reduction engine**
-  - Tax holidays (4+9 years for new sectors)
-  - Rate reductions (10%/15% for eligible projects)
-  - Per CIT Law Art. 15-18, Decree 320/2025
-  - Store incentive config on TaxRate (ApplicableTo or metadata)
-  - Tests
+All pages follow established pattern: standalone HTML, Alpine.js `x-data`, `mountAppShell()`, `apiGet`/`apiPost`/`apiPut`/`apiDelete`.
 
-- [ ] **Task 15: CIT loss carry-forward**
-  - Max 5 years from loss year
-  - Track cumulative losses in separate model or field
-  - Apply during annual finalization (TNDN03/TNDN04)
-  - Tests
+#### Task 2.1: Item Categories Page
+- **What**: CRUD UI for item categories (code, name, description)
+- **Files**: `web/app/warehouse-categories.html`
+- **Verify**: Page loads, CRUD works against `/warehouse/categories`
+- **Size**: S (1 file)
 
-- [ ] **Task 16: CIT non-deductible itemization**
-  - Fine/penalty: non-cash >5M penalties (CIT-05)
-  - Sponsorship (unless specific deductible)
-  - Interest deduction cap (30% EBITDA — thin cap)
-  - R&D super-deduction (150%)
-  - Tests
+#### Task 2.2: Items Page
+- **What**: CRUD UI for warehouse items (code, name, category, unit, valuation method, min/max stock)
+- **Files**: `web/app/warehouse-items.html`
+- **Verify**: Page loads, CRUD works against `/warehouse/items`
+- **Size**: M (1 file, many fields)
 
-- [ ] **Task 17: CIT quarterly provisional payments**
-  - Q1-Q3: estimated annual CIT × quarter proportion
-  - Must be ≥80% of final (CIT-10)
-  - Auto-generate TNDN02 from quarterly entries
-  - Tests
+#### Task 2.3: Stock Balances Page
+- **What**: Read-only view of stock balances per item per warehouse, with search/filter
+- **Files**: `web/app/warehouse-balances.html`
+- **Verify**: Page loads, shows balances from `/warehouse/balances`
+- **Size**: S (1 file)
 
-### Checkpoint: Phase 2
-- [ ] CIT engine handles incentives, loss c/f, thin cap
-- [ ] Quarterly provisional ≥80% validation
-- [ ] All CIT tests pass
+#### Task 2.4: Stock Transfers Page
+- **What**: Create/submit/approve/transfer/complete/cancel workflow UI
+- **Files**: `web/app/warehouse-transfers.html`
+- **Verify**: Full workflow works end-to-end
+- **Size**: M (1 file, workflow buttons)
 
----
+#### Task 2.5: Stock Adjustments Page
+- **What**: Create/submit/approve/post/reject workflow UI
+- **Files**: `web/app/warehouse-adjustments.html`
+- **Verify**: Full workflow works end-to-end
+- **Size**: M (1 file)
 
-### Phase 3: E-Invoice Completion (4 tasks)
+#### Task 2.6: Stock Takes Page
+- **What**: Create/start/complete/verify/post workflow UI with count entry
+- **Files**: `web/app/warehouse-takes.html`
+- **Verify**: Full workflow works end-to-end
+- **Size**: M (1 file)
 
-- [ ] **Task 18: Adjustment e-invoice workflow**
-  - Create linked invoice (type=ADJUSTMENT, OriginalInvoiceID set)
-  - Validate: original must be ISSUED
-  - Sign → submit → status → ISSUED
-  - Update original invoice status to REPLACED
-  - Tests
+#### Task 2.7: Valuation Runs Page
+- **What**: Create/run valuation runs, show results
+- **Files**: `web/app/warehouse-valuations.html`
+- **Verify**: Valuation run executes and shows results
+- **Size**: S (1 file)
 
-- [ ] **Task 19: Replacement e-invoice workflow**
-  - Similar to adjustment but replaces original
-  - Original status → REPLACED
-  - Tests
+#### Task 2.8: Inventory Transactions Page
+- **What**: Read-only paginated log of all inventory transactions with filters
+- **Files**: `web/app/warehouse-transactions.html`
+- **Verify**: Page loads, shows transactions from `/warehouse/transactions`
+- **Size**: S (1 file)
 
-- [ ] **Task 20: Cancellation note e-invoice**
-  - CancellationNote type
-  - Submit to GDT → cancel original
-  - Tests
-
-- [ ] **Task 21: E-invoice → journal entry auto-posting**
-  - On ISSUED: create journal entry (DR 131, CR 5111, CR 33311)
-  - Use existing GL posting infrastructure
-  - Link via JournalEntryID
-  - Tests
-
-### Checkpoint: Phase 3
-- [ ] Full e-invoice lifecycle: create → issue → adjust/replace/cancel → GL posting
-- [ ] All e-invoice tests pass
+**Checkpoint 2**: Warehouse 100% (backend + frontend). All 9 sub-pages functional. Sidebar nav updated. Commit.
 
 ---
 
-### Phase 4: Calendar & Automation (4 tasks)
+### Phase 3: Payroll Completion (~50% → 90%)
 
-- [ ] **Task 22: Tax calendar auto-generation**
-  - `GenerateCalendar(companyID, year)` — creates entries for all tax types
-  - VAT: monthly (20th next month) or quarterly (30th)
-  - CIT: quarterly (30th) + annual (31-Mar)
-  - PIT: monthly
-  - Tests
+#### Task 3.1: SubmitPeriod Workflow
+- **What**: Implement the stub `SubmitPeriod` handler — transitions period DRAFT→PROCESSING, validates required fields
+- **Files**: `internal/handler/payroll_handler.go:242`, `internal/service/payroll_service.go`
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestSubmitPeriod`
+- **Size**: S (2 files)
 
-- [ ] **Task 23: Tax alert auto-generation**
-  - On calendar creation or daily cron
-  - Alert types: DUE_TODAY (7 days before), WARNING (14 days), CRITICAL (3 days)
-  - Channel: IN_APP (email/SMS future)
-  - Tests
+#### Task 3.2: Payroll GL Posting
+- **What**: When period APPROVED, auto-create journal entries: salary expense (642), insurance expense (642), employer insurance (642), PIT payable (3331), bank payable (331)
+- **Files**: `internal/service/payroll_service.go`, needs `JournalService` injection
+- **Verify**: `go test -count=1 ./internal/service/ -run TestApprovePeriod`
+- **Size**: M (2-3 files, service + test)
 
-- [ ] **Task 24: Payment late interest calculation**
-  - Daily cron or on-demand
-  - Late interest = underpaid × 0.0003 × late_days
-  - Update TaxPayment.LateInterest
-  - Tests
+#### Task 3.3: Payroll→Tax KK_TNCN Integration
+- **What**: Approved payroll period feeds employee data into Tax `GenerateDeclaration` for KK_TNCN/QTT_TNCN
+- **Files**: `internal/service/payroll_service.go`, `internal/service/tax_service.go`
+- **Verify**: `go test -count=1 ./internal/service/ -run TestPayrollTaxIntegration`
+- **Size**: S (2 files)
 
-- [ ] **Task 25: Payment → GL auto-posting**
-  - On payment record: DR 3331, CR 111/112
-  - Use existing journal posting infrastructure
-  - Tests
-
-### Checkpoint: Phase 4
-- [ ] Calendar auto-generates for full year
-- [ ] Alerts fire before deadlines
-- [ ] Late interest calculates correctly
-- [ ] Payments post to GL
+**Checkpoint 3**: Payroll ~90%. Approval workflow, GL posting, tax link all work. Commit.
 
 ---
 
-### Phase 5: Advanced Tax (5 tasks)
+### Phase 4: Recurring Entries (0% → 100%)
 
-- [ ] **Task 26: FCT (Foreign Contractor Tax)**
-  - Domain model: FCTDeclaration
-  - Withholding on payments to foreign contractors
-  - Rate: 1% (goods) or 5% (services) on gross
-  - Declaration + payment
-  - HTKK XML
-  - Tests
+#### Task 4.1: Domain Model + Interfaces
+- **What**: `RecurringEntry` model (template JE with frequency, next_run, end_date), repository interface
+- **Files**: `internal/domain/models_recurring.go`, `internal/domain/interfaces.go`
+- **Verify**: `go build ./...`
+- **Size**: S (2 files)
 
-- [ ] **Task 27: Transfer pricing (Decree 255/2026)**
-  - Related-party transaction tracking
-  - Disclosure report (Form 01/TNDN)
-  - Arm's-length principle validation
-  - Tests
+#### Task 4.2: PG + Memory Repos
+- **What**: Dual implementation following existing pattern
+- **Files**: `internal/repository/pg_recurring.go`, `internal/repository/memory_recurring.go`
+- **Verify**: `go test -count=1 ./internal/repository/`
+- **Size**: M (2 files)
 
-- [ ] **Task 28: Global Minimum Tax (Pillar 2)**
-  - MNE groups >EUR750M revenue
-  - Top-up tax calculation
-  - Account 82112 posting
-  - Tests
+#### Task 4.3: Migration
+- **What**: `000026_recurring_entries.up.sql` + `.down.sql`
+- **Files**: `migrations/000026_recurring_entries.*`
+- **Verify**: `go build ./...`
+- **Size**: XS (2 files)
 
-- [ ] **Task 29: Tax consolidation**
-  - Multi-entity parent-subsidiary
-  - Consolidated tax return
-  - Intercompany elimination
-  - Tests
+#### Task 4.4: Service + Handler + Routes
+- **What**: CRUD + "run now" endpoint that generates JE from template
+- **Files**: `internal/service/recurring_service.go`, `internal/handler/recurring_handler.go`
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestRecurringEntry`
+- **Size**: M (2-3 files)
 
-- [ ] **Task 30: Tax audit workflow**
-  - Status machine: OPEN → IN_REVIEW → DOCS_REQUESTED → FINDINGS → CLOSED
-  - Document tracking (request/submit/track)
-  - Penalty calculation (Decree 310/2025)
-  - Tests
+#### Task 4.5: Frontend
+- **What**: Recurring entries list + create/edit modal
+- **Files**: `web/app/recurring-entries.html`
+- **Verify**: Page loads, CRUD + run now works
+- **Size**: S (1 file)
 
-### Checkpoint: Phase 5
-- [ ] All advanced tax modules have domain + service + handler + tests
-- [ ] FCT declaration generates valid XML
-- [ ] Transfer pricing disclosure complete
+#### Task 4.6: Wire in main.go
+- **What**: PG + memory branches, route registration
+- **Files**: `main.go`
+- **Verify**: `go test -count=1 ./...`
+- **Size**: S (1 file)
 
----
-
-### Phase 6: Reports & PDF (2 tasks)
-
-- [ ] **Task 31: Tax declaration PDF rendering**
-  - Generate PDF from TaxDeclaration + lines
-  - Use existing `maroto/v2` infrastructure
-  - Support all form types
-  - Tests
-
-- [ ] **Task 32: Tax summary reports**
-  - VAT summary by period
-  - CIT summary by year
-  - Payment history
-  - Outstanding balance
-  - Tests
-
-### Checkpoint: Phase 6
-- [ ] PDF renders for all declaration types
-- [ ] Summary reports return correct data
+**Checkpoint 4**: Recurring entries module complete. Commit.
 
 ---
 
-### Phase 7: GDT Production (2 tasks)
+### Phase 5: Notifications (10% → 80%)
 
-- [ ] **Task 33: GDT real endpoint integration**
-  - Replace stub URLs with real GDT endpoints
-  - Certificate-based mTLS auth (replace bearer token)
-  - Error handling for real GDT responses
-  - Integration tests against sandbox
+#### Task 5.1: Domain Model + Interfaces
+- **What**: `Notification` model (entity_type, entity_id, user_id, title, message, read_at, link), repository interface
+- **Files**: `internal/domain/models_notification.go`, `internal/domain/interfaces.go`
+- **Verify**: `go build ./...`
+- **Size**: S (2 files)
 
-- [ ] **Task 34: GDT sandbox testing**
-  - Set up GDT sandbox environment
-  - Test full submission flow
-  - Validate XML against real GDT schemas
+#### Task 5.2: PG + Memory Repos
+- **What**: Dual implementation
+- **Files**: `internal/repository/pg_notification.go`, `internal/repository/memory_notification.go`
+- **Verify**: `go test -count=1 ./internal/repository/`
+- **Size**: M (2 files)
 
-### Checkpoint: Phase 7
-- [ ] GDT submission works against sandbox
-- [ ] mTLS auth established
-- [ ] Full flow: declaration → XML → sign → submit → ack
+#### Task 5.3: Migration
+- **What**: `000027_notifications.up.sql` + `.down.sql`
+- **Files**: `migrations/000027_notifications.*`
+- **Verify**: `go build ./...`
+- **Size**: XS (2 files)
+
+#### Task 5.4: Service + Handler + Routes
+- **What**: CRUD + mark-read + unread-count + fire-on-event (invoice due, approval pending, low stock)
+- **Files**: `internal/service/notification_service.go`, `internal/handler/notification_handler.go`
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestNotification`
+- **Size**: M (2-3 files)
+
+#### Task 5.5: Frontend
+- **What**: Notification bell in topbar with dropdown, unread count badge
+- **Files**: `web/static/js/app.js` (add bell), `web/app/notifications.html` (full list page)
+- **Verify**: Bell shows count, clicking opens dropdown, full page shows all
+- **Size**: S (2 files)
+
+#### Task 5.6: Wire in main.go
+- **Files**: `main.go`
+- **Verify**: `go test -count=1 ./...`
+- **Size**: S (1 file)
+
+**Checkpoint 5**: Notifications module complete. Commit.
+
+---
+
+### Phase 6: Cash Flow (20% → 80%)
+
+#### Task 6.1: Backend API
+- **What**: `GET /api/v1/reports/cash-flow?company_id=&year=&month=` — aggregate journal entries into operating/investing/financing sections using Vietnamese account code ranges (111, 112, 128, 228, 331, 333, 511, 642, etc.)
+- **Files**: `internal/service/report_service.go` (add `CashFlowStatement`), `internal/handler/report_handler.go` (add route)
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestCashFlow`
+- **Size**: M (2 files)
+
+#### Task 6.2: Frontend Integration
+- **What**: Replace hardcoded mock data in `web/app/cash-flow.html` with real API calls
+- **Files**: `web/app/cash-flow.html`
+- **Verify**: Page shows real data from journal entries
+- **Size**: S (1 file)
+
+**Checkpoint 6**: Cash flow statement works end-to-end with real data. Commit.
+
+---
+
+### Phase 7: Data Import/Export (25% → 70%)
+
+#### Task 7.1: Journal Entry Excel Export
+- **What**: `GET /api/v1/journal-entries/export?company_id=&period=` — export filtered journal entries to .xlsx
+- **Files**: `internal/service/export_service.go`, `internal/handler/report_handler.go`
+- **Verify**: `go test -count=1 ./internal/service/ -run TestExportJournalEntries`
+- **Size**: M (2 files)
+
+#### Task 7.2: Trial Balance Excel Export
+- **What**: `GET /api/v1/reports/trial-balance/export?company_id=&period=`
+- **Files**: `internal/service/export_service.go`, `internal/handler/report_handler.go`
+- **Verify**: `go test -count=1 ./internal/service/ -run TestExportTrialBalance`
+- **Size**: S (1 file, extends export_service)
+
+**Checkpoint 7**: GL export works. Commit.
+
+---
+
+### Phase 8: CCDC (Tools & Equipment) (0% → 100%)
+
+Similar to Fixed Assets module but for tools/equipment (account 153). Simpler — no depreciation engine needed initially.
+
+#### Task 8.1: Domain Model + Interfaces
+- **What**: `ToolEquipment` model (code, name, category, purchase_date, cost, status, warehouse_id), repository interface
+- **Files**: `internal/domain/models_ccdc.go`, `internal/domain/interfaces.go`
+- **Verify**: `go build ./...`
+- **Size**: S (2 files)
+
+#### Task 8.2: PG + Memory Repos
+- **Files**: `internal/repository/pg_ccdc.go`, `internal/repository/memory_ccdc.go`
+- **Verify**: `go test -count=1 ./internal/repository/`
+- **Size**: M (2 files)
+
+#### Task 8.3: Migration
+- **Files**: `migrations/000028_ccdc.up.sql`, `migrations/000028_ccdc.down.sql`
+- **Verify**: `go build ./...`
+- **Size**: XS (2 files)
+
+#### Task 8.4: Service + Handler + Routes
+- **Files**: `internal/service/ccdc_service.go`, `internal/handler/ccdc_handler.go`
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestCCDC`
+- **Size**: M (2-3 files)
+
+#### Task 8.5: Frontend
+- **Files**: `web/app/ccdc.html`
+- **Verify**: CRUD works
+- **Size**: S (1 file)
+
+#### Task 8.6: Wire in main.go
+- **Files**: `main.go`
+- **Verify**: `go test -count=1 ./...`
+- **Size**: S (1 file)
+
+**Checkpoint 8**: CCDC module complete. Commit.
+
+---
+
+### Phase 9: Budget Management (0% → 80%)
+
+#### Task 9.1: Domain Model + Interfaces
+- **What**: `Budget` model (account_id, period, amount, actual, variance), `BudgetLine` model, repository interface
+- **Files**: `internal/domain/models_budget.go`, `internal/domain/interfaces.go`
+- **Verify**: `go build ./...`
+- **Size**: S (2 files)
+
+#### Task 9.2: PG + Memory Repos
+- **Files**: `internal/repository/pg_budget.go`, `internal/repository/memory_budget.go`
+- **Verify**: `go test -count=1 ./internal/repository/`
+- **Size**: M (2 files)
+
+#### Task 9.3: Migration
+- **Files**: `migrations/000029_budget.up.sql`, `migrations/000029_budget.down.sql`
+- **Verify**: `go build ./...`
+- **Size**: XS (2 files)
+
+#### Task 9.4: Service + Handler + Routes
+- **What**: CRUD + budget vs actual comparison report
+- **Files**: `internal/service/budget_service.go`, `internal/handler/budget_handler.go`
+- **Verify**: `go test -count=1 ./internal/handler/ -run TestBudget`
+- **Size**: M (2-3 files)
+
+#### Task 9.5: Frontend
+- **Files**: `web/app/budget.html`
+- **Verify**: CRUD + variance report works
+- **Size**: M (1 file, report view)
+
+#### Task 9.6: Wire in main.go
+- **Files**: `main.go`
+- **Verify**: `go test -count=1 ./...`
+- **Size**: S (1 file)
+
+**Checkpoint 9**: Budget module complete. Commit.
+
+---
+
+### Phase 10: Cost Accounting (15% → 60%)
+
+#### Task 10.1: Cost Center CRUD
+- **What**: `CostCenter` model (code, name, parent_id for hierarchy), CRUD service/handler/routes
+- **Files**: `internal/domain/models_cost.go`, `internal/repository/pg_cost.go`, `internal/repository/memory_cost.go`, `internal/service/cost_service.go`, `internal/handler/cost_handler.go`, migration, `main.go`
+- **Verify**: `go test -count=1 ./...`
+- **Size**: L (7+ files, but each is small)
+
+#### Task 10.2: Cost Center Frontend
+- **Files**: `web/app/cost-centers.html`
+- **Verify**: CRUD + hierarchy view works
+- **Size**: S (1 file)
+
+**Checkpoint 10**: Cost center management works. Commit.
+
+---
+
+### Phase 11: Final Integration + AGENTS.md Update
+
+#### Task 11.1: Update AGENTS.md
+- **What**: Update all module statuses, route counts, missing modules table
+- **Files**: `AGENTS.md`
+- **Verify**: Accurate reflection of current state
+- **Size**: S (1 file)
+
+#### Task 11.2: Full Test Suite
+- **What**: `go vet ./... && go test -count=1 ./...` — everything green
+- **Verify**: All tests pass, no regressions
+- **Size**: verification only
+
+**Checkpoint 11**: All complete. Final commit.
 
 ---
 
@@ -328,30 +374,11 @@ Phase 1: Declaration Types (forms foundation)
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| GDT sandbox access | HIGH | Request early, test with stubs until available |
-| HTKK XML schema validation | HIGH | Test against published XSD schemas |
-| CIT incentive complexity | MEDIUM | Start with simplest incentive, extend incrementally |
-| Transfer pricing rules | MEDIUM | Defer to Phase 5, not blocking core compliance |
-| PILar 2 (GMT) | LOW | Only applies to MNEs >EUR750M, most SMEs exempt |
-| Tax rate changes | LOW | Rate resolver already supports effective windows |
+| Payroll GL posting complexity | Med | Follow existing `postGLEntry()` pattern from warehouse |
+| Cash flow account code mapping | Med | Use Circular 99 account ranges, test with sample data |
+| Migration conflicts | Low | Always use `IF NOT EXISTS`, check latest version first |
+| Frontend consistency | Low | Copy pattern from existing pages verbatim |
 
 ## Open Questions
 
-1. Should GTGT02 (small enterprise) use direct method or simplified deduction?
-2. FCT: does the codebase need a foreign contractor model, or is it a declaration-only feature?
-3. Transfer pricing: is the related-party tracking part of Tax or Company module?
-4. GDT sandbox: who has credentials? Need to request from GDT if not available.
-
-## Timeline Estimate
-
-| Phase | Duration | Cumulative |
-|-------|----------|------------|
-| Phase 1: Declaration Types | 2-3 weeks | 2-3 weeks |
-| Phase 2: CIT Advanced | 1-2 weeks | 3-5 weeks |
-| Phase 3: E-Invoice | 1-2 weeks | 4-7 weeks |
-| Phase 4: Calendar & Auto | 1 week | 5-8 weeks |
-| Phase 5: Advanced Tax | 2-3 weeks | 7-11 weeks |
-| Phase 6: Reports & PDF | 1 week | 8-12 weeks |
-| Phase 7: GDT Production | 1 week | 9-13 weeks |
-
-**Total: ~9-13 weeks to 100%**
+- None — all patterns well-established in codebase

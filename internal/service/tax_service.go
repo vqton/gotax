@@ -18,9 +18,12 @@ import (
 // has no matching active rate. Keeps calculation deterministic on fresh
 // installs (empty table). Keys are applicableTo selectors.
 var defaultRateValues = map[domain.TaxType]map[string]float64{
-	domain.TaxTypeVAT: {"STANDARD": 10, "REDUCED": 8, "ZERO": 0},
-	domain.TaxTypeCIT: {"STANDARD": 20, "SMALL": 17, "MICRO": 15},
-	domain.TaxTypePIT: {"STANDARD": 20},
+	domain.TaxTypeVAT:      {"STANDARD": 10, "REDUCED": 8, "ZERO": 0},
+	domain.TaxTypeCIT:      {"STANDARD": 20, "SMALL": 17, "MICRO": 15},
+	domain.TaxTypePIT:      {"STANDARD": 20},
+	domain.TaxTypeTTDB:     {"STANDARD": 10},
+	domain.TaxTypeBVMT:     {"STANDARD": 10},
+	domain.TaxTypeRESOURCE: {"STANDARD": 5},
 }
 
 // resolveRate returns the active rate for taxType as of onDate (ISO date).
@@ -1580,10 +1583,22 @@ func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, 
 		}
 	case domain.DeclTypeTTDB01, domain.DeclTypeBVMT01:
 		// Special consumption / environmental protection tax — extract from journal entries
-		decl.Lines = resourceTaxDeclarationLines(declType, posted)
+		var taxType domain.TaxType = domain.TaxTypeTTDB
+		if declType == domain.DeclTypeBVMT01 {
+			taxType = domain.TaxTypeBVMT
+		}
+		rate, err := s.resolveRate(ctx, taxType, "STANDARD", "")
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = resourceTaxDeclarationLines(declType, posted, rate.RateValue)
 	case domain.DeclTypeNTNN01, domain.DeclTypeNTNN02, domain.DeclTypeNTNN03:
 		// Non-resident income tax — extract from journal entries
-		decl.Lines = ntnnDeclarationLines(declType, posted)
+		rate, err := s.resolveRate(ctx, domain.TaxTypeRESOURCE, "STANDARD", "")
+		if err != nil {
+			return nil, err
+		}
+		decl.Lines = ntnnDeclarationLines(declType, posted, rate.RateValue)
 	}
 	if err := validateDeclarationRules(decl); err != nil {
 		return nil, err
@@ -1684,7 +1699,7 @@ func pitDeclarationLines(res *domain.PITResult) []domain.TaxDeclarationLine {
 }
 
 // TTDB01/BVMT01 lines: [10] taxable base, [20] rate, [30] tax payable.
-func resourceTaxDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+func resourceTaxDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry, rate float64) []domain.TaxDeclarationLine {
 	src := domain.SrcTypeFROM_LEDGER
 	ids := entryIDs(entries)
 	var base float64
@@ -1698,15 +1713,16 @@ func resourceTaxDeclarationLines(declType domain.DeclarationType, entries []doma
 			}
 		}
 	}
+	taxPayable := math.Round(base*rate) / 100.0
 	return []domain.TaxDeclarationLine{
 		{LineCode: "10", LineName: "Giá tính thuế", Amount: base, SourceType: src, SourceEntryIDs: ids, SortOrder: 10},
-		{LineCode: "20", LineName: "Thuế suất (%)", Amount: 0, SourceType: src, SortOrder: 20},
-		{LineCode: "30", LineName: "Thuế phải nộp", Amount: 0, SourceType: src, SortOrder: 30},
+		{LineCode: "20", LineName: "Thuế suất (%)", Amount: rate, SourceType: src, SortOrder: 20},
+		{LineCode: "30", LineName: "Thuế phải nộp", Amount: taxPayable, SourceType: src, SortOrder: 30},
 	}
 }
 
 // NTNN01-03 lines: [10] gross income, [20] rate, [30] tax payable.
-func ntnnDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+func ntnnDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry, rate float64) []domain.TaxDeclarationLine {
 	src := domain.SrcTypeFROM_LEDGER
 	ids := entryIDs(entries)
 	var income float64
@@ -1717,10 +1733,11 @@ func ntnnDeclarationLines(declType domain.DeclarationType, entries []domain.Jour
 			}
 		}
 	}
+	taxPayable := math.Round(income*rate) / 100.0
 	return []domain.TaxDeclarationLine{
 		{LineCode: "10", LineName: "Thu nhập gross", Amount: income, SourceType: src, SourceEntryIDs: ids, SortOrder: 10},
-		{LineCode: "20", LineName: "Thuế suất (%)", Amount: 0, SourceType: src, SortOrder: 20},
-		{LineCode: "30", LineName: "Thuế phải nộp", Amount: 0, SourceType: src, SortOrder: 30},
+		{LineCode: "20", LineName: "Thuế suất (%)", Amount: rate, SourceType: src, SortOrder: 20},
+		{LineCode: "30", LineName: "Thuế phải nộp", Amount: taxPayable, SourceType: src, SortOrder: 30},
 	}
 }
 

@@ -2007,3 +2007,67 @@ func TestGenerateDeadlineAlerts(t *testing.T) {
 	assert.Equal(t, domain.AlertTypeWARNING, alerts[0].AlertType)
 	assert.Contains(t, alerts[0].Message, "VAT")
 }
+
+// ─── Tax Rate Lookup for TTDB/BVMT/NTNN ──────────────────────────────────
+
+func TestGenerateDeclaration_TTDB_UsesRateFromTable(t *testing.T) {
+	taxRepo := repository.NewMemoryTaxRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
+	svc := NewTaxService(taxRepo, jeRepo, repository.NewMemoryCompanyRepo(), nil, nil).(*taxService)
+	ctx := context.Background()
+
+	// Create active TTDB rate
+	require.NoError(t, taxRepo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "TTDB_STANDARD", TaxType: domain.TaxTypeTTDB,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 15,
+		EffectiveFrom: "2025-01-01", IsActive: true,
+	}))
+
+	// Post journal entry with 3332 credit (special consumption tax base)
+	je := postedEntry("JE-TTDB-1", "2026-03-15",
+		domain.JournalLine{AccountCode: "3332", CreditAmount: 1000000})
+	require.NoError(t, jeRepo.Create(ctx, &je))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeTTDB01,
+		domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 3}, "u1", nil)
+	require.NoError(t, err)
+	require.Len(t, decl.Lines, 3)
+
+	// Line 10: base = 1,000,000
+	assert.Equal(t, "10", decl.Lines[0].LineCode)
+	assert.Equal(t, 1000000.0, decl.Lines[0].Amount)
+
+	// Line 20: rate = 15 (from table, not default 10)
+	assert.Equal(t, "20", decl.Lines[1].LineCode)
+	assert.Equal(t, 15.0, decl.Lines[1].Amount)
+
+	// Line 30: tax payable = 1,000,000 * 15 / 100 = 150,000
+	assert.Equal(t, "30", decl.Lines[2].LineCode)
+	assert.Equal(t, 150000.0, decl.Lines[2].Amount)
+}
+
+func TestGenerateDeclaration_NTNN_FallbackToDefault(t *testing.T) {
+	taxRepo := repository.NewMemoryTaxRepo()
+	jeRepo := repository.NewMemoryJournalRepo()
+	svc := NewTaxService(taxRepo, jeRepo, repository.NewMemoryCompanyRepo(), nil, nil).(*taxService)
+	ctx := context.Background()
+
+	// No rate in table — should use default 5%
+	je := postedEntry("JE-NTNN-1", "2026-03-15",
+		domain.JournalLine{AccountCode: "511", CreditAmount: 2000000})
+	require.NoError(t, jeRepo.Create(ctx, &je))
+
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeNTNN01,
+		domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 3}, "u1", nil)
+	require.NoError(t, err)
+	require.Len(t, decl.Lines, 3)
+
+	// Line 10: income = 2,000,000
+	assert.Equal(t, 2000000.0, decl.Lines[0].Amount)
+
+	// Line 20: rate = 5 (default)
+	assert.Equal(t, 5.0, decl.Lines[1].Amount)
+
+	// Line 30: tax = 2,000,000 * 5 / 100 = 100,000
+	assert.Equal(t, 100000.0, decl.Lines[2].Amount)
+}
