@@ -24,8 +24,8 @@ func RegisterNotificationRoutes(r *gin.Engine, h *NotificationHandler, authMW gi
 	{
 		v1.GET("", h.List)
 		v1.GET("/unread-count", h.UnreadCount)
+		v1.POST("/read-all", h.MarkAllRead)       // must be before /:id routes
 		v1.POST("/:id/read", h.MarkRead)
-		v1.POST("/read-all", h.MarkAllRead)
 		v1.DELETE("/:id", h.Delete)
 	}
 }
