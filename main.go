@@ -164,7 +164,8 @@ r.GET("/reset-password", func(c *gin.Context) {
 		refreshRepo := repository.NewPGRefreshTokenRepo(gormDB)
 		resetRepo := repository.NewPGPasswordResetTokenRepo(gormDB)
 		svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
-		h := handler.NewHandler(svc)
+		exportSvc := service.NewExportService(jeRepo, accRepo, perRepo)
+		h := handler.NewHandlerWithExport(svc, exportSvc)
 
 		companyRepo := repository.NewPGCompanyRepo(gormDB)
 		companySvc := service.NewCompanyService(companyRepo)
@@ -258,7 +259,8 @@ r.GET("/reset-password", func(c *gin.Context) {
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
 	cashRepo := repository.NewMemoryCashRepo()
 	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
-	h := handler.NewHandler(svc)
+	exportSvc := service.NewExportService(jeRepo, accRepo, perRepo)
+	h := handler.NewHandlerWithExport(svc, exportSvc)
 
 	companyRepo := repository.NewMemoryCompanyRepo()
 	companySvc := service.NewCompanyService(companyRepo)

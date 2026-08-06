@@ -7,11 +7,16 @@ import (
 )
 
 type Handler struct {
-	svc service.Service
+	svc       service.Service
+	exportSvc *service.ExportService
 }
 
 func NewHandler(svc service.Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+func NewHandlerWithExport(svc service.Service, exportSvc *service.ExportService) *Handler {
+	return &Handler{svc: svc, exportSvc: exportSvc}
 }
 
 func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
@@ -71,6 +76,8 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 			reports.GET("/trial-balance", h.TrialBalance)
 			reports.GET("/balance-sheet", h.BalanceSheet)
 			reports.GET("/income-statement", h.IncomeStatement)
+			reports.GET("/journal-export", h.ExportJournalEntries)
+			reports.GET("/trial-balance-export", h.ExportTrialBalance)
 		}
 
 		ob := v1.Group("/" + resOB)
