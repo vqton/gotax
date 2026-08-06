@@ -34,6 +34,7 @@ const MODULE_GROUPS = [
     label: "Kế toán",
     items: [
       { href: "/app/journal-entries.html", icon: "📝", label: "Chứng từ" },
+      { href: "/app/recurring-entries.html", icon: "🔁", label: "Chứng từ định kỳ" },
       { href: "/app/periods.html", icon: "📅", label: "Kỳ kế toán" },
       { href: "/app/exchange-rates.html", icon: "💱", label: "Tỷ giá" },
       { href: "/app/opening-balances.html", icon: "⚖️", label: "Số dư đầu kỳ" },

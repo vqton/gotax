@@ -533,6 +533,17 @@ var (
 	ErrValRunNotFound         = errors.New("valuation run not found")
 )
 
+// Recurring Entry errors
+var (
+	ErrRecurringNotFound          = errors.New("recurring entry not found")
+	ErrRecurringNotActive         = errors.New("recurring entry is not active")
+	ErrRecurringCompanyRequired   = errors.New("company_id is required")
+	ErrRecurringTemplateNameRequired = errors.New("template name is required")
+	ErrRecurringFrequencyInvalid  = errors.New("invalid recurring frequency")
+	ErrRecurringDayOfMonthInvalid = errors.New("day_of_month must be 1-31")
+	ErrRecurringLinesRequired     = errors.New("recurring entry must have at least one line")
+)
+
 // Fixed Asset module errors
 var (
 	ErrFANotFound                   = errors.New("fixed asset not found")

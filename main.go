@@ -218,7 +218,10 @@ r.GET("/reset-password", func(c *gin.Context) {
 	pwRepo := repository.NewPGPayrollRepo(gormDB)
 	pwSvc := service.NewPayrollService(pwRepo, companyRepo)
 	pwH := handler.NewPayrollHandler(pwSvc)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)
+	recRepo := repository.NewPGRecurringEntryRepo(gormDB)
+	recSvc := service.NewRecurringService(recRepo, jeRepo)
+	recH := handler.NewRecurringHandler(recSvc)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, authMW, adminMW)
 	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
 		r.Run(cfg.ServerPort)
 		return
@@ -284,7 +287,10 @@ r.GET("/reset-password", func(c *gin.Context) {
 	memPWRepo := repository.NewMemoryPayrollRepo()
 	pwSvcMem := service.NewPayrollService(memPWRepo, companyRepo)
 	pwHMem := handler.NewPayrollHandler(pwSvcMem)
-	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, pwHMem, authMW, adminMW)
+	memRecRepo := repository.NewMemoryRecurringEntryRepo()
+	recSvcMem := service.NewRecurringService(memRecRepo, jeRepo)
+	recHMem := handler.NewRecurringHandler(recSvcMem)
+	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, pwHMem, recHMem, authMW, adminMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
 	r.Run(cfg.ServerPort)
 }

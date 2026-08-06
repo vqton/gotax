@@ -647,6 +647,18 @@ type InventoryValuationRunRepository interface {
 	UpdateValuationRun(ctx context.Context, v *InventoryValuationRun) error
 }
 
+// ─── Recurring Entry Repository ─────────────────────────────────────
+
+type RecurringEntryRepository interface {
+	Create(ctx context.Context, entry *RecurringEntry) error
+	GetByID(ctx context.Context, id string) (*RecurringEntry, error)
+	List(ctx context.Context, companyID string) ([]RecurringEntry, error)
+	Update(ctx context.Context, entry *RecurringEntry) error
+	Delete(ctx context.Context, id string) error
+	UpdateNextRunDate(ctx context.Context, id, nextDate string) error
+	GetDueEntries(ctx context.Context, today string) ([]RecurringEntry, error)
+}
+
 // ─── Fixed Asset Repository ─────────────────────────────────────────
 
 type FARepository interface {
