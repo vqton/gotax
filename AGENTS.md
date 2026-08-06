@@ -48,7 +48,7 @@ HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Se
 
 ## Domain Models
 
-`internal/domain/models*.go` — all `package domain`. Split by bounded context. 31 files, all same package.
+`internal/domain/models*.go` — all `package domain`. Split by bounded context. 32 files, all same package.
 
 Adding a model = add to correct existing file or create new `models_*.go`. No sub-packages, no import changes.
 
@@ -78,7 +78,7 @@ Same pattern across all module handlers.
 
 ## Routes
 
-Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)` at `handler/handler.go:207`.
+Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)` at `handler/handler.go:201`.
 
 | Group | Prefix | Handler |
 |-------|--------|---------|
@@ -124,7 +124,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000021_payroll_holidays`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000024_tax_rate_incentive`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -140,11 +140,13 @@ Per-module naming: `pg_<module>.go` + `memory_<module>.go` in `internal/reposito
 | Company | `pg_company.go` | `memory_company.go` |
 | Tax | `pg_tax.go` | `memory_tax.go` |
 | Bank | `pg_bank.go` | `memory_bank.go` |
-| Cash | `pg_cash.go` | `memory_cash.go` |
+| Cash | `pg_cash.go` | (in `memory.go`) |
 | Purchase | `pg_purchase.go` | `memory_purchase.go` |
 | Sale | `pg_sale.go` | `memory_sale.go` |
 | Warehouse | `pg_warehouse.go` | `memory_warehouse.go` |
 | FA | `pg_fa.go` | `memory_fa.go` |
+| Opening Balance | `pg_opening_balance.go` | `memory_opening_balance.go` |
+| Payroll | `pg_payroll.go` | `memory_payroll.go` |
 
 PG repos use GORM (`*gorm.DB`). Memory repos use `sync.RWMutex` + maps.
 
@@ -171,6 +173,9 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 | `audit_handler.go` | Audit log queries |
 | `user_handler.go` | User CRUD, current user |
 | `coa_handler.go` | COA approvals, versions, analysis, mappings, IFRS |
+| `opening_balance_handler.go` | Opening balance CRUD, carry forward, circular99 mappings, balance migration |
+| `payroll_handler.go` | Salary calculation, payslips, PIT, declarations |
+| `casbin_register.go` | `RegisterRoutesWithCompanyOpt` — central route registration with extra variadic handlers |
 
 ## Validate Package
 
@@ -216,7 +221,7 @@ r.Static("/app", "./web/app")         // Main app pages
 | Cash | PROD | Receipts, payments, transfers, petty cash, advances |
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
-| Tax | ~90% | Full CRUD + 17 declaration types, payment automation (GL journal, late interest, calendar sync), reconciliation, penalty calc, batch generation. Missing: form XML gen, GDT API push |
+| Tax | ~90% | Full CRUD + 17 declaration types, payment automation (GL journal, late interest, calendar sync), reconciliation, penalty calc, batch generation. CIT advanced (incentive reduction, loss carry-forward 5yr, thin cap 30% EBITDA, R&D 200% super-deduction, quarterly provisionals). E-invoice lifecycle (replacement, cancellation, auto-post GL). Calendar expanded (PIT, TTDB, BVMT, FCT), deadline alerts. Missing: form XML gen, GDT API push |
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
 | Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
 | Warehouse | ~30% | Interface + PG + memory repos. Service incomplete |
