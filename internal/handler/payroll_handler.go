@@ -38,6 +38,7 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.POST("/periods", h.CreatePeriod)
 		pw.GET("/periods/:id", h.GetPeriod)
 		pw.POST("/periods/:id/submit", h.SubmitPeriod)
+		pw.POST("/periods/:id/review", h.ReviewPeriod)
 		pw.POST("/periods/:id/approve", h.ApprovePeriod)
 		pw.POST("/periods/:id/reject", h.RejectPeriod)
 		pw.POST("/periods/:id/calculate", h.CalculatePeriod)
@@ -247,6 +248,14 @@ func (h *PayrollHandler) SubmitPeriod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "processing"})
+}
+
+func (h *PayrollHandler) ReviewPeriod(c *gin.Context) {
+	if err := h.svc.ReviewPeriod(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "reviewing"})
 }
 
 func (h *PayrollHandler) ApprovePeriod(c *gin.Context) {

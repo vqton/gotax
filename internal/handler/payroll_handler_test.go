@@ -162,6 +162,58 @@ func TestPayrollApprovePeriod_NotProcessing(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// ─── Review Period ──────────────────────────────────────────────
+
+func TestPayrollReviewPeriod_Success(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	// Create run manually + move to PROCESSING
+	_ = svc.CreateRun(testContext(), &domain.PayrollRun{
+		PeriodID: period.ID, EmployeeID: "NV001", CompanyID: "CMP001", BaseSalary: 10_000_000,
+	})
+	_ = svc.SubmitPeriod(testContext(), period.ID) // → PROCESSING
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/review", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "reviewing")
+}
+
+func TestPayrollReviewPeriod_WrongStatus(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	// Period is DRAFT — cannot review
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/review", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPayrollMultiLevel_FullFlow(t *testing.T) {
+	r, svc := setupPayrollHandlerTest(t)
+	period, _ := svc.CreatePeriod(testContext(), "CMP001", 2026, 7)
+	_ = svc.CreateRun(testContext(), &domain.PayrollRun{
+		PeriodID: period.ID, EmployeeID: "NV001", CompanyID: "CMP001", BaseSalary: 10_000_000,
+	})
+	_ = svc.SubmitPeriod(testContext(), period.ID) // → PROCESSING
+
+	// Review
+	w1 := httptest.NewRecorder()
+	req1, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/review", nil)
+	r.ServeHTTP(w1, req1)
+	assert.Equal(t, http.StatusOK, w1.Code)
+
+	// Approve
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/payroll/periods/"+period.ID+"/approve", nil)
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusOK, w2.Code)
+}
+
 // ─── Runs ───────────────────────────────────────────────────────
 
 func TestPayrollListRuns_Success(t *testing.T) {

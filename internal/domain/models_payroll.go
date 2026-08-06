@@ -7,11 +7,12 @@ import "time"
 type PayrollStatus string
 
 const (
-	PayrollDraft     PayrollStatus = "DRAFT"
+	PayrollDraft      PayrollStatus = "DRAFT"
 	PayrollProcessing PayrollStatus = "PROCESSING"
-	PayrollApproved  PayrollStatus = "APPROVED"
-	PayrollPaid      PayrollStatus = "PAID"
-	PayrollClosed    PayrollStatus = "CLOSED"
+	PayrollReviewing  PayrollStatus = "REVIEWING"
+	PayrollApproved   PayrollStatus = "APPROVED"
+	PayrollPaid       PayrollStatus = "PAID"
+	PayrollClosed     PayrollStatus = "CLOSED"
 )
 
 type ContractType string

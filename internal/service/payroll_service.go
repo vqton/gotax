@@ -168,13 +168,29 @@ func (s *PayrollService) ListRunsByPeriod(ctx context.Context, periodID string) 
 	return s.repo.ListRunsByPeriod(ctx, periodID)
 }
 
+// ReviewPeriod transitions PROCESSING → REVIEWING (ready for approval).
+func (s *PayrollService) ReviewPeriod(ctx context.Context, periodID string) error {
+	period, err := s.repo.GetPeriod(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	if period.Status != domain.PayrollProcessing {
+		return domain.ErrPayrollPeriodNotDraft
+	}
+	now := time.Now()
+	period.Status = domain.PayrollReviewing
+	period.UpdatedAt = now
+	return s.repo.UpdatePeriod(ctx, period)
+}
+
 func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy string) error {
 	period, err := s.repo.GetPeriod(ctx, periodID)
 	if err != nil {
 		return err
 	}
 
-	if period.Status != domain.PayrollProcessing {
+	// Accept REVIEWING (multi-level flow) or PROCESSING (legacy/one-step)
+	if period.Status != domain.PayrollReviewing && period.Status != domain.PayrollProcessing {
 		return domain.ErrPayrollPeriodNotDraft
 	}
 

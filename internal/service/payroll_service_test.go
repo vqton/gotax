@@ -616,3 +616,52 @@ func TestApprovePeriod_NoGLWriter_SkipsEntries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.PayrollApproved, got.Status)
 }
+
+// ─── Multi-level Approval Workflow ──────────────────────────────
+
+func TestReviewPeriod_Success(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+
+	info := &domain.EmployeePayrollInfo{
+		EmployeeID: "NV001", BaseSalary: 10_000_000,
+		ContractType: domain.ContractIndefinite, Region: domain.RegionI,
+	}
+	require.NoError(t, svc.CreateEmployeePayrollInfo(ctx, info))
+	require.NoError(t, svc.CalculatePeriod(ctx, period.ID)) // → PROCESSING
+
+	require.NoError(t, svc.ReviewPeriod(ctx, period.ID)) // → REVIEWING
+
+	got, err := svc.GetPeriod(ctx, period.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayrollReviewing, got.Status)
+}
+
+func TestReviewPeriod_WrongStatus(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	// Period is DRAFT — cannot review
+	err := svc.ReviewPeriod(ctx, period.ID)
+	require.Error(t, err)
+}
+
+func TestMultiLevel_FullFlow(t *testing.T) {
+	svc, writer, ctx := setupPayrollServiceWithGL(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+
+	info := &domain.EmployeePayrollInfo{
+		EmployeeID: "NV001", BaseSalary: 10_000_000,
+		ContractType: domain.ContractIndefinite, Region: domain.RegionI,
+	}
+	require.NoError(t, svc.CreateEmployeePayrollInfo(ctx, info))
+	require.NoError(t, svc.CalculatePeriod(ctx, period.ID))      // → PROCESSING
+	require.NoError(t, svc.ReviewPeriod(ctx, period.ID))         // → REVIEWING
+	require.NoError(t, svc.ApprovePeriod(ctx, period.ID, "admin")) // → APPROVED + GL
+
+	// Verify GL entries created
+	require.Len(t, writer.entries, 3, "should create 3 journal entries")
+
+	got, err := svc.GetPeriod(ctx, period.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayrollApproved, got.Status)
+}
