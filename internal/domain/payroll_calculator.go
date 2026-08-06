@@ -339,9 +339,6 @@ func GeneratePayrollJournalEntries(input PayrollJEInput) PayrollJournalEntries {
 		Lines:       lines3,
 	}
 
-	_ = insuranceEntry
-	_ = deductionEntry
-
 	return PayrollJournalEntries{
 		Entries: []*JournalEntry{salaryEntry, insuranceEntry, deductionEntry},
 	}
