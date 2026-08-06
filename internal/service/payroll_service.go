@@ -225,6 +225,11 @@ func (s *PayrollService) ApprovePeriod(ctx context.Context, periodID, approvedBy
 	return s.repo.UpdatePeriod(ctx, period)
 }
 
+// CalcSeverancePay calculates severance pay for an employee.
+func (s *PayrollService) CalcSeverancePay(input domain.SeveranceInput) domain.SeveranceResult {
+	return domain.CalcSeverancePay(input)
+}
+
 func (s *PayrollService) SubmitPeriod(ctx context.Context, periodID string) error {
 	period, err := s.repo.GetPeriod(ctx, periodID)
 	if err != nil {

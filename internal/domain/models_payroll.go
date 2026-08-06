@@ -352,3 +352,35 @@ type PayrollHoliday struct {
 	Year      int       `json:"year"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// ─── Severance Pay ─────────────────────────────────────────────
+
+// TerminationReason classifies why the contract ended.
+type TerminationReason string
+
+const (
+	TerminationRedundancy   TerminationReason = "REDUNDANCY"
+	TerminationRestructure  TerminationReason = "RESTRUCTURE"
+	TerminationPerformance  TerminationReason = "PERFORMANCE"
+	TerminationExpiration   TerminationReason = "EXPIRATION"
+	TerminationMutual       TerminationReason = "MUTUAL"
+	TerminationHealth       TerminationReason = "HEALTH"
+	TerminationRetirement   TerminationReason = "RETIREMENT"
+	TerminationGrossMisconduct TerminationReason = "GROSS_MISCONDUCT"
+)
+
+// SeveranceInput contains data for severance pay calculation.
+type SeveranceInput struct {
+	AvgSalary6Months float64          `json:"avg_salary_6_months"` // Average salary of last 6 months
+	YearsOfService   float64          `json:"years_of_service"`    // Total years (can be fractional)
+	Reason           TerminationReason `json:"reason"`
+}
+
+// SeveranceResult contains the calculated severance pay.
+type SeveranceResult struct {
+	GrossSeverance   float64 `json:"gross_severance"`   // 0.5 × avg × years
+	PITAmount        float64 `json:"pit_amount"`        // PIT on severance
+	NetSeverance     float64 `json:"net_severance"`     // After PIT
+	YearsOfService   float64 `json:"years_of_service"`
+	Reason           TerminationReason `json:"reason"`
+}

@@ -985,3 +985,36 @@ func TestCalcThirteenthMonth_Proportional(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	assert.Equal(t, float64(6_000_000), result.GrossAmount) // 12M × 6/12
 }
+
+// ─── Severance Pay ──────────────────────────────────────────────
+
+func TestCalcSeverance_Basic(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"avg_salary_6_months":10000000,"years_of_service":3,"reason":"REDUNDANCY"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/severance/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.SeveranceResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 15_000_000.0, result.GrossSeverance) // 0.5 × 10M × 3
+	assert.Equal(t, 3.0, result.YearsOfService)
+	assert.True(t, result.NetSeverance > 0)
+}
+
+func TestCalcSeverance_GrossMisconduct(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"avg_salary_6_months":10000000,"years_of_service":5,"reason":"GROSS_MISCONDUCT"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/severance/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.SeveranceResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 0.0, result.GrossSeverance)
+	assert.Equal(t, 0.0, result.NetSeverance)
+}

@@ -48,6 +48,9 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		// Runs
 		pw.PUT("/runs/:id", h.UpdateRun)
 
+		// Severance
+		pw.POST("/severance/calculate", h.CalcSeverance)
+
 		// Timekeeping
 		pw.POST("/timekeeping", h.CreateTimekeeping)
 		pw.GET("/timekeeping", h.ListTimekeeping)
@@ -787,4 +790,14 @@ func (h *PayrollHandler) GenerateTK3TS(c *gin.Context) {
 	}
 	c.Header("Content-Type", "application/xml")
 	c.Data(http.StatusOK, "application/xml", xmlBytes)
+}
+
+func (h *PayrollHandler) CalcSeverance(c *gin.Context) {
+	var input domain.SeveranceInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result := h.svc.CalcSeverancePay(input)
+	c.JSON(http.StatusOK, result)
 }

@@ -628,3 +628,34 @@ func CalculateEmployeePayroll(info EmployeePayrollInfo, period *PayrollPeriod, t
 	run.Status = "CALCULATED"
 	return run
 }
+
+// ─── Severance Pay Calculator ───────────────────────────────────
+
+// CalcSeverancePay computes severance per Labor Code 2019 Art. 46.
+// Rule: 0.5 month salary × years of service, based on avg of last 6 months.
+// No SI/HI/UI deductions on severance. PIT applies on gross.
+// Gross misconduct = no severance.
+func CalcSeverancePay(input SeveranceInput) SeveranceResult {
+	result := SeveranceResult{
+		YearsOfService: input.YearsOfService,
+		Reason:         input.Reason,
+	}
+
+	// Gross misconduct = zero severance
+	if input.Reason == TerminationGrossMisconduct {
+		return result
+	}
+
+	// Gross severance: 0.5 × avg × years
+	result.GrossSeverance = math.Round(0.5*input.AvgSalary6Months*input.YearsOfService*100) / 100
+	if result.GrossSeverance < 0 {
+		result.GrossSeverance = 0
+	}
+
+	// PIT on severance (use current month's brackets)
+	now := time.Now()
+	result.PITAmount = CalcPIT(result.GrossSeverance, int(now.Month()), now.Year())
+	result.NetSeverance = result.GrossSeverance - result.PITAmount
+
+	return result
+}
