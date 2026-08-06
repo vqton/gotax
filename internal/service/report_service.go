@@ -96,3 +96,198 @@ func buildTotalsRow(debit, credit float64) []core.Row {
 		),
 	}
 }
+
+type CashFlowResult struct {
+	OpeningCash float64         `json:"opening_cash"`
+	Operating   CashFlowSection `json:"operating"`
+	Investing   CashFlowSection `json:"investing"`
+	Financing   CashFlowSection `json:"financing"`
+	NetChange   float64         `json:"net_change"`
+	ClosingCash float64         `json:"closing_cash"`
+}
+
+type CashFlowSection struct {
+	Inflows  []CashFlowLine `json:"inflows"`
+	Outflows []CashFlowLine `json:"outflows"`
+	Net      float64        `json:"net"`
+}
+
+type CashFlowLine struct {
+	AccountCode string  `json:"account_code"`
+	Description string  `json:"description"`
+	Amount      float64 `json:"amount"`
+}
+
+func (s *service) CashFlowStatement(ctx context.Context, companyID string, year, month int) (*CashFlowResult, error) {
+	period, err := s.periods.GetByYearMonth(ctx, year, month)
+	if err != nil {
+		return nil, fmt.Errorf("get period: %w", err)
+	}
+	if period == nil {
+		return nil, fmt.Errorf("period not found for %d/%02d", year, month)
+	}
+
+	// Opening cash: balance of accounts 111, 112 at end of previous month.
+	var openingCash float64
+	prevYear, prevMonth := year, month-1
+	if prevMonth < 1 {
+		prevMonth = 12
+		prevYear--
+	}
+	prevPeriod, err := s.periods.GetByYearMonth(ctx, prevYear, prevMonth)
+	if err == nil && prevPeriod != nil {
+		for _, code := range []string{"111", "112"} {
+			b, err := s.journals.GetBalance(ctx, code, prevPeriod.ID)
+			if err == nil && b != nil {
+				b.Calculate()
+				openingCash += b.ClosingBalance
+			}
+		}
+	}
+
+	// Fetch all posted entries for the period.
+	entries, err := s.journals.GetByPeriod(ctx, period.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get entries: %w", err)
+	}
+
+	// Fetch account metadata for descriptions.
+	acctMap := make(map[string]string)
+	if accounts, err := s.accounts.GetAll(ctx, false); err == nil {
+		for _, a := range accounts {
+			acctMap[a.Code] = a.Name
+		}
+	}
+
+	type lineAgg struct {
+		inflow  float64
+		outflow float64
+	}
+	operatingLines := make(map[string]*lineAgg)
+	investingLines := make(map[string]*lineAgg)
+	financingLines := make(map[string]*lineAgg)
+
+	for _, e := range entries {
+		if e.Status != domain.JournalEntryPosted {
+			continue
+		}
+		// Check if this entry touches a cash account (111, 112).
+		hasCash := false
+		for _, l := range e.Lines {
+			if len(l.AccountCode) >= 3 && (l.AccountCode[:3] == "111" || l.AccountCode[:3] == "112") {
+				hasCash = true
+				break
+			}
+		}
+		if !hasCash {
+			continue
+		}
+
+		for _, l := range e.Lines {
+			code := l.AccountCode
+			prefix := code
+			if len(code) > 3 {
+				prefix = code[:3]
+			}
+			// Skip cash accounts themselves.
+			if prefix == "111" || prefix == "112" {
+				continue
+			}
+
+			var target map[string]*lineAgg
+			switch {
+			case prefix == "511" || prefix == "515" || prefix == "711" ||
+				prefix == "632" || prefix == "641" || prefix == "642" ||
+				prefix == "131" || prefix == "152" || prefix == "331":
+				target = operatingLines
+			case prefix == "211" || prefix == "128" || prefix == "228":
+				target = investingLines
+			case prefix == "411":
+				target = financingLines
+			default:
+				continue
+			}
+
+			ag, ok := target[code]
+			if !ok {
+				ag = &lineAgg{}
+				target[code] = ag
+			}
+			ag.inflow += l.CreditAmount
+			ag.outflow += l.DebitAmount
+		}
+	}
+
+	operating := CashFlowSection{}
+	investing := CashFlowSection{}
+	financing := CashFlowSection{}
+
+	for code, ag := range operatingLines {
+		desc := acctMap[code]
+		if desc == "" {
+			desc = code
+		}
+		if ag.inflow > 0 {
+			operating.Inflows = append(operating.Inflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.inflow})
+		}
+		if ag.outflow > 0 {
+			operating.Outflows = append(operating.Outflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.outflow})
+		}
+	}
+
+	for code, ag := range investingLines {
+		desc := acctMap[code]
+		if desc == "" {
+			desc = code
+		}
+		if ag.inflow > 0 {
+			investing.Inflows = append(investing.Inflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.inflow})
+		}
+		if ag.outflow > 0 {
+			investing.Outflows = append(investing.Outflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.outflow})
+		}
+	}
+
+	for code, ag := range financingLines {
+		desc := acctMap[code]
+		if desc == "" {
+			desc = code
+		}
+		if ag.inflow > 0 {
+			financing.Inflows = append(financing.Inflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.inflow})
+		}
+		if ag.outflow > 0 {
+			financing.Outflows = append(financing.Outflows, CashFlowLine{AccountCode: code, Description: desc, Amount: ag.outflow})
+		}
+	}
+
+	for i := range operating.Inflows {
+		operating.Net += operating.Inflows[i].Amount
+	}
+	for i := range operating.Outflows {
+		operating.Net -= operating.Outflows[i].Amount
+	}
+	for i := range investing.Inflows {
+		investing.Net += investing.Inflows[i].Amount
+	}
+	for i := range investing.Outflows {
+		investing.Net -= investing.Outflows[i].Amount
+	}
+	for i := range financing.Inflows {
+		financing.Net += financing.Inflows[i].Amount
+	}
+	for i := range financing.Outflows {
+		financing.Net -= financing.Outflows[i].Amount
+	}
+
+	netChange := operating.Net + investing.Net + financing.Net
+
+	return &CashFlowResult{
+		OpeningCash: openingCash,
+		Operating:   operating,
+		Investing:   investing,
+		Financing:   financing,
+		NetChange:   netChange,
+		ClosingCash: openingCash + netChange,
+	}, nil
+}

@@ -1205,3 +1205,180 @@ func TestGetAllPeriods(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, periods, 2)
 }
+
+// ─── Cash Flow Statement ────────────────────────────────────────────
+
+func TestCashFlowStatement(t *testing.T) {
+	svc, ctx := setupService(t)
+
+	// Create accounts needed for cash flow.
+	accounts := []domain.Account{
+		{Code: "111", Name: "Tiền mặt", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "112", Name: "Tiền gửi ngân hàng", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "511", Name: "Doanh thu bán hàng", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "641", Name: "Giá vốn hàng bán", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "642", Name: "Chi phí bán hàng", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "211", Name: "Tài sản cố định", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "411", Name: "Vốn chủ sở hữu", Type: domain.AccountTypeEquity, Status: domain.AccountStatusActive, IsActive: true},
+		{Code: "331", Name: "Phải trả người bán", Type: domain.AccountTypeLiability, Status: domain.AccountStatusActive, IsActive: true},
+	}
+	for i := range accounts {
+		require.NoError(t, svc.CreateAccount(ctx, &accounts[i]))
+	}
+
+	// Create period for Jan 2025.
+	require.NoError(t, svc.CreatePeriod(ctx, &domain.Period{
+		ID: "P-2025-01", Year: 2025, Month: 1,
+		StartDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2025, 1, 31, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	}))
+
+	// Operating: revenue received (cash in from 511)
+	je1 := &domain.JournalEntry{
+		EntryDate:   time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2025-01",
+		Description: "Bán hàng thu tiền mặt",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "111", DebitAmount: 5000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "511", DebitAmount: 0, CreditAmount: 5000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, je1, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, je1.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, je1.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, je1.ID))
+
+	// Operating: COGS payment (cash out from 641)
+	je2 := &domain.JournalEntry{
+		EntryDate:   time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2025-01",
+		Description: "Thanh toán nhà cung cấp",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "641", DebitAmount: 2000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "112", DebitAmount: 0, CreditAmount: 2000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, je2, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, je2.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, je2.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, je2.ID))
+
+	// Investing: FA purchase (cash out from 211)
+	je3 := &domain.JournalEntry{
+		EntryDate:   time.Date(2025, 1, 20, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2025-01",
+		Description: "Mua TSCĐ",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "211", DebitAmount: 3000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "112", DebitAmount: 0, CreditAmount: 3000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, je3, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, je3.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, je3.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, je3.ID))
+
+	// Financing: equity injection (cash in from 411)
+	je4 := &domain.JournalEntry{
+		EntryDate:   time.Date(2025, 1, 25, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2025-01",
+		Description: "Đóng góp vốn",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "112", DebitAmount: 10000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "411", DebitAmount: 0, CreditAmount: 10000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, je4, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, je4.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, je4.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, je4.ID))
+
+	result, err := svc.CashFlowStatement(ctx, "", 2025, 1)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Operating: inflow 5M (revenue), outflow 2M (COGS) → net 3M
+	assert.Equal(t, 5000000.0, result.Operating.Inflows[0].Amount)
+	assert.Equal(t, 2000000.0, result.Operating.Outflows[0].Amount)
+	assert.Equal(t, 3000000.0, result.Operating.Net)
+
+	// Investing: outflow 3M (FA purchase)
+	assert.Len(t, result.Investing.Inflows, 0)
+	assert.Equal(t, 3000000.0, result.Investing.Outflows[0].Amount)
+	assert.Equal(t, -3000000.0, result.Investing.Net)
+
+	// Financing: inflow 10M (equity)
+	assert.Equal(t, 10000000.0, result.Financing.Inflows[0].Amount)
+	assert.Len(t, result.Financing.Outflows, 0)
+	assert.Equal(t, 10000000.0, result.Financing.Net)
+
+	// Net change: 3M - 3M + 10M = 10M
+	assert.Equal(t, 10000000.0, result.NetChange)
+	// Opening cash: 0 (no prior period)
+	assert.Equal(t, 0.0, result.OpeningCash)
+	// Closing cash: 10M
+	assert.Equal(t, 10000000.0, result.ClosingCash)
+}
+
+func TestCashFlowStatement_WithOpeningBalance(t *testing.T) {
+	svc, ctx := setupService(t)
+
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "111", Name: "Tiền mặt", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true}))
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "511", Name: "Doanh thu", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true}))
+
+	// Create Dec 2024 period with a posted cash entry.
+	require.NoError(t, svc.CreatePeriod(ctx, &domain.Period{
+		ID: "P-2024-12", Year: 2024, Month: 12,
+		StartDate: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	}))
+	jeDec := &domain.JournalEntry{
+		EntryDate:   time.Date(2024, 12, 15, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2024-12",
+		Description: "Dec revenue",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "111", DebitAmount: 2000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "511", DebitAmount: 0, CreditAmount: 2000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, jeDec, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, jeDec.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, jeDec.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, jeDec.ID))
+
+	// Create Jan 2025 period with a revenue entry.
+	require.NoError(t, svc.CreatePeriod(ctx, &domain.Period{
+		ID: "P-2025-01", Year: 2025, Month: 1,
+		StartDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2025, 1, 31, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	}))
+	jeJan := &domain.JournalEntry{
+		EntryDate:   time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC),
+		PeriodID:    "P-2025-01",
+		Description: "Jan revenue",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "111", DebitAmount: 3000000, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "511", DebitAmount: 0, CreditAmount: 3000000},
+		},
+	}
+	require.NoError(t, svc.CreateEntry(ctx, jeJan, "user1"))
+	require.NoError(t, svc.SubmitForReview(ctx, jeJan.ID, "user1"))
+	require.NoError(t, svc.ApproveEntry(ctx, jeJan.ID, "approver1"))
+	require.NoError(t, svc.PostEntry(ctx, jeJan.ID))
+
+	result, err := svc.CashFlowStatement(ctx, "", 2025, 1)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Opening cash should reflect Dec balance (2M debit on 111).
+	assert.Equal(t, 2000000.0, result.OpeningCash)
+	// Operating inflow: 3M
+	assert.Equal(t, 3000000.0, result.Operating.Net)
+	// Net change: 3M
+	assert.Equal(t, 3000000.0, result.NetChange)
+	// Closing: 2M + 3M = 5M
+	assert.Equal(t, 5000000.0, result.ClosingCash)
+}

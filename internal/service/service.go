@@ -36,6 +36,7 @@ type Service interface {
 	TrialBalance(ctx context.Context, year, month int) ([]domain.AccountBalance, error)
 	BalanceSheet(ctx context.Context, year, month int) ([]domain.AccountBalance, error)
 	IncomeStatement(ctx context.Context, year, month int) ([]domain.AccountBalance, error)
+	CashFlowStatement(ctx context.Context, companyID string, year, month int) (*CashFlowResult, error)
 
 	CreatePeriod(ctx context.Context, period *domain.Period) error
 	GetPeriod(ctx context.Context, id string) (*domain.Period, error)
@@ -1453,6 +1454,9 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 			{AccountCode: r.CreditAccountID, CreditAmount: r.AmountVND},
 		},
 	}
+	if p, err := s.periods.GetByYearMonth(ctx, entryDate.Year(), int(entryDate.Month())); err == nil && p != nil {
+		entry.PeriodID = p.ID
+	}
 	if err := entry.Validate(); err != nil {
 		return err
 	}
@@ -1614,6 +1618,9 @@ func (s *service) PostCashPayment(ctx context.Context, id, userID string) error 
 			{AccountCode: p.DebitAccountID, DebitAmount: p.AmountVND},
 			{AccountCode: p.CashAccountID, CreditAmount: p.AmountVND},
 		},
+	}
+	if period, err := s.periods.GetByYearMonth(ctx, entryDate.Year(), int(entryDate.Month())); err == nil && period != nil {
+		entry.PeriodID = period.ID
 	}
 	if err := entry.Validate(); err != nil {
 		return err

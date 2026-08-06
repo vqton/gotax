@@ -33,7 +33,7 @@
       <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-wrap items-end gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Năm</label>
-          <select x-model="year" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          <select x-model="year" @change="onFilterChange()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             <option value="2026">2026</option>
             <option value="2025">2025</option>
             <option value="2024">2024</option>
@@ -41,7 +41,7 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Tháng</label>
-          <select x-model="month" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          <select x-model="month" @change="onFilterChange()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             <option value="0">Cả năm</option>
             <option value="1">Tháng 1</option>
             <option value="2">Tháng 2</option>
@@ -156,38 +156,53 @@ function comp() {
   return {
     year: "2026",
     month: "0",
-    openingCash: 2450000000,
-    openingCashPrev: 1820000000,
+    openingCash: 0,
+    openingCashPrev: 0,
     sections: {
-      operating: [
-        { label: "Tiền thu từ bán hàng, cung cấp dịch vụ", current: 5870000000, previous: 5120000000 },
-        { label: "Thu tiền lãi cho vay, cổ tức", current: 85000000, previous: 62000000 },
-        { label: "Thu từ các khoản tiền đã đặt cọc", current: 120000000, previous: 95000000 },
-        { label: "Tiền trả nhà cung cấp, người lao động", current: -3980000000, previous: -3450000000 },
-        { label: "Tiền trả lãi vay", current: -156000000, previous: -142000000 },
-        { label: "Thuế thu nhập doanh nghiệp đã nộp", current: -320000000, previous: -285000000 },
-        { label: "Tiền phạt vi phạm hành chính", current: -5000000, previous: -3000000 },
-        { label: "Thu tiền bồi thường, tiền thưởng", current: 45000000, previous: 38000000 },
-      ],
-      investing: [
-        { label: "Mua sắm TSCĐ, BĐS đầu tư", current: -1250000000, previous: -890000000 },
-        { label: "Mua chứng khoán ngắn hạn", current: -200000000, previous: -150000000 },
-        { label: "Cho vay, đặt cọc, ứng trước", current: -180000000, previous: -120000000 },
-        { label: "Bán TSCĐ, BĐS đầu tư", current: 350000000, previous: 280000000 },
-        { label: "Thu từ bán chứng khoán ngắn hạn", current: 150000000, previous: 100000000 },
-        { label: "Thu tiền gốc cho vay", current: 90000000, previous: 75000000 },
-      ],
-      financing: [
-        { label: "Phát hành cổ phiếu, vốn góp", current: 500000000, previous: 400000000 },
-        { label: "Vay ngắn hạn, dài hạn", current: 800000000, previous: 650000000 },
-        { label: "Trả nợ gốc vay", current: -600000000, previous: -500000000 },
-        { label: "Trả cổ tức, lợi nhuận chia cho CĐTS", current: -280000000, previous: -240000000 },
-        { label: "Trả tiền mua cổ phiếu quỹ", current: -100000000, previous: 0 },
-      ],
+      operating: [],
+      investing: [],
+      financing: [],
     },
 
     async init() {
       mountAppShell("Lưu chuyển tiền tệ", "/app/cash-flow.html");
+      await this.loadData();
+    },
+
+    async loadData() {
+      const y = this.year;
+      const m = this.month === "0" ? 1 : parseInt(this.month);
+      const companyId = this.getCompanyId();
+      try {
+        const data = await apiGet(`/api/v1/reports/cash-flow?company_id=${companyId}&year=${y}&month=${m}`);
+        this.openingCash = data.opening_cash || 0;
+        this.sections.operating = this.buildSection(data.operating);
+        this.sections.investing = this.buildSection(data.investing);
+        this.sections.financing = this.buildSection(data.financing);
+      } catch (e) {
+        $store.app.error = "Không thể tải dữ liệu lưu chuyển tiền tệ: " + e.message;
+      }
+    },
+
+    buildSection(section) {
+      if (!section) return [];
+      const items = [];
+      for (const inflow of (section.inflows || [])) {
+        items.push({ label: inflow.description || inflow.account_code, current: inflow.amount, previous: 0 });
+      }
+      for (const outflow of (section.outflows || [])) {
+        items.push({ label: outflow.description || outflow.account_code, current: -outflow.amount, previous: 0 });
+      }
+      return items;
+    },
+
+    getCompanyId() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("company_id") || "";
+    },
+
+    async onFilterChange() {
+      await this.loadData();
     },
 
     periodLabel() {

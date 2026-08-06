@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản lý ngân sách · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="budgetPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Quản lý ngân sách</h2>
+        <div class="flex items-center gap-3">
+          <button @click="bulkImport()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            Nhập khẩu
+          </button>
+          <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Thêm ngân sách
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="flex items-center gap-4 mb-4">
+        <select x-model="filterYear" @change="load()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">Tất cả năm</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026">2026</option>
+          <option value="2027">2027</option>
+        </select>
+        <input type="text" x-model="search" placeholder="Tìm mã tài khoản..." class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <p class="text-xs text-gray-400 uppercase tracking-wider">Tổng ngân sách</p>
+          <p class="text-xl font-bold text-gray-900 mt-1" x-text="formatNum(totalBudgeted)"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <p class="text-xs text-gray-400 uppercase tracking-wider">Tổng thực tế</p>
+          <p class="text-xl font-bold text-gray-900 mt-1" x-text="formatNum(totalActual)"></p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <p class="text-xs text-gray-400 uppercase tracking-wider">Tổng chênh lệch</p>
+          <p class="text-xl font-bold mt-1" :class="totalVariance >= 0 ? 'text-green-600' : 'text-red-600'" x-text="formatNum(totalVariance)"></p>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách ngân sách</h3>
+          <span class="text-xs text-gray-400" x-text="filtered.length + ' mục'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã tài khoản</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tháng</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Ngân sách</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thực tế</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Chênh lệch</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ghi chú</th>
+                <th class="text-center px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-for="item in filtered" :key="item.id">
+                <tr class="hover:bg-gray-50 transition">
+                  <td class="px-5 py-3 font-medium text-gray-900" x-text="item.account_code"></td>
+                  <td class="px-5 py-3 text-gray-600" x-text="'Tháng ' + item.period_month + '/' + item.period_year"></td>
+                  <td class="px-5 py-3 text-right text-gray-900" x-text="formatNum(item.budgeted)"></td>
+                  <td class="px-5 py-3 text-right text-gray-900" x-text="formatNum(item.actual)"></td>
+                  <td class="px-5 py-3 text-right font-semibold" :class="item.variance >= 0 ? 'text-green-600' : 'text-red-600'" x-text="formatNum(item.variance)"></td>
+                  <td class="px-5 py-3 text-gray-500 text-xs" x-text="item.notes || '-'"></td>
+                  <td class="px-5 py-3 text-center">
+                    <button @click="openEdit(item)" class="text-blue-600 hover:text-blue-800 text-xs mr-2">Sửa</button>
+                    <button @click="deleteItem(item)" class="text-red-600 hover:text-red-800 text-xs">Xóa</button>
+                  </td>
+                </tr>
+              </template>
+              <template x-if="filtered.length === 0">
+                <tr><td colspan="7" class="px-5 py-8 text-center text-gray-400">Không có dữ liệu ngân sách</td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Create/Edit Modal -->
+      <template x-if="showModal">
+        <div class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="showModal=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-4" x-text="editing ? 'Sửa ngân sách' : 'Thêm ngân sách'"></h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Mã tài khoản <span class="text-red-500">*</span></label>
+                <input type="text" x-model="form.account_code" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="VD: 6421">
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Năm</label>
+                  <select x-model.number="form.period_year" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Tháng</label>
+                  <select x-model.number="form.period_month" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <template x-for="m in 12"><option :value="m" x-text="'Tháng ' + m"></option></template>
+                  </select>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Ngân sách</label>
+                  <input type="number" x-model.number="form.budgeted" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Thực tế</label>
+                  <input type="number" x-model.number="form.actual" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+                <textarea x-model="form.notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+              <button @click="showModal=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Hủy</button>
+              <button @click="saveItem()" :disabled="saving" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition">
+                <span x-show="!saving" x-text="editing ? 'Cập nhật' : 'Thêm mới'"></span>
+                <span x-show="saving">Đang lưu...</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Delete Confirm Modal -->
+      <template x-if="showDeleteConfirm">
+        <div class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="showDeleteConfirm=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-2">Xóa ngân sách?</h3>
+            <p class="text-sm text-gray-600 mb-6">Bạn có chắc muốn xóa mục ngân sách này?</p>
+            <div class="flex justify-end gap-3">
+              <button @click="showDeleteConfirm=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Hủy</button>
+              <button @click="confirmDelete()" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">Xóa</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </main>
+  </div>
+
+<script>
+function budgetPage() {
+  return {
+    items: [],
+    filtered: [],
+    search: '',
+    filterYear: '',
+    showModal: false,
+    showDeleteConfirm: false,
+    editing: false,
+    saving: false,
+    _editId: null,
+    deletingItem: null,
+    form: { account_code: '', period_year: 2026, period_month: 1, budgeted: 0, actual: 0, notes: '' },
+
+    get totalBudgeted() { return this.filtered.reduce((s, i) => s + (i.budgeted || 0), 0); },
+    get totalActual() { return this.filtered.reduce((s, i) => s + (i.actual || 0), 0); },
+    get totalVariance() { return this.filtered.reduce((s, i) => s + (i.variance || 0), 0); },
+
+    async init() {
+      mountAppShell('Quản lý ngân sách', '/app/budget.html');
+      await this.load();
+    },
+
+    async load() {
+      try {
+        const cid = App.companyId();
+        let url = `/budgets?company_id=${cid}`;
+        if (this.filterYear) url += `&year=${this.filterYear}`;
+        const res = await apiGet(url);
+        this.items = Array.isArray(res) ? res : (res?.data || []);
+        this.applyFilter();
+      } catch (e) {
+        $store.app.flashError(e.error || 'Không thể tải dữ liệu');
+      }
+    },
+
+    applyFilter() {
+      let list = this.items;
+      if (this.search) {
+        const q = this.search.toLowerCase();
+        list = list.filter(i => (i.account_code || '').toLowerCase().includes(q));
+      }
+      this.filtered = list;
+    },
+
+    formatNum(n) {
+      return new Intl.NumberFormat('vi-VN').format(n || 0);
+    },
+
+    openCreate() {
+      this.form = { account_code: '', period_year: 2026, period_month: 1, budgeted: 0, actual: 0, notes: '' };
+      this.editing = false;
+      this._editId = null;
+      this.showModal = true;
+    },
+
+    async openEdit(item) {
+      this.form = {
+        account_code: item.account_code,
+        period_year: item.period_year,
+        period_month: item.period_month,
+        budgeted: item.budgeted,
+        actual: item.actual,
+        notes: item.notes || '',
+      };
+      this.editing = true;
+      this._editId = item.id;
+      this.showModal = true;
+    },
+
+    async saveItem() {
+      if (!this.form.account_code) {
+        $store.app.flashError('Vui lòng nhập mã tài khoản');
+        return;
+      }
+      this.saving = true;
+      try {
+        const cid = App.companyId();
+        const payload = { ...this.form };
+        if (this.editing) {
+          await apiPut(`/budgets/${this._editId}?company_id=${cid}`, payload);
+          $store.app.flashSuccess('Đã cập nhật ngân sách');
+        } else {
+          await apiPost(`/budgets?company_id=${cid}`, payload);
+          $store.app.flashSuccess('Đã thêm ngân sách mới');
+        }
+        this.showModal = false;
+        await this.load();
+      } catch (e) {
+        $store.app.flashError(e.error || 'Lưu ngân sách thất bại');
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    deleteItem(item) {
+      this.deletingItem = item;
+      this.showDeleteConfirm = true;
+    },
+
+    async confirmDelete() {
+      if (!this.deletingItem) return;
+      try {
+        const cid = App.companyId();
+        await apiDelete(`/budgets/${this.deletingItem.id}?company_id=${cid}`);
+        this.showDeleteConfirm = false;
+        this.deletingItem = null;
+        await this.load();
+        $store.app.flashSuccess('Đã xóa ngân sách');
+      } catch (e) {
+        $store.app.flashError(e.error || 'Không thể xóa');
+      }
+    },
+
+    bulkImport() {
+      $store.app.flashError('Tính năng nhập khẩu đang được phát triển');
+    },
+  };
+}
+</script>
+
+</body>
+</html>

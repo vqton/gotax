@@ -533,6 +533,18 @@ var (
 	ErrValRunNotFound         = errors.New("valuation run not found")
 )
 
+// Tools & Equipment (CCDC) errors
+var (
+	ErrCCDCNotFound              = errors.New("tool/equipment not found")
+	ErrCCDCCodeExists            = errors.New("tool/equipment code already exists")
+	ErrCCDCCategoryNotFound      = errors.New("tool/equipment category not found")
+	ErrCCDCCategoryCodeExists    = errors.New("tool/equipment category code already exists")
+	ErrCCDCCategoryCodeRequired  = errors.New("category code is required")
+	ErrCCDCCategoryNameRequired  = errors.New("category name is required")
+	ErrCCDCItemCodeRequired      = errors.New("item code is required")
+	ErrCCDCItemNameRequired      = errors.New("item name is required")
+)
+
 // Recurring Entry errors
 var (
 	ErrRecurringNotFound          = errors.New("recurring entry not found")
@@ -581,4 +593,15 @@ var (
 	ErrFACIPTransferNotApplicable   = errors.New("asset is not a CIP, cannot transfer")
 	ErrFASuspensionNotApplicable    = errors.New("asset is not depreciating, cannot suspend")
 	ErrFAResumeNotApplicable        = errors.New("asset is not suspended, cannot resume")
+)
+
+// Budget module errors
+var (
+	ErrBudgetNotFound = errors.New("budget not found")
+	ErrBudgetExists   = errors.New("budget entry already exists for this account/period")
+)
+
+// Notification errors
+var (
+	ErrNotificationNotFound = errors.New("notification not found")
 )

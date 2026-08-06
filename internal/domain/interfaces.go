@@ -649,6 +649,18 @@ type InventoryValuationRunRepository interface {
 
 // ─── Recurring Entry Repository ─────────────────────────────────────
 
+// ─── Notification Repository ──────────────────────────────────────
+
+type NotificationRepository interface {
+	Create(ctx context.Context, n *Notification) error
+	GetByID(ctx context.Context, id string) (*Notification, error)
+	ListByUser(ctx context.Context, companyID, userID string, limit int) ([]Notification, error)
+	UnreadCount(ctx context.Context, companyID, userID string) (int, error)
+	MarkRead(ctx context.Context, id string) error
+	MarkAllRead(ctx context.Context, companyID, userID string) error
+	Delete(ctx context.Context, id string) error
+}
+
 type RecurringEntryRepository interface {
 	Create(ctx context.Context, entry *RecurringEntry) error
 	GetByID(ctx context.Context, id string) (*RecurringEntry, error)
@@ -657,6 +669,25 @@ type RecurringEntryRepository interface {
 	Delete(ctx context.Context, id string) error
 	UpdateNextRunDate(ctx context.Context, id, nextDate string) error
 	GetDueEntries(ctx context.Context, today string) ([]RecurringEntry, error)
+}
+
+// ─── Tools & Equipment (CCDC) Repository ─────────────────────────────
+
+type ToolEquipmentRepository interface {
+	Create(ctx context.Context, t *ToolEquipment) error
+	GetByID(ctx context.Context, id string) (*ToolEquipment, error)
+	List(ctx context.Context, companyID string) ([]ToolEquipment, error)
+	Update(ctx context.Context, t *ToolEquipment) error
+	Delete(ctx context.Context, id string) error
+	GetByCode(ctx context.Context, companyID, code string) (*ToolEquipment, error)
+}
+
+type ToolEquipmentCategoryRepository interface {
+	Create(ctx context.Context, c *ToolEquipmentCategory) error
+	GetByID(ctx context.Context, id string) (*ToolEquipmentCategory, error)
+	List(ctx context.Context, companyID string) ([]ToolEquipmentCategory, error)
+	Update(ctx context.Context, c *ToolEquipmentCategory) error
+	Delete(ctx context.Context, id string) error
 }
 
 // ─── Fixed Asset Repository ─────────────────────────────────────────
@@ -696,4 +727,15 @@ type FARepository interface {
 
 	CreateInventoryResult(ctx context.Context, r *FixedAssetInventoryResult) error
 	GetInventoryResultsByPlan(ctx context.Context, planID string) ([]FixedAssetInventoryResult, error)
+}
+
+// ─── Budget Repository ────────────────────────────────────────────
+
+type BudgetRepository interface {
+	Create(ctx context.Context, b *Budget) error
+	GetByID(ctx context.Context, id string) (*Budget, error)
+	List(ctx context.Context, companyID string, year int) ([]Budget, error)
+	Update(ctx context.Context, b *Budget) error
+	Delete(ctx context.Context, id string) error
+	Upsert(ctx context.Context, b *Budget) error
 }

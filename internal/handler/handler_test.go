@@ -997,6 +997,12 @@ func TestCashFlowStatement(t *testing.T) {
 	r, svc, ctx := setupTest(t)
 	svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true})
 	svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Revenue", Type: domain.AccountTypeRevenue, Status: domain.AccountStatusActive, IsActive: true})
+	svc.CreatePeriod(ctx, &domain.Period{
+		ID: "P-2026-07", Year: 2026, Month: 7,
+		StartDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	})
 
 	receipt := &domain.CashReceipt{
 		CompanyID: "CMP001", CashAccountID: "1111",
@@ -1013,7 +1019,7 @@ func TestCashFlowStatement(t *testing.T) {
 	require.NoError(t, svc.PostCashReceipt(ctx, receipt.ID, "user2"))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/reports/cash-flow?company_id=CMP001&account_id=1111&from_date=2026-07-01&to_date=2026-07-31", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/reports/cash-flow?company_id=CMP001&year=2026&month=7", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }

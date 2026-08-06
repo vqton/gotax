@@ -10,6 +10,7 @@ const MODULE_GROUPS = [
     label: "Tổng quan",
     items: [
       { href: "/app/dashboard.html", icon: "📊", label: "Dashboard" },
+      { href: "/app/notifications.html", icon: "🔔", label: "Thông báo" },
     ]
   },
   {
@@ -38,6 +39,7 @@ const MODULE_GROUPS = [
       { href: "/app/periods.html", icon: "📅", label: "Kỳ kế toán" },
       { href: "/app/exchange-rates.html", icon: "💱", label: "Tỷ giá" },
       { href: "/app/opening-balances.html", icon: "⚖️", label: "Số dư đầu kỳ" },
+      { href: "/app/budget.html", icon: "💰", label: "Ngân sách" },
     ]
   },
   {
@@ -89,6 +91,7 @@ const MODULE_GROUPS = [
       { href: "/app/fixed-assets.html", icon: "🏗️", label: "Tài sản cố định" },
       { href: "/app/fa-categories.html", icon: "📁", label: "Nhóm tài sản" },
       { href: "/app/depreciation.html", icon: "📉", label: "Khấu hao" },
+      { href: "/app/ccdc.html", icon: "🔧", label: "CCDC / Công cụ" },
     ]
   },
   {

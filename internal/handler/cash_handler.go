@@ -472,22 +472,18 @@ func (ch *CashHandler) ListCashInventories(c *gin.Context) {
 
 func (ch *CashHandler) CashFlowStatement(c *gin.Context) {
 	companyID := c.Query("company_id")
-	currency := c.DefaultQuery("currency", "VND")
-	accountID := c.Query("account_id")
-	fromDate := c.Query("from_date")
-	toDate := c.Query("to_date")
-
-	if companyID == "" || accountID == "" || fromDate == "" || toDate == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id, account_id, from_date, to_date are required"})
+	year, _ := strconv.Atoi(c.DefaultQuery("year", "0"))
+	month, _ := strconv.Atoi(c.DefaultQuery("month", "0"))
+	if year == 0 || month == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "year and month are required"})
 		return
 	}
-
-	stmt, err := ch.svc.GetCashFlowStatement(c.Request.Context(), companyID, currency, accountID, fromDate, toDate)
+	result, err := ch.svc.CashFlowStatement(c.Request.Context(), companyID, year, month)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"report_type": "b03_dn_cash_flow", "report": stmt})
+	c.JSON(http.StatusOK, result)
 }
 
 func (ch *CashHandler) CashBookReport(c *gin.Context) {

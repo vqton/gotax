@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thông báo · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="notifPage()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Thông báo</h2>
+        <div class="flex items-center gap-3">
+          <span x-show="unreadCount > 0" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+            <span x-text="unreadCount"></span> chưa đọc
+          </span>
+          <button @click="markAllRead()" :disabled="unreadCount === 0"
+            class="px-4 py-2 text-sm font-medium rounded-lg border transition
+            disabled:opacity-40 disabled:cursor-not-allowed
+            border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100">
+            Đánh dấu tất cả đã đọc
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Loại</label>
+            <select x-model="filterType" @change="loadNotifications()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              <option value="">Tất cả</option>
+              <option value="INFO">Thông tin</option>
+              <option value="WARNING">Cảnh báo</option>
+              <option value="ERROR">Lỗi</option>
+              <option value="DUE">Đến hạn</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Trạng thái</label>
+            <select x-model="filterRead" @change="loadNotifications()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              <option value="">Tất cả</option>
+              <option value="unread">Chưa đọc</option>
+              <option value="read">Đã đọc</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <button @click="filterType=''; filterRead=''; loadNotifications()"
+              class="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+              Xóa bộ lọc
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <template x-if="loading">
+          <div class="p-6">
+            <div class="space-y-3">
+              <div class="h-4 bg-gray-100 rounded animate-pulse"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-5/6"></div>
+              <div class="h-4 bg-gray-100 rounded animate-pulse w-4/6"></div>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="!loading && filteredNotifications.length === 0">
+          <div class="p-12 text-center">
+            <div class="text-4xl mb-3">🔔</div>
+            <p class="text-gray-500 text-sm">Không có thông báo nào</p>
+          </div>
+        </template>
+
+        <template x-if="!loading && filteredNotifications.length > 0">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-100 bg-gray-50">
+                  <th class="text-left px-4 py-3 font-medium text-gray-500 w-8"></th>
+                  <th class="text-left px-4 py-3 font-medium text-gray-500">Tiêu đề</th>
+                  <th class="text-left px-4 py-3 font-medium text-gray-500">Nội dung</th>
+                  <th class="text-left px-4 py-3 font-medium text-gray-500">Loại</th>
+                  <th class="text-left px-4 py-3 font-medium text-gray-500">Thời gian</th>
+                  <th class="text-left px-4 py-3 font-medium text-gray-500">Trạng thái</th>
+                  <th class="text-right px-4 py-3 font-medium text-gray-500">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="n in filteredNotifications" :key="n.id">
+                  <tr class="border-b border-gray-50 hover:bg-gray-50 transition"
+                    :class="{'bg-blue-50/30': !n.read_at}">
+                    <td class="px-4 py-3">
+                      <span x-show="!n.read_at" class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>
+                    </td>
+                    <td class="px-4 py-3 font-medium text-gray-900" x-text="n.title"></td>
+                    <td class="px-4 py-3 text-gray-600 max-w-xs truncate" x-text="n.message"></td>
+                    <td class="px-4 py-3">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-blue-100 text-blue-800': n.type === 'INFO',
+                          'bg-yellow-100 text-yellow-800': n.type === 'WARNING',
+                          'bg-red-100 text-red-800': n.type === 'ERROR',
+                          'bg-purple-100 text-purple-800': n.type === 'DUE'
+                        }"
+                        x-text="n.type"></span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap" x-text="formatDate(n.created_at)"></td>
+                    <td class="px-4 py-3">
+                      <span x-show="n.read_at" class="text-xs text-green-600 font-medium">Đã đọc</span>
+                      <span x-show="!n.read_at" class="text-xs text-blue-600 font-medium">Chưa đọc</span>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <div class="flex items-center justify-end gap-2">
+                        <button x-show="!n.read_at" @click="markRead(n.id)"
+                          class="px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded-md hover:bg-blue-100 transition">
+                          Đọc
+                        </button>
+                        <a x-show="n.link" :href="n.link"
+                          class="px-2.5 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition">
+                          Xem
+                        </a>
+                        <button @click="deleteNotif(n.id)"
+                          class="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 rounded-md hover:bg-red-100 transition">
+                          Xóa
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function notifPage() {
+      return {
+        notifications: [],
+        loading: true,
+        unreadCount: 0,
+        filterType: '',
+        filterRead: '',
+        refreshInterval: null,
+
+        get filteredNotifications() {
+          let list = this.notifications;
+          if (this.filterType) {
+            list = list.filter(n => n.type === this.filterType);
+          }
+          if (this.filterRead === 'unread') {
+            list = list.filter(n => !n.read_at);
+          } else if (this.filterRead === 'read') {
+            list = list.filter(n => n.read_at);
+          }
+          return list;
+        },
+
+        async init() {
+          mountAppShell('Thông báo', '/app/notifications.html');
+          await this.loadNotifications();
+          this.refreshInterval = setInterval(() => this.refreshUnread(), 30000);
+        },
+
+        getCompanyId() {
+          return localStorage.getItem('company_id') || '';
+        },
+
+        async loadNotifications() {
+          this.loading = true;
+          try {
+            const data = await apiGet(`/api/v1/notifications?company_id=${this.getCompanyId()}`);
+            this.notifications = data.notifications || [];
+            this.unreadCount = this.notifications.filter(n => !n.read_at).length;
+          } catch (e) {
+            $store.app.error = e.message || 'Lỗi tải thông báo';
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async refreshUnread() {
+          try {
+            const data = await apiGet(`/api/v1/notifications/unread-count?company_id=${this.getCompanyId()}`);
+            this.unreadCount = data.count || 0;
+          } catch (e) { /* silent */ }
+        },
+
+        async markRead(id) {
+          try {
+            await apiPost(`/api/v1/notifications/${id}/read`, {});
+            await this.loadNotifications();
+          } catch (e) {
+            $store.app.error = e.message || 'Lỗi';
+          }
+        },
+
+        async markAllRead() {
+          try {
+            await apiPost(`/api/v1/notifications/read-all?company_id=${this.getCompanyId()}`, {});
+            await this.loadNotifications();
+          } catch (e) {
+            $store.app.error = e.message || 'Lỗi';
+          }
+        },
+
+        async deleteNotif(id) {
+          if (!confirm('Xóa thông báo này?')) return;
+          try {
+            await apiDelete(`/api/v1/notifications/${id}`);
+            await this.loadNotifications();
+          } catch (e) {
+            $store.app.error = e.message || 'Lỗi';
+          }
+        },
+
+        formatDate(s) {
+          if (!s) return '';
+          try {
+            const d = new Date(s);
+            return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+          } catch { return s; }
+        }
+      };
+    }
+  </script>
+</body>
+</html>
