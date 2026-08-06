@@ -52,43 +52,59 @@ type EInvoiceLineGORM struct {
 func (EInvoiceLineGORM) TableName() string { return "e_invoice_lines" }
 
 type TaxCalendarGORM struct {
-	ID           string    `gorm:"column:id;primaryKey;size:36" json:"id"`
-	CompanyID    string    `gorm:"column:company_id;not null;size:36;index:idx_taxcal_company_period,unique" json:"companyId"`
-	TaxType      string    `gorm:"column:tax_type;not null;size:20;index:idx_taxcal_company_period,unique" json:"taxType"`
-	PeriodYear   int       `gorm:"column:period_year;not null;index:idx_taxcal_company_period,unique" json:"periodYear"`
-	PeriodNumber int       `gorm:"column:period_number;not null;index:idx_taxcal_company_period,unique" json:"periodNumber"`
-	DueDate      time.Time `gorm:"column:due_date;not null;type:date" json:"dueDate"`
-	Status       string    `gorm:"column:status;not null;size:20;default:'PENDING';index" json:"status"`
-	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
-	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	ID             string     `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID      string     `gorm:"column:company_id;not null;size:36;index:idx_taxcal_company_period,unique" json:"companyId"`
+	TaxType        string     `gorm:"column:tax_type;not null;size:20;index:idx_taxcal_company_period,unique" json:"taxType"`
+	PeriodType     string     `gorm:"column:period_type;not null;size:10;default:'MONTHLY'" json:"periodType"`
+	PeriodYear     int        `gorm:"column:period_year;not null;index:idx_taxcal_company_period,unique" json:"periodYear"`
+	PeriodNumber   int        `gorm:"column:period_number;not null;index:idx_taxcal_company_period,unique" json:"periodNumber"`
+	StartDate      *time.Time `gorm:"column:start_date;type:date" json:"startDate"`
+	EndDate        *time.Time `gorm:"column:end_date;type:date" json:"endDate"`
+	DueDate        time.Time  `gorm:"column:due_date;not null;type:date" json:"dueDate"`
+	DeclarationDue time.Time  `gorm:"column:declaration_due;not null;type:date" json:"declarationDue"`
+	PaymentDue     *time.Time `gorm:"column:payment_due;type:date" json:"paymentDue"`
+	Status         string     `gorm:"column:status;not null;size:20;default:'PENDING';index" json:"status"`
+	DeclarationID  *string    `gorm:"column:declaration_id;size:36" json:"declarationId"`
+	CreatedAt      time.Time  `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
 }
 
 func (TaxCalendarGORM) TableName() string { return "tax_calendar" }
 
 type TaxAlertGORM struct {
-	ID         string    `gorm:"column:id;primaryKey;size:36" json:"id"`
-	CompanyID  string    `gorm:"column:company_id;not null;size:36;index" json:"companyId"`
-	AlertType  string    `gorm:"column:alert_type;not null;size:30;index" json:"alertType"`
-	Message    string    `gorm:"column:message;not null;type:text" json:"message"`
-	IsRead     bool      `gorm:"column:is_read;default:false;index" json:"isRead"`
-	DueDate    *time.Time `gorm:"column:due_date;type:date" json:"dueDate"`
-	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	ID             string     `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID      string     `gorm:"column:company_id;not null;size:36;index" json:"companyId"`
+	CalendarID     *string    `gorm:"column:calendar_id;size:36" json:"calendarId"`
+	AlertType      string     `gorm:"column:alert_type;not null;size:30;index" json:"alertType"`
+	Channel        string     `gorm:"column:channel;not null;size:20;default:'ALL'" json:"channel"`
+	Message        string     `gorm:"column:message;not null;type:text" json:"message"`
+	IsRead         bool       `gorm:"column:is_read;default:false;index" json:"isRead"`
+	DueDate        *time.Time `gorm:"column:due_date;type:date" json:"dueDate"`
+	AcknowledgedAt *time.Time `gorm:"column:acknowledged_at" json:"acknowledgedAt"`
+	AcknowledgedBy *string    `gorm:"column:acknowledged_by;size:36" json:"acknowledgedBy"`
+	CreatedAt      time.Time  `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }
 
 func (TaxAlertGORM) TableName() string { return "tax_alerts" }
 
 type TaxAuditCaseGORM struct {
-	ID          string    `gorm:"column:id;primaryKey;size:36" json:"id"`
-	CompanyID   string    `gorm:"column:company_id;not null;size:36;index" json:"companyId"`
-	CaseNumber  string    `gorm:"column:case_number;not null;size:30;uniqueIndex" json:"caseNumber"`
-	AuditType   string    `gorm:"column:audit_type;not null;size:30" json:"auditType"`
-	Status      string    `gorm:"column:status;not null;size:20;default:'OPEN';index" json:"status"`
-	OpenDate    time.Time `gorm:"column:open_date;not null;type:date" json:"openDate"`
-	CloseDate   *time.Time `gorm:"column:close_date;type:date" json:"closeDate"`
-	AuditorName *string   `gorm:"column:auditor_name;size:255" json:"auditorName"`
-	Notes       *string   `gorm:"column:notes;type:text" json:"notes"`
-	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
-	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	ID                   string     `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID            string     `gorm:"column:company_id;not null;size:36;index" json:"companyId"`
+	CaseNumber           string     `gorm:"column:case_number;not null;size:30;uniqueIndex" json:"caseNumber"`
+	AuditType            string     `gorm:"column:audit_type;not null;size:30" json:"auditType"`
+	Status               string     `gorm:"column:status;not null;size:20;default:'OPEN';index" json:"status"`
+	OpenDate             time.Time  `gorm:"column:open_date;not null;type:date" json:"openDate"`
+	CloseDate            *time.Time `gorm:"column:close_date;type:date" json:"closeDate"`
+	AuditorName          *string    `gorm:"column:auditor_name;size:255" json:"auditorName"`
+	Notes                *string    `gorm:"column:notes;type:text" json:"notes"`
+	AuditPeriodStart     *time.Time `gorm:"column:audit_period_start;type:date" json:"auditPeriodStart"`
+	AuditPeriodEnd       *time.Time `gorm:"column:audit_period_end;type:date" json:"auditPeriodEnd"`
+	AuditDecisionNumber  *string    `gorm:"column:audit_decision_number;size:50" json:"auditDecisionNumber"`
+	AuditorContact       *string    `gorm:"column:auditor_contact;size:255" json:"auditorContact"`
+	Findings             *string    `gorm:"column:findings;type:text" json:"findings"`
+	PenaltyAmount        float64    `gorm:"column:penalty_amount;default:0" json:"penaltyAmount"`
+	CreatedAt            time.Time  `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
 }
 
 func (TaxAuditCaseGORM) TableName() string { return "tax_audit_cases" }

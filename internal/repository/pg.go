@@ -957,10 +957,15 @@ func (r *PGTaxRepo) UpdateEInvoiceStatus(ctx context.Context, id string, status 
 }
 
 func (r *PGTaxRepo) CreateCalendarEntry(ctx context.Context, c *domain.TaxCalendar) error {
-	return r.db.WithContext(ctx).Create(&domain.TaxCalendarGORM{
-		CompanyID: c.CompanyID, TaxType: string(c.TaxType), PeriodYear: c.PeriodYear,
-		PeriodNumber: c.PeriodNumber, DueDate: parseDate(c.DeclarationDue), Status: string(c.Status),
-	}).Error
+	m := domain.TaxCalendarGORM{
+		ID: c.ID, CompanyID: c.CompanyID, TaxType: string(c.TaxType),
+		PeriodType: string(c.PeriodType), PeriodYear: c.PeriodYear, PeriodNumber: c.PeriodNumber,
+		StartDate: timePtr(parseDate(c.StartDate)), EndDate: timePtr(parseDate(c.EndDate)),
+		DueDate: parseDate(c.DeclarationDue), DeclarationDue: parseDate(c.DeclarationDue),
+		PaymentDue: timePtr(parseDate(c.PaymentDue)), Status: string(c.Status),
+		DeclarationID: strPtr(c.DeclarationID),
+	}
+	return r.db.WithContext(ctx).Create(&m).Error
 }
 
 func (r *PGTaxRepo) GetCalendarEntryByID(ctx context.Context, id string) (*domain.TaxCalendar, error) {
@@ -968,8 +973,11 @@ func (r *PGTaxRepo) GetCalendarEntryByID(ctx context.Context, id string) (*domai
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil { return nil, err }
 	return &domain.TaxCalendar{
 		ID: m.ID, CompanyID: m.CompanyID, TaxType: domain.TaxType(m.TaxType),
-		PeriodYear: m.PeriodYear, PeriodNumber: m.PeriodNumber, DeclarationDue: safeTimeStr(m.DueDate),
-		Status: domain.CalendarStatus(m.Status), CreatedAt: safeTimeStr(m.CreatedAt),
+		PeriodType: domain.PeriodTypeV2(m.PeriodType), PeriodYear: m.PeriodYear, PeriodNumber: m.PeriodNumber,
+		StartDate: safeTimePtrStr(m.StartDate), EndDate: safeTimePtrStr(m.EndDate),
+		DeclarationDue: safeTimeStr(m.DeclarationDue), PaymentDue: safeTimePtrStr(m.PaymentDue),
+		Status: domain.CalendarStatus(m.Status), DeclarationID: safeStr(m.DeclarationID),
+		CreatedAt: safeTimeStr(m.CreatedAt),
 	}, nil
 }
 
@@ -977,15 +985,33 @@ func (r *PGTaxRepo) GetCalendarByPeriod(ctx context.Context, companyID string, p
 	var models []domain.TaxCalendarGORM
 	if err := r.db.WithContext(ctx).Where("company_id = ? AND period_year = ? AND period_number = ?", companyID, periodYear, periodNumber).Find(&models).Error; err != nil { return nil, err }
 	out := make([]domain.TaxCalendar, len(models))
-	for i := range models { out[i] = domain.TaxCalendar{ID: models[i].ID, CompanyID: models[i].CompanyID, TaxType: domain.TaxType(models[i].TaxType), PeriodYear: models[i].PeriodYear, PeriodNumber: models[i].PeriodNumber, DeclarationDue: safeTimeStr(models[i].DueDate), Status: domain.CalendarStatus(models[i].Status), CreatedAt: safeTimeStr(models[i].CreatedAt)} }
+	for i := range models {
+		out[i] = domain.TaxCalendar{
+			ID: models[i].ID, CompanyID: models[i].CompanyID, TaxType: domain.TaxType(models[i].TaxType),
+			PeriodType: domain.PeriodTypeV2(models[i].PeriodType), PeriodYear: models[i].PeriodYear, PeriodNumber: models[i].PeriodNumber,
+			StartDate: safeTimePtrStr(models[i].StartDate), EndDate: safeTimePtrStr(models[i].EndDate),
+			DeclarationDue: safeTimeStr(models[i].DeclarationDue), PaymentDue: safeTimePtrStr(models[i].PaymentDue),
+			Status: domain.CalendarStatus(models[i].Status), DeclarationID: safeStr(models[i].DeclarationID),
+			CreatedAt: safeTimeStr(models[i].CreatedAt),
+		}
+	}
 	return out, nil
 }
 
 func (r *PGTaxRepo) GetCalendarByCompany(ctx context.Context, companyID string) ([]domain.TaxCalendar, error) {
 	var models []domain.TaxCalendarGORM
-	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Find(&models).Error; err != nil { return nil, err }
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("period_year, period_number").Find(&models).Error; err != nil { return nil, err }
 	out := make([]domain.TaxCalendar, len(models))
-	for i := range models { out[i] = domain.TaxCalendar{ID: models[i].ID, CompanyID: models[i].CompanyID, TaxType: domain.TaxType(models[i].TaxType), PeriodYear: models[i].PeriodYear, PeriodNumber: models[i].PeriodNumber, DeclarationDue: safeTimeStr(models[i].DueDate), Status: domain.CalendarStatus(models[i].Status), CreatedAt: safeTimeStr(models[i].CreatedAt)} }
+	for i := range models {
+		out[i] = domain.TaxCalendar{
+			ID: models[i].ID, CompanyID: models[i].CompanyID, TaxType: domain.TaxType(models[i].TaxType),
+			PeriodType: domain.PeriodTypeV2(models[i].PeriodType), PeriodYear: models[i].PeriodYear, PeriodNumber: models[i].PeriodNumber,
+			StartDate: safeTimePtrStr(models[i].StartDate), EndDate: safeTimePtrStr(models[i].EndDate),
+			DeclarationDue: safeTimeStr(models[i].DeclarationDue), PaymentDue: safeTimePtrStr(models[i].PaymentDue),
+			Status: domain.CalendarStatus(models[i].Status), DeclarationID: safeStr(models[i].DeclarationID),
+			CreatedAt: safeTimeStr(models[i].CreatedAt),
+		}
+	}
 	return out, nil
 }
 
@@ -994,61 +1020,80 @@ func (r *PGTaxRepo) UpdateCalendarStatus(ctx context.Context, id string, status 
 }
 
 func (r *PGTaxRepo) CreateAlert(ctx context.Context, a *domain.TaxAlert) error {
-	return r.db.WithContext(ctx).Create(&domain.TaxAlertGORM{CompanyID: a.CompanyID, AlertType: string(a.AlertType), Message: a.Message}).Error
+	m := domain.TaxAlertGORM{
+		ID: a.ID, CompanyID: a.CompanyID, CalendarID: strPtr(a.CalendarID),
+		AlertType: string(a.AlertType), Channel: string(a.Channel), Message: a.Message,
+	}
+	return r.db.WithContext(ctx).Create(&m).Error
 }
 
 func (r *PGTaxRepo) GetAlertByID(ctx context.Context, id string) (*domain.TaxAlert, error) {
 	var m domain.TaxAlertGORM
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil { return nil, err }
-	return &domain.TaxAlert{ID: m.ID, CompanyID: m.CompanyID, AlertType: domain.AlertType(m.AlertType), Message: m.Message}, nil
+	return &domain.TaxAlert{
+		ID: m.ID, CompanyID: m.CompanyID, CalendarID: safeStr(m.CalendarID),
+		AlertType: domain.AlertType(m.AlertType), Channel: domain.AlertChannel(m.Channel),
+		Message: m.Message, SentAt: m.CreatedAt.Format(time.RFC3339),
+		AcknowledgedAt: safeTimePtrRFC3339(m.AcknowledgedAt), AcknowledgedBy: safeStr(m.AcknowledgedBy),
+	}, nil
 }
 
 func (r *PGTaxRepo) GetAlerts(ctx context.Context, companyID string, limit int) ([]domain.TaxAlert, error) {
 	var models []domain.TaxAlertGORM
 	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Limit(limit).Find(&models).Error; err != nil { return nil, err }
 	out := make([]domain.TaxAlert, len(models))
-	for i := range models { out[i] = domain.TaxAlert{ID: models[i].ID, CompanyID: models[i].CompanyID, AlertType: domain.AlertType(models[i].AlertType), Message: models[i].Message} }
+	for i := range models {
+		out[i] = domain.TaxAlert{
+			ID: models[i].ID, CompanyID: models[i].CompanyID, CalendarID: safeStr(models[i].CalendarID),
+			AlertType: domain.AlertType(models[i].AlertType), Channel: domain.AlertChannel(models[i].Channel),
+			Message: models[i].Message, SentAt: models[i].CreatedAt.Format(time.RFC3339),
+			AcknowledgedAt: safeTimePtrRFC3339(models[i].AcknowledgedAt), AcknowledgedBy: safeStr(models[i].AcknowledgedBy),
+		}
+	}
 	return out, nil
 }
 
 func (r *PGTaxRepo) CreateAuditCase(ctx context.Context, a *domain.TaxAuditCase) error {
-	return r.db.WithContext(ctx).Create(&domain.TaxAuditCaseGORM{
-		CompanyID: a.CompanyID, CaseNumber: a.AuditDecNumber,
-		Status: string(a.Status), OpenDate: parseDate(a.AuditPeriodStart),
-		AuditorName: nullStrG(a.AuditorName),
-		Notes: nullStrG(a.Findings),
-	}).Error
+	m := domain.TaxAuditCaseGORM{
+		ID: a.ID, CompanyID: a.CompanyID, CaseNumber: a.AuditDecNumber,
+		AuditType: "GENERAL", Status: string(a.Status),
+		OpenDate: parseDate(a.AuditPeriodStart),
+		AuditorName: nullStrG(a.AuditorName), Notes: nullStrG(a.Findings),
+		AuditPeriodStart: timePtr(parseDate(a.AuditPeriodStart)),
+		AuditPeriodEnd: timePtr(parseDate(a.AuditPeriodEnd)),
+		AuditDecisionNumber: nullStrG(a.AuditDecNumber),
+		AuditorContact: nullStrG(a.AuditorContact),
+		Findings: nullStrG(a.Findings),
+		PenaltyAmount: a.PenaltyAmount,
+	}
+	return r.db.WithContext(ctx).Create(&m).Error
 }
 
 func (r *PGTaxRepo) GetAuditCaseByID(ctx context.Context, id string) (*domain.TaxAuditCase, error) {
 	var m domain.TaxAuditCaseGORM
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil { return nil, err }
 	return &domain.TaxAuditCase{
-		ID: m.ID, CompanyID: m.CompanyID, AuditDecNumber: m.CaseNumber,
-		AuditPeriodStart: safeTimeStr(m.OpenDate),
-		AuditPeriodEnd: safeTimePtrStr(m.CloseDate),
-		AuditorName: safeStr(m.AuditorName),
+		ID: m.ID, CompanyID: m.CompanyID, AuditDecNumber: safeStr(m.AuditDecisionNumber),
+		AuditPeriodStart: safeTimePtrStr(m.AuditPeriodStart), AuditPeriodEnd: safeTimePtrStr(m.AuditPeriodEnd),
+		AuditorName: safeStr(m.AuditorName), AuditorContact: safeStr(m.AuditorContact),
 		Status: domain.AuditCaseStatus(m.Status),
-		Findings: safeStr(m.Notes),
-		CreatedAt: safeTimeStr(m.CreatedAt),
-		ClosedAt: safeTimePtrStr(m.CloseDate),
+		Findings: safeStr(m.Findings), PenaltyAmount: m.PenaltyAmount,
+		CreatedAt: safeTimeStr(m.CreatedAt), ClosedAt: safeTimePtrStr(m.CloseDate),
 	}, nil
 }
 
 func (r *PGTaxRepo) GetAuditCases(ctx context.Context, companyID string) ([]domain.TaxAuditCase, error) {
 	var models []domain.TaxAuditCaseGORM
-	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Find(&models).Error; err != nil { return nil, err }
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("created_at DESC").Find(&models).Error; err != nil { return nil, err }
 	out := make([]domain.TaxAuditCase, len(models))
 	for i := range models {
 		out[i] = domain.TaxAuditCase{
-			ID: models[i].ID, CompanyID: models[i].CompanyID, AuditDecNumber: models[i].CaseNumber,
-			AuditPeriodStart: safeTimeStr(models[i].OpenDate),
-			AuditPeriodEnd: safeTimePtrStr(models[i].CloseDate),
-			AuditorName: safeStr(models[i].AuditorName),
+			ID: models[i].ID, CompanyID: models[i].CompanyID, AuditDecNumber: safeStr(models[i].AuditDecisionNumber),
+			AuditPeriodStart: safeTimePtrStr(models[i].AuditPeriodStart), AuditPeriodEnd: safeTimePtrStr(models[i].AuditPeriodEnd),
+			AuditorName: safeStr(models[i].AuditorName), AuditorContact: safeStr(models[i].AuditorContact),
 			Status: domain.AuditCaseStatus(models[i].Status),
-			Findings: safeStr(models[i].Notes),
-			CreatedAt: safeTimeStr(models[i].CreatedAt),
-			ClosedAt: safeTimePtrStr(models[i].CloseDate),
+			Findings: safeStr(models[i].Findings), PenaltyAmount: models[i].PenaltyAmount,
+			CreatedAt: safeTimeStr(models[i].CreatedAt), ClosedAt: safeTimePtrStr(models[i].CloseDate),
 		}
 	}
 	return out, nil
@@ -1056,7 +1101,9 @@ func (r *PGTaxRepo) GetAuditCases(ctx context.Context, companyID string) ([]doma
 
 func (r *PGTaxRepo) UpdateAuditCase(ctx context.Context, a *domain.TaxAuditCase) error {
 	return r.db.WithContext(ctx).Model(&domain.TaxAuditCaseGORM{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
-		"status": string(a.Status), "close_date": parseDate(a.ClosedAt), "notes": a.Findings,
+		"status": string(a.Status), "close_date": stringToTimePtr(a.ClosedAt),
+		"findings": a.Findings, "penalty_amount": a.PenaltyAmount,
+		"auditor_contact": nullStrG(a.AuditorContact),
 	}).Error
 }
 

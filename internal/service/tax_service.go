@@ -144,7 +144,7 @@ type TaxServiceInterface interface {
 	CalculateQuarterlyProvisional(ctx context.Context, companyID string, year, quarter int, ytdEntries []domain.JournalEntry) (*domain.QuarterlyProvisionalResult, error)
 
 	// Declaration Engine
-	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error)
+	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string, pitEmployees []domain.PITEmployeeInput) (*domain.TaxDeclaration, error)
 	// Declaration → GDT: XML → sign → submit; poll status.
 	CheckDeclarationStatus(ctx context.Context, id string) error
 
@@ -1492,7 +1492,7 @@ func (s *taxService) CalculatePIT(ctx context.Context, companyID string, period 
 // Generates GTGT01 / TNDN03 declarations from posted journal entries.
 // Unsupported types (payroll-dependent, e.g. KK_TNCN) are rejected.
 
-func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error) {
+func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string, pitEmployees []domain.PITEmployeeInput) (*domain.TaxDeclaration, error) {
 	switch declType {
 	case domain.DeclTypeGTGT01, domain.DeclTypeGTGT02, domain.DeclTypeGTGT03, domain.DeclTypeGTGT04, domain.DeclTypeGTGT05:
 		// VAT declaration — deduction, direct, per-occurrence, or non-VAT
@@ -1570,11 +1570,20 @@ func (s *taxService) GenerateDeclaration(ctx context.Context, companyID string, 
 		}
 		decl.Lines = citDeclarationLines(res, posted)
 	case domain.DeclTypeKKTNCN, domain.DeclTypeQTTTNCN:
-		// PIT declaration — withholding or quarterly, lines provided by payroll engine
+		// PIT declaration — withholding or quarterly
+		if len(pitEmployees) > 0 {
+			pitResult, err := s.CalculatePIT(ctx, companyID, period, pitEmployees)
+			if err != nil {
+				return nil, err
+			}
+			decl.Lines = pitDeclarationLines(pitResult)
+		}
 	case domain.DeclTypeTTDB01, domain.DeclTypeBVMT01:
-		// Resource tax or environmental protection tax — no auto-calc
+		// Special consumption / environmental protection tax — extract from journal entries
+		decl.Lines = resourceTaxDeclarationLines(declType, posted)
 	case domain.DeclTypeNTNN01, domain.DeclTypeNTNN02, domain.DeclTypeNTNN03:
-		// Non-resident income tax — no auto-calc
+		// Non-resident income tax — extract from journal entries
+		decl.Lines = ntnnDeclarationLines(declType, posted)
 	}
 	if err := validateDeclarationRules(decl); err != nil {
 		return nil, err
@@ -1659,6 +1668,59 @@ func citDeclarationLines(res *domain.CITResult, entries []domain.JournalEntry) [
 		{LineCode: "12", LineName: "Thu nhập chịu thuế", Amount: res.TaxableIncome, SourceType: src, SourceEntryIDs: ids, SortOrder: 12},
 		{LineCode: "13", LineName: "Thuế suất (%)", Amount: res.TaxRate, SourceType: src, SourceEntryIDs: ids, SortOrder: 13},
 		{LineCode: "14", LineName: "Thuế TNDN phải nộp", Amount: res.CITPayable, SourceType: src, SourceEntryIDs: ids, SortOrder: 14},
+	}
+}
+
+// KK_TNCN / QTT_TNCN lines: [10] gross, [20] deductions, [30] taxable, [40] rate, [50] PIT payable.
+func pitDeclarationLines(res *domain.PITResult) []domain.TaxDeclarationLine {
+	src := domain.SrcTypeFROM_LEDGER
+	return []domain.TaxDeclarationLine{
+		{LineCode: "10", LineName: "Tổng thu nhập gross", Amount: res.TotalGross, SourceType: src, SortOrder: 10},
+		{LineCode: "20", LineName: "Tổng giảm trừ", Amount: res.TotalDeductions, SourceType: src, SortOrder: 20},
+		{LineCode: "30", LineName: "Thu nhập chịu thuế", Amount: res.TotalGross - res.TotalDeductions, SourceType: src, SortOrder: 30},
+		{LineCode: "40", LineName: "Số người lao động", Amount: float64(res.EmployeeCount), SourceType: src, SortOrder: 40},
+		{LineCode: "50", LineName: "Thuế TNCN phải nộp", Amount: res.TotalPIT, SourceType: src, SortOrder: 50},
+	}
+}
+
+// TTDB01/BVMT01 lines: [10] taxable base, [20] rate, [30] tax payable.
+func resourceTaxDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+	src := domain.SrcTypeFROM_LEDGER
+	ids := entryIDs(entries)
+	var base float64
+	for _, entry := range entries {
+		for _, line := range entry.Lines {
+			if line.CreditAmount > 0 && strings.HasPrefix(line.AccountCode, "3332") {
+				base += line.CreditAmount
+			}
+			if line.DebitAmount > 0 && strings.HasPrefix(line.AccountCode, "33381") {
+				base += line.DebitAmount
+			}
+		}
+	}
+	return []domain.TaxDeclarationLine{
+		{LineCode: "10", LineName: "Giá tính thuế", Amount: base, SourceType: src, SourceEntryIDs: ids, SortOrder: 10},
+		{LineCode: "20", LineName: "Thuế suất (%)", Amount: 0, SourceType: src, SortOrder: 20},
+		{LineCode: "30", LineName: "Thuế phải nộp", Amount: 0, SourceType: src, SortOrder: 30},
+	}
+}
+
+// NTNN01-03 lines: [10] gross income, [20] rate, [30] tax payable.
+func ntnnDeclarationLines(declType domain.DeclarationType, entries []domain.JournalEntry) []domain.TaxDeclarationLine {
+	src := domain.SrcTypeFROM_LEDGER
+	ids := entryIDs(entries)
+	var income float64
+	for _, entry := range entries {
+		for _, line := range entry.Lines {
+			if line.CreditAmount > 0 && strings.HasPrefix(line.AccountCode, "511") {
+				income += line.CreditAmount
+			}
+		}
+	}
+	return []domain.TaxDeclarationLine{
+		{LineCode: "10", LineName: "Thu nhập gross", Amount: income, SourceType: src, SourceEntryIDs: ids, SortOrder: 10},
+		{LineCode: "20", LineName: "Thuế suất (%)", Amount: 0, SourceType: src, SortOrder: 20},
+		{LineCode: "30", LineName: "Thuế phải nộp", Amount: 0, SourceType: src, SortOrder: 30},
 	}
 }
 

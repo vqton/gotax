@@ -518,7 +518,7 @@ func TestGenerateDeclaration_GTGT01(t *testing.T) {
 	require.NoError(t, jeRepo.Create(ctx, &je2))
 
 	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01,
-		vatPeriod(), "user-1")
+		vatPeriod(), "user-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
 	assert.Equal(t, "c1", decl.CompanyID)
@@ -553,7 +553,7 @@ func TestGenerateDeclaration_TNDN03(t *testing.T) {
 
 	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeTNDN03,
 		domain.TaxPeriod{PeriodType: domain.PeriodTypeAnnual, PeriodYear: 2026, PeriodNumber: 1},
-		"user-1")
+		"user-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
 
@@ -573,16 +573,16 @@ func TestGenerateDeclaration_Duplicate(t *testing.T) {
 	ctx := context.Background()
 	je1 := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
 	require.NoError(t, jeRepo.Create(ctx, &je1))
-	_, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	_, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
-	_, err = svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	_, err = svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	assert.ErrorIs(t, err, domain.ErrDuplicateDeclaration)
 }
 
 func TestGenerateDeclaration_UnsupportedType(t *testing.T) {
 	svc, _ := newTaxTestSvcWithGL()
 	ctx := context.Background()
-	_, err := svc.GenerateDeclaration(ctx, "c1", "INVALID", vatPeriod(), "u1")
+	_, err := svc.GenerateDeclaration(ctx, "c1", "INVALID", vatPeriod(), "u1", nil)
 	assert.ErrorIs(t, err, domain.ErrDeclarationTypeInvalid)
 }
 
@@ -595,7 +595,7 @@ func TestGenerateDeclaration_GTGT02(t *testing.T) {
 	require.NoError(t, jeRepo.Create(ctx, &je))
 
 	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 6}
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT02, period, "user-1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT02, period, "user-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, domain.DeclTypeGTGT02, decl.DeclarationType)
 	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
@@ -621,7 +621,7 @@ func TestGenerateDeclaration_GTGT03(t *testing.T) {
 	require.NoError(t, jeRepo.Create(ctx, &je2))
 
 	period := domain.TaxPeriod{PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 2}
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT03, period, "user-1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT03, period, "user-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, domain.DeclTypeGTGT03, decl.DeclarationType)
 	assert.Equal(t, domain.DeclStatusVALIDATED, decl.Status)
@@ -653,7 +653,7 @@ func TestGenerateDeclaration_ZeroDeclaration(t *testing.T) {
 	jePtr.Status = domain.JournalEntryCancelled
 	require.NoError(t, jeRepo.Update(ctx, jePtr))
 
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
 	for _, l := range decl.Lines {
 		assert.Equal(t, 0.0, l.Amount)
@@ -666,7 +666,7 @@ func TestGenerateDeclaration_SkipsDraftEntries(t *testing.T) {
 	je := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
 	je.Status = domain.JournalEntryDraft
 	require.NoError(t, jeRepo.Create(ctx, &je))
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
 	for _, l := range decl.Lines {
 		assert.Equal(t, 0.0, l.Amount)
@@ -680,7 +680,7 @@ func TestGenerateDeclaration_IgnoresOtherCompany(t *testing.T) {
 	other.CompanyID = "company-999"
 	require.NoError(t, jeRepo.Create(ctx, &other))
 
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
 	for _, l := range decl.Lines {
 		assert.Equal(t, 0.0, l.Amount)
@@ -695,7 +695,7 @@ func TestAcknowledgeDeclaration_CreatesPayable(t *testing.T) {
 	je1 := postedEntry("JE1", "2026-01-10", vatLine("5111", 0, 10000000))
 	require.NoError(t, jeRepo.Create(ctx, &je1))
 
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
 	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
 	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-1"))
@@ -719,7 +719,7 @@ func TestAcknowledgeDeclaration_NoPaymentWhenRefundable(t *testing.T) {
 		vatLine("152", 20000000, 0), vatLine("1331", 2000000, 0))
 	require.NoError(t, jeRepo.Create(ctx, &je1))
 
-	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1")
+	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeGTGT01, vatPeriod(), "u1", nil)
 	require.NoError(t, err)
 	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
 	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-2"))
@@ -736,7 +736,7 @@ func TestAcknowledgeDeclaration_CITAnnualDueDate(t *testing.T) {
 	require.NoError(t, jeRepo.Create(ctx, &je1))
 
 	decl, err := svc.GenerateDeclaration(ctx, "c1", domain.DeclTypeTNDN03,
-		domain.TaxPeriod{PeriodType: domain.PeriodTypeAnnual, PeriodYear: 2026, PeriodNumber: 1}, "u1")
+		domain.TaxPeriod{PeriodType: domain.PeriodTypeAnnual, PeriodYear: 2026, PeriodNumber: 1}, "u1", nil)
 	require.NoError(t, err)
 	require.NoError(t, svc.SubmitDeclaration(ctx, decl.ID, "u1"))
 	require.NoError(t, svc.AcknowledgeDeclaration(ctx, decl.ID, "GDT-ACK-3"))

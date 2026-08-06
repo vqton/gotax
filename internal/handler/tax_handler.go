@@ -162,16 +162,17 @@ func (h *TaxHandler) CreateDeclaration(c *gin.Context) {
 
 func (h *TaxHandler) GenerateDeclaration(c *gin.Context) {
 	var req struct {
-		CompanyID       string                 `json:"company_id"`
-		DeclarationType domain.DeclarationType `json:"declaration_type"`
-		TaxPeriod       domain.TaxPeriod       `json:"tax_period"`
+		CompanyID       string                    `json:"company_id"`
+		DeclarationType domain.DeclarationType    `json:"declaration_type"`
+		TaxPeriod       domain.TaxPeriod          `json:"tax_period"`
+		PITEmployees    []domain.PITEmployeeInput `json:"pit_employees,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 	decl, err := h.svc.GenerateDeclaration(c.Request.Context(), req.CompanyID,
-		req.DeclarationType, req.TaxPeriod, c.GetString("user_id"))
+		req.DeclarationType, req.TaxPeriod, c.GetString("user_id"), req.PITEmployees)
 	if err != nil {
 		h.taxError(c, err)
 		return
