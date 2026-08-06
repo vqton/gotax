@@ -656,3 +656,37 @@ func CalcSeverancePay(input SeveranceInput) SeveranceResult {
 
 	return result
 }
+
+// ─── Retroactive Pay Calculator ─────────────────────────────────
+
+// CalcRetroactivePay calculates back-pay for mid-month salary changes.
+// When salary changes on effectiveDay, employee earns old rate for days 1..effectiveDay-1
+// and new rate for days effectiveDay..daysInMonth.
+func CalcRetroactivePay(input RetroactivePayInput) RetroactivePayResult {
+	if input.DaysInMonth <= 0 {
+		input.DaysInMonth = 30
+	}
+	if input.EffectiveDay < 1 {
+		input.EffectiveDay = 1
+	}
+	if input.EffectiveDay > input.DaysInMonth {
+		input.EffectiveDay = input.DaysInMonth + 1
+	}
+
+	daysFloat := float64(input.DaysInMonth)
+	result := RetroactivePayResult{
+		OldDailyRate: math.Round(input.OldBaseSalary/daysFloat*100) / 100,
+		NewDailyRate: math.Round(input.NewBaseSalary/daysFloat*100) / 100,
+		DaysAtOld:    input.EffectiveDay - 1,
+		DaysAtNew:    input.DaysInMonth - (input.EffectiveDay - 1),
+	}
+
+	result.OldAmount = math.Round(result.OldDailyRate*float64(result.DaysAtOld))
+	result.NewAmount = math.Round(result.NewDailyRate*float64(result.DaysAtNew))
+	result.TotalAmount = result.OldAmount + result.NewAmount
+
+	// Retro = what they get - what they would have gotten at old rate all month
+	result.RetroAmount = result.TotalAmount - input.OldBaseSalary
+
+	return result
+}

@@ -499,6 +499,58 @@ func TestGeneratePayslip_Idempotent(t *testing.T) {
 	assert.Equal(t, p1.ID, p2.ID)
 }
 
+// ─── Payslip PDF Generation ─────────────────────────────────────
+
+func TestGeneratePayslipPDF_Success(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	run := &domain.PayrollRun{
+		PeriodID:       period.ID,
+		EmployeeID:     "NV001",
+		CompanyID:      "CMP001",
+		BaseSalary:     15_000_000,
+		GrossSalary:    15_000_000,
+		SIDeduction:    1_200_000,
+		HIDeduction:    225_000,
+		UIDeduction:    150_000,
+		TotalDeductions: 1_575_000,
+		NetPay:         13_425_000,
+	}
+	require.NoError(t, svc.CreateRun(ctx, run))
+	_, err := svc.GeneratePayslip(ctx, run.ID)
+	require.NoError(t, err)
+
+	pdfBytes, err := svc.GeneratePayslipPDF(ctx, run.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, pdfBytes)
+	assert.True(t, len(pdfBytes) > 1000, "PDF should be substantial")
+	// PDF magic bytes
+	assert.Equal(t, byte('%'), pdfBytes[0])
+	assert.Equal(t, byte('P'), pdfBytes[1])
+}
+
+func TestGeneratePayslipPDF_RunNotFound(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	_, err := svc.GeneratePayslipPDF(ctx, "nonexistent")
+	require.Error(t, err)
+}
+
+func TestGeneratePayslipPDF_PayslipNotFound(t *testing.T) {
+	svc, ctx := setupPayrollService(t)
+	period, _ := svc.CreatePeriod(ctx, "CMP001", 2026, 7)
+	run := &domain.PayrollRun{
+		PeriodID:   period.ID,
+		EmployeeID: "NV001",
+		CompanyID:  "CMP001",
+		BaseSalary: 10_000_000,
+		NetPay:     10_000_000,
+	}
+	require.NoError(t, svc.CreateRun(ctx, run))
+	// No payslip created
+	_, err := svc.GeneratePayslipPDF(ctx, run.ID)
+	require.Error(t, err)
+}
+
 // ─── Config ─────────────────────────────────────────────────────
 
 func TestSetConfig_Success(t *testing.T) {

@@ -239,6 +239,70 @@ type Payslip struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// PayslipPDFInput contains data needed to generate a payslip PDF.
+type PayslipPDFInput struct {
+	// Company info
+	CompanyName string `json:"company_name"`
+	CompanyAddr string `json:"company_addr"`
+	TaxCode     string `json:"tax_code"`
+
+	// Employee info
+	EmployeeID   string `json:"employee_id"`
+	EmployeeName string `json:"employee_name"`
+	Position     string `json:"position"`
+	Department   string `json:"department"`
+
+	// Period info
+	PeriodMonth int    `json:"period_month"`
+	PeriodYear  int    `json:"period_year"`
+	PayslipNo  string `json:"payslip_no"`
+
+	// Income
+	BaseSalary    float64 `json:"base_salary"`
+	OTPay         float64 `json:"ot_pay"`
+	NightShiftPay float64 `json:"night_shift_pay"`
+	LeavePay      float64 `json:"leave_pay"`
+	HolidayPay    float64 `json:"holiday_pay"`
+	Allowances    float64 `json:"allowances"`
+	Bonuses       float64 `json:"bonuses"`
+	OtherIncome   float64 `json:"other_income"`
+	GrossSalary   float64 `json:"gross_salary"`
+
+	// Deductions
+	SIDeduction    float64 `json:"si_deduction"`
+	HIDeduction    float64 `json:"hi_deduction"`
+	UIDeduction    float64 `json:"ui_deduction"`
+	TradeUnionDues float64 `json:"trade_union_dues"`
+	PITAmount      float64 `json:"pit_amount"`
+	OtherDeductions float64 `json:"other_deductions"`
+	TotalDeductions float64 `json:"total_deductions"`
+
+	// Net pay
+	NetPay float64 `json:"net_pay"`
+}
+
+// ─── Retroactive Pay ────────────────────────────────────────────
+
+// RetroactivePayInput defines a salary adjustment effective mid-month.
+type RetroactivePayInput struct {
+	OldBaseSalary float64 `json:"old_base_salary"` // Salary before change
+	NewBaseSalary float64 `json:"new_base_salary"` // Salary after change
+	EffectiveDay  int     `json:"effective_day"`   // Day of month change takes effect (1-31)
+	DaysInMonth   int     `json:"days_in_month"`   // Total days in month (28-31)
+}
+
+// RetroactivePayResult contains the calculated back-pay.
+type RetroactivePayResult struct {
+	OldDailyRate float64 `json:"old_daily_rate"`
+	NewDailyRate float64 `json:"new_daily_rate"`
+	DaysAtOld    int     `json:"days_at_old"`
+	DaysAtNew    int     `json:"days_at_new"`
+	OldAmount    float64 `json:"old_amount"`    // Old rate × days at old
+	NewAmount    float64 `json:"new_amount"`    // New rate × days at new
+	TotalAmount  float64 `json:"total_amount"`  // Total earned in month
+	RetroAmount  float64 `json:"retro_amount"`  // Difference vs full month at old rate
+}
+
 // PayrollConfig stores configurable payroll parameters.
 type PayrollConfig struct {
 	ID          string    `json:"id"`

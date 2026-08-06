@@ -51,6 +51,9 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		// Severance
 		pw.POST("/severance/calculate", h.CalcSeverance)
 
+		// Retroactive
+		pw.POST("/retroactive/calculate", h.CalcRetroactive)
+
 		// Timekeeping
 		pw.POST("/timekeeping", h.CreateTimekeeping)
 		pw.GET("/timekeeping", h.ListTimekeeping)
@@ -799,5 +802,15 @@ func (h *PayrollHandler) CalcSeverance(c *gin.Context) {
 		return
 	}
 	result := h.svc.CalcSeverancePay(input)
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *PayrollHandler) CalcRetroactive(c *gin.Context) {
+	var input domain.RetroactivePayInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result := h.svc.CalcRetroactivePay(input)
 	c.JSON(http.StatusOK, result)
 }

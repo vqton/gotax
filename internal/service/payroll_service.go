@@ -230,6 +230,11 @@ func (s *PayrollService) CalcSeverancePay(input domain.SeveranceInput) domain.Se
 	return domain.CalcSeverancePay(input)
 }
 
+// CalcRetroactivePay calculates back-pay for mid-month salary changes.
+func (s *PayrollService) CalcRetroactivePay(input domain.RetroactivePayInput) domain.RetroactivePayResult {
+	return domain.CalcRetroactivePay(input)
+}
+
 func (s *PayrollService) SubmitPeriod(ctx context.Context, periodID string) error {
 	period, err := s.repo.GetPeriod(ctx, periodID)
 	if err != nil {

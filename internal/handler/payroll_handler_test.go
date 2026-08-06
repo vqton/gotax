@@ -1018,3 +1018,35 @@ func TestCalcSeverance_GrossMisconduct(t *testing.T) {
 	assert.Equal(t, 0.0, result.GrossSeverance)
 	assert.Equal(t, 0.0, result.NetSeverance)
 }
+
+// ─── Retroactive Pay ────────────────────────────────────────────
+
+func TestCalcRetroactive_MidMonthIncrease(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"old_base_salary":10000000,"new_base_salary":12000000,"effective_day":16,"days_in_month":30}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/retroactive/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.RetroactivePayResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 1_000_000.0, result.RetroAmount)
+	assert.Equal(t, 15, result.DaysAtOld)
+	assert.Equal(t, 15, result.DaysAtNew)
+}
+
+func TestCalcRetroactive_SalaryDecrease(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"old_base_salary":12000000,"new_base_salary":10000000,"effective_day":16,"days_in_month":30}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/retroactive/calculate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.RetroactivePayResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, -1_000_000.0, result.RetroAmount)
+}
