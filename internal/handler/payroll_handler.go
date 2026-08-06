@@ -89,6 +89,7 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.GET("/reports/pit", h.GetPITSummary)
 		pw.GET("/reports/overtime", h.GetOvertimeSummary)
 		pw.GET("/reports/leave-balance", h.GetLeaveBalanceReport)
+		pw.POST("/net-to-gross", h.CalcNetToGross)
 
 		// Declarations
 		pw.GET("/declarations/d02-ts", h.GenerateD02TS)
@@ -545,6 +546,18 @@ func (h *PayrollHandler) GetLeaveBalanceReport(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, reports)
+}
+
+// ─── Net-to-Gross ───────────────────────────────────────────────
+
+func (h *PayrollHandler) CalcNetToGross(c *gin.Context) {
+	var input domain.NetToGrossInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result := h.svc.CalcNetToGross(c.Request.Context(), input)
+	c.JSON(http.StatusOK, result)
 }
 
 // ─── Config ─────────────────────────────────────────────────────

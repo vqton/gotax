@@ -15,7 +15,7 @@ Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123
 
 ```
 main.go                     →  entrypoint, DI wiring, backend selection (PG via GORM vs memory)
-internal/domain/            →  models, repository interfaces, errors. Zero external deps. 31 files, all package domain.
+internal/domain/            →  models, repository interfaces, errors. Zero external deps. 42 files, all package domain.
 internal/auth/              →  JWT (RS256), TOTP, bcrypt, rate limiter
 internal/authz/             →  Casbin RBAC policies
 internal/config/            →  viper config loader
@@ -48,7 +48,7 @@ HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Se
 
 ## Domain Models
 
-`internal/domain/models*.go` — all `package domain`. Split by bounded context. 32 files, all same package.
+`internal/domain/models*.go` — all `package domain`. Split by bounded context. 42 files, all same package.
 
 Adding a model = add to correct existing file or create new `models_*.go`. No sub-packages, no import changes.
 
@@ -78,7 +78,7 @@ Same pattern across all module handlers.
 
 ## Routes
 
-Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, authMW, adminMW)` at `handler/handler.go:201`.
+Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, budH, ccdcH, ccH, authMW, adminMW)` at `handler/handler.go:208`.
 
 | Group | Prefix | Handler |
 |-------|--------|---------|
@@ -94,6 +94,10 @@ Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH,
 | Warehouse | `/api/v1/warehouse/**` | `WarehouseHandler` |
 | Fixed Asset | `/api/v1/fixed-assets/**` | `FAHandler` |
 | Payroll | `/api/v1/payroll/**` | `PayrollHandler` |
+| Recurring | `/api/v1/recurring-entries/**` | `RecurringHandler` |
+| Budget | `/api/v1/budgets/**` | `BudgetHandler` |
+| CCDC | `/api/v1/ccdc/**` | `CCDCHandler` |
+| Cost Centers | `/api/v1/cost-centers/**` | `CostCenterHandler` |
 
 Auth middleware on all groups except auth endpoints.
 
@@ -124,7 +128,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000024_tax_rate_incentive`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000030_cost_centers`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -147,6 +151,11 @@ Per-module naming: `pg_<module>.go` + `memory_<module>.go` in `internal/reposito
 | FA | `pg_fa.go` | `memory_fa.go` |
 | Opening Balance | `pg_opening_balance.go` | `memory_opening_balance.go` |
 | Payroll | `pg_payroll.go` | `memory_payroll.go` |
+| Budget | `pg_budget.go` | `memory_budget.go` |
+| CCDC | `pg_ccdc.go` | `memory_ccdc.go` |
+| Cost Centers | `pg_cost.go` | `memory_cost.go` |
+| Notifications | `pg_notification.go` | `memory_notification.go` |
+| Recurring | `pg_recurring.go` | `memory_recurring.go` |
 
 PG repos use GORM (`*gorm.DB`). Memory repos use `sync.RWMutex` + maps.
 
@@ -156,7 +165,7 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 
 ## Service Wiring
 
-`NewService()` in `internal/service/service.go:209` takes **16 repository interfaces** (all GL+Cash related). Each module-level service (Company, Tax, Purchase, Bank, Sale, Warehouse, FA) has its own `New*Service()` with its own repos. No DI framework — manual wiring in `main.go`.
+`NewService()` in `internal/service/service.go:210` takes **16 repository interfaces** (all GL+Cash related). Each module-level service (Company, Tax, Purchase, Bank, Sale, Warehouse, FA) has its own `New*Service()` with its own repos. No DI framework — manual wiring in `main.go`.
 
 ## Handler Files
 
@@ -175,7 +184,12 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 | `coa_handler.go` | COA approvals, versions, analysis, mappings, IFRS |
 | `opening_balance_handler.go` | Opening balance CRUD, carry forward, circular99 mappings, balance migration |
 | `payroll_handler.go` | Salary calculation, payslips, PIT, declarations |
-| `casbin_register.go` | `RegisterRoutesWithCompanyOpt` — central route registration with extra variadic handlers |
+| `recurring_handler.go` | Recurring entry templates, RunNow, ProcessDue |
+| `budget_handler.go` | Budget CRUD, variance report, sync actuals |
+| `ccdc_handler.go` | Tools & equipment CRUD |
+| `cost_handler.go` | Cost center CRUD with hierarchy |
+| `notification_handler.go` | Notification list, read, delete |
+| `casbin_register.go` | `RegisterRoutesWithCompanyOpt` — alternative route registration with extra variadic middleware |
 
 ## Validate Package
 
@@ -190,7 +204,7 @@ When adding a new module that uses the validator: register custom validators in 
 **No build step.** Tailwind CSS v4 compiled to `web/static/css/app.css`. Alpine.js bundled at `web/static/js/alpine.min.js`. No webpack, no Vite.
 
 **Two UI entry points:**
-- `/app/*` — Main accounting UI (40 pages). MISA SME 2026 layout: left sidebar with 12 module groups, top bar, content area.
+- `/app/*` — Main accounting UI (56 pages). MISA SME 2026 layout: left sidebar with 12 module groups, top bar, content area.
 - `/payroll/*` — Payroll module (8 pages). Separate nav bar (top).
 - `/login` — Auth pages at `web/auth/*.html`.
 
@@ -209,7 +223,7 @@ r.Static("/app", "./web/app")         // Main app pages
 **Page pattern:** Each HTML page is standalone with Alpine.js `x-data` component. Calls `mountAppShell(title, activePath)` on init for sidebar/topbar. Uses `apiGet`/`apiPost` from app.js.
 
 **Wired to backend:** All GL, Auth, Company, Cash, Bank, Purchase, Sale, FA, Tax (partial), Warehouse (partial) pages call real APIs.
-**Static/mock data:** Customers, Items, VAT Report, Cash Flow — awaiting backend completion.
+**Static/mock data:** Customers, Items, VAT Report — awaiting backend completion.
 
 ## Module Readiness
 
@@ -222,17 +236,17 @@ r.Static("/app", "./web/app")         // Main app pages
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
 | Tax | ~98% | Full CRUD + 17 declaration types, payment automation, reconciliation, penalty calc, batch generation. CIT advanced. E-invoice lifecycle with SoTienBangChu, buyer/seller info. Calendar expanded. TTDB/BVMT/NTNN rate lookup from TaxRate table. Missing: GDT API push (env-gated) |
-| Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
-| Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
-| Warehouse | PROD | Full backend (9 repos, 48 routes, service with GL posting) + 9 frontend pages (categories, items, balances, transfers, adjustments, takes, valuations, transactions) |
+| Purchase | PROD | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
+| Sale | PROD | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
+| Warehouse | PROD | Full backend (9 repos, 48 routes, service with GL posting) + 9 frontend pages |
 | Payroll | ~70% | Salary engine, SI/HI/UI calc, PIT, timekeeping, payslips, declarations. SubmitPeriod workflow. Missing: GL posting on approval, tax module KK_TNCN link |
-| Recurring Entries | PROD | Template-based recurring journal entries with RunNow + ProcessDue. Full module. |
-| Notifications | PROD | Entity-agnostic notification system with type/title/message/link. Mark read/delete. |
-| CCDC (Tools & Equipment) | PROD | ToolEquipment + ToolEquipmentCategory CRUD, account 153. |
-| Budget Management | PROD | Budget CRUD with variance report, bulk upsert, actuals sync from JE. |
-| Cash Flow | PROD | Cash flow statement from journal entries (operating/investing/financing). |
-| Data Export | PROD | Excel export for journal entries and trial balance (excelize/v2). |
-| Cost Centers | PROD | CostCenter CRUD with hierarchy (parent_id). |
+| Recurring Entries | PROD | Template-based recurring journal entries with RunNow + ProcessDue |
+| Notifications | PROD | Entity-agnostic notification system with type/title/message/link |
+| CCDC | PROD | ToolEquipment + ToolEquipmentCategory CRUD, account 153 |
+| Budget | PROD | Budget CRUD with variance report, bulk upsert, actuals sync from JE |
+| Cost Centers | PROD | CostCenter CRUD with hierarchy (parent_id) |
+| Cash Flow | PROD | Cash flow statement from journal entries (operating/investing/financing) |
+| Data Export | PROD | Excel export for journal entries and trial balance (excelize/v2) |
 
 Full tax/purchase/warehouse/payroll specs at `docs/`.
 

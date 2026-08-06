@@ -102,10 +102,6 @@ func GetPITBrackets(month, year int) []PITBracket {
 	return PITBracketsOld
 }
 
-// PITBrackets is an alias for backward compatibility — uses old 7-bracket schedule.
-// Deprecated: use GetPITBrackets(month, year) instead.
-var PITBrackets = PITBracketsOld
-
 // ─── Helpers ────────────────────────────────────────────────────
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -216,6 +212,108 @@ func CalcLeavePay(dailySalary, days float64) float64 {
 
 func CalcHolidayPay(dailySalary float64) float64 {
 	return round0(dailySalary * HolidayPayRate)
+}
+
+// ─── Net-to-Gross (Reverse Calculation) ─────────────────────────
+
+// NetToGrossInput holds known values for reverse-calculating gross salary.
+type NetToGrossInput struct {
+	TargetNetPay    float64 `json:"target_net_pay"`
+	InsuranceBase   float64 `json:"insurance_base"`
+	UIBase          float64 `json:"ui_base"`
+	IsForeign       bool    `json:"is_foreign"`
+	DependantCount  int     `json:"dependant_count"`
+	OtherDeductions float64 `json:"other_deductions"`
+	Month           int     `json:"month"`
+	Year            int     `json:"year"`
+}
+
+// NetToGrossResult holds the reverse-calculated gross and breakdown.
+type NetToGrossResult struct {
+	GrossSalary     float64 `json:"gross_salary"`
+	BaseSalary      float64 `json:"base_salary"`
+	SIDeduction     float64 `json:"si_deduction"`
+	HIDeduction     float64 `json:"hi_deduction"`
+	UIDeduction     float64 `json:"ui_deduction"`
+	TradeUnionDues  float64 `json:"trade_union_dues"`
+	PITAmount       float64 `json:"pit_amount"`
+	TotalDeductions float64 `json:"total_deductions"`
+	NetPay          float64 `json:"net_pay"`
+}
+
+// CalcNetToGross reverse-engineers gross salary from target net pay using binary search.
+// Tolerance: 1 VND.
+func CalcNetToGross(input NetToGrossInput) NetToGrossResult {
+	if input.TargetNetPay <= 0 {
+		return NetToGrossResult{}
+	}
+	if input.InsuranceBase == 0 {
+		input.InsuranceBase = input.TargetNetPay // fallback
+	}
+	if input.UIBase == 0 {
+		input.UIBase = input.InsuranceBase
+	}
+
+	// Binary search for gross salary
+	low, high := 0.0, input.TargetNetPay*5 // upper bound heuristic
+	var best GrossNetPair
+
+	for i := 0; i < 100; i++ { // max iterations
+		mid := (low + high) / 2
+		gn := calcGrossNet(mid, input)
+		diff := gn.Net - input.TargetNetPay
+
+		if math.Abs(diff) < 1 { // within 1 VND
+			best = gn
+			break
+		}
+
+		if diff < 0 {
+			low = mid
+		} else {
+			high = mid
+		}
+		best = gn
+	}
+
+	// Recalculate with final best gross for accurate breakdown
+	result := calcGrossNet(best.Gross, input)
+	return NetToGrossResult{
+		GrossSalary:     round0(result.Gross),
+		BaseSalary:      round0(result.Gross),
+		SIDeduction:     round0(result.SI),
+		HIDeduction:     round0(result.HI),
+		UIDeduction:     round0(result.UI),
+		TradeUnionDues:  round0(result.TU),
+		PITAmount:       round0(result.PIT),
+		TotalDeductions: round0(result.SI + result.HI + result.UI + result.TU + result.PIT + input.OtherDeductions),
+		NetPay:          round0(result.Net),
+	}
+}
+
+type GrossNetPair struct {
+	Gross float64
+	Net   float64
+	SI    float64
+	HI    float64
+	UI    float64
+	TU    float64
+	PIT   float64
+}
+
+func calcGrossNet(gross float64, input NetToGrossInput) GrossNetPair {
+	si := CalcEmployeeSI(input.InsuranceBase, input.Month, input.Year)
+	hi := CalcEmployeeHI(input.InsuranceBase, input.Month, input.Year)
+	ui := CalcEmployeeUI(input.UIBase, input.IsForeign)
+	tu := CalcTradeUnion(input.InsuranceBase, input.IsForeign, input.Month, input.Year)
+
+	taxable := gross - si - hi - ui - tu - PersonalDeductionMonthly - float64(input.DependantCount)*DependantDeductionMonthly
+	pit := CalcPIT(taxable, input.Month, input.Year)
+
+	totalDed := si + hi + ui + tu + pit + input.OtherDeductions
+	net := gross - totalDed
+
+	return GrossNetPair{Gross: gross, Net: net, SI: si, HI: hi, UI: ui, TU: tu, PIT: pit}
 }
 
 // ─── Full Employee Payroll ──────────────────────────────────────

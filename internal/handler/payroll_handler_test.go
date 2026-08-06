@@ -871,3 +871,33 @@ func TestImportTimekeepingCSV_NoCompanyID(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// ─── Net-to-Gross ───────────────────────────────────────────────
+
+func TestCalcNetToGross_Success(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"target_net_pay":15000000,"insurance_base":20000000,"ui_base":20000000,"month":7,"year":2026}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/net-to-gross", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	t.Logf("status=%d body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.NetToGrossResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	t.Logf("result: gross=%.0f net=%.0f", result.GrossSalary, result.NetPay)
+	assert.True(t, result.GrossSalary > 15_000_000)
+	assert.InDelta(t, 15_000_000, result.NetPay, 100)
+}
+
+func TestCalcNetToGross_ZeroTarget(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"target_net_pay":0}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/net-to-gross", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}

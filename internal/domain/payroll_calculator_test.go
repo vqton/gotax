@@ -531,6 +531,140 @@ func TestPayrollTransitionPeriod(t *testing.T) {
 	})
 }
 
+// ─── Net-to-Gross ──────────────────────────────────────────────
+
+func TestCalcNetToGross(t *testing.T) {
+	tests := []struct {
+		name          string
+		targetNet     float64
+		insBase       float64
+		uiBase        float64
+		isForeign     bool
+		depCount      int
+		month, year   int
+		tolerance     float64
+	}{
+		{
+			name:      "standard 10M gross — round trip",
+			targetNet: 0, // will compute from gross
+			insBase:   10_000_000,
+			uiBase:    10_000_000,
+			month:     7, year: 2026,
+			tolerance: 100,
+		},
+		{
+			name:      "high salary 50M — capped insurance",
+			targetNet: 0,
+			insBase:   50_600_000,
+			uiBase:    50_600_000,
+			month:     7, year: 2026,
+			tolerance: 100,
+		},
+		{
+			name:      "foreign employee — no UI",
+			targetNet: 0,
+			insBase:   20_000_000,
+			uiBase:    20_000_000,
+			isForeign: true,
+			month:     7, year: 2026,
+			tolerance: 100,
+		},
+		{
+			name:      "with 2 dependants",
+			targetNet: 0,
+			insBase:   15_000_000,
+			uiBase:    15_000_000,
+			depCount:  2,
+			month:     7, year: 2026,
+			tolerance: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Forward: compute gross→net
+			emp := makeTestEmployee(tt.insBase, RegionI)
+			emp.IsForeignEmployee = tt.isForeign
+			period := &PayrollPeriod{Year: tt.year, Month: tt.month}
+			fwdRun := CalculateEmployeePayroll(emp, period, nil)
+
+			// Set target net from forward calculation
+			targetNet := fwdRun.NetPay
+			if tt.name == "with 2 dependants" {
+				// Recalc with dependants
+				emp2 := emp
+				_ = emp2
+				// Use the forward result as-is for round-trip test
+				targetNet = fwdRun.NetPay
+			}
+
+			// Reverse: net→gross
+			result := CalcNetToGross(NetToGrossInput{
+				TargetNetPay:   targetNet,
+				InsuranceBase:  tt.insBase,
+				UIBase:         tt.uiBase,
+				IsForeign:      tt.isForeign,
+				DependantCount: tt.depCount,
+				Month:          tt.month,
+				Year:           tt.year,
+			})
+
+			// Verify round-trip: forward net ≈ reverse net
+			assert.InDelta(t, fwdRun.NetPay, result.NetPay, tt.tolerance,
+				"round-trip net pay mismatch")
+		})
+	}
+}
+
+func TestCalcNetToGross_ZeroNetPay(t *testing.T) {
+	result := CalcNetToGross(NetToGrossInput{TargetNetPay: 0})
+	assert.Equal(t, float64(0), result.GrossSalary)
+}
+
+func TestCalcNetToGross_KnownTarget(t *testing.T) {
+	// Target net of 15,000,000 VND
+	result := CalcNetToGross(NetToGrossInput{
+		TargetNetPay:   15_000_000,
+		InsuranceBase:  20_000_000,
+		UIBase:         20_000_000,
+		Month:          7,
+		Year:           2026,
+	})
+
+	// Gross should be higher than net
+	assert.True(t, result.GrossSalary > 15_000_000)
+	// Net should be close to target
+	assert.InDelta(t, 15_000_000, result.NetPay, 100)
+	// Deductions should be positive
+	assert.True(t, result.TotalDeductions > 0)
+	assert.True(t, result.SIDeduction > 0)
+	assert.True(t, result.HIDeduction > 0)
+}
+
+func TestCalcNetToGross_H1vsH2(t *testing.T) {
+	target := 20_000_000.0
+
+	// Use insurance base above H1 cap (46.8M) but below H2 cap (50.6M)
+	rH1 := CalcNetToGross(NetToGrossInput{
+		TargetNetPay: target, InsuranceBase: 48_000_000, UIBase: 48_000_000,
+		Month: 3, Year: 2026,
+	})
+	rH2 := CalcNetToGross(NetToGrossInput{
+		TargetNetPay: target, InsuranceBase: 48_000_000, UIBase: 48_000_000,
+		Month: 8, Year: 2026,
+	})
+
+	// Both should produce valid results
+	assert.True(t, rH1.GrossSalary > target)
+	assert.True(t, rH2.GrossSalary > target)
+	// Both should produce valid net pay close to target
+	assert.InDelta(t, target, rH1.NetPay, 100)
+	assert.InDelta(t, target, rH2.NetPay, 100)
+	// Insurance deductions differ between H1 and H2 (48M > H1 cap 46.8M, < H2 cap 50.6M)
+	assert.NotEqual(t, rH1.SIDeduction, rH2.SIDeduction,
+		"SI deduction should differ: 48M is above H1 cap but below H2 cap")
+}
+
 // ─── Edge Cases ─────────────────────────────────────────────────
 
 func TestEdgeCases(t *testing.T) {

@@ -327,6 +327,12 @@ func (s *PayrollService) ListPayslipsByPeriod(ctx context.Context, periodID stri
 	return s.repo.ListPayslipsByPeriod(ctx, periodID)
 }
 
+// ─── Net-to-Gross ───────────────────────────────────────────────
+
+func (s *PayrollService) CalcNetToGross(ctx context.Context, input domain.NetToGrossInput) domain.NetToGrossResult {
+	return domain.CalcNetToGross(input)
+}
+
 // ─── Summary ────────────────────────────────────────────────────
 
 func (s *PayrollService) GetPeriodSummary(ctx context.Context, periodID string) (*domain.PayrollSummary, error) {
