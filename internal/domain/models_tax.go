@@ -197,19 +197,20 @@ type ProgressiveBracket struct {
 }
 
 type TaxRate struct {
-	ID              string               `json:"id"`
-	TaxType         TaxType              `json:"tax_type"`
-	RateCode        string               `json:"rate_code"`
-	RateName        string               `json:"rate_name"`
-	RateType        RateType             `json:"rate_type"`
-	RateValue       float64              `json:"rate_value,omitempty"`
-	Brackets        []ProgressiveBracket `json:"brackets,omitempty"`
-	EffectiveFrom   string               `json:"effective_from"`
-	EffectiveTo     string               `json:"effective_to,omitempty"`
-	IsActive        bool                 `json:"is_active"`
-	ApplicableTo    string               `json:"applicable_to,omitempty"`
-	LegalRef        string               `json:"legal_ref,omitempty"`
-	CreatedAt       string               `json:"created_at,omitempty"`
+	ID                  string               `json:"id"`
+	TaxType             TaxType              `json:"tax_type"`
+	RateCode            string               `json:"rate_code"`
+	RateName            string               `json:"rate_name"`
+	RateType            RateType             `json:"rate_type"`
+	RateValue           float64              `json:"rate_value,omitempty"`
+	Brackets            []ProgressiveBracket `json:"brackets,omitempty"`
+	EffectiveFrom       string               `json:"effective_from"`
+	EffectiveTo         string               `json:"effective_to,omitempty"`
+	IsActive            bool                 `json:"is_active"`
+	ApplicableTo        string               `json:"applicable_to,omitempty"`
+	IncentiveReducPct   float64              `json:"incentive_reduc_pct,omitempty"`
+	LegalRef            string               `json:"legal_ref,omitempty"`
+	CreatedAt           string               `json:"created_at,omitempty"`
 }
 
 type DeclarationSignature struct {
@@ -454,6 +455,8 @@ type CITResult struct {
 	Revenue          float64   `json:"revenue"`
 	Expenses         float64   `json:"expenses"`
 	NonDeductible    float64   `json:"non_deductible"`
+	InterestExpense  float64   `json:"interest_expense"`
+	RnDExpense       float64   `json:"rnd_expense"`
 	TaxableIncome    float64   `json:"taxable_income"`
 	TaxRate          float64   `json:"tax_rate"`
 	CITPayable       float64   `json:"cit_payable"`
@@ -463,6 +466,28 @@ type CITResult struct {
 	BalanceDue       float64   `json:"balance_due"`
 	Refund           float64   `json:"refund"`
 	LateInterest     float64   `json:"late_interest"`
+	LossCarried      float64   `json:"loss_carried"`
+	LossUsed         float64   `json:"loss_used"`
+}
+
+type CITLossCarryForward struct {
+	ID         string  `json:"id"`
+	CompanyID  string  `json:"company_id"`
+	LossYear   int     `json:"loss_year"`
+	LossAmount float64 `json:"loss_amount"`
+	UsedAmount float64 `json:"used_amount"`
+	ExpiryYear int     `json:"expiry_year"`
+}
+
+type QuarterlyProvisionalResult struct {
+	CompanyID         string  `json:"company_id"`
+	PeriodYear        int     `json:"period_year"`
+	Quarter           int     `json:"quarter"`
+	EstimatedAnnualCIT float64 `json:"estimated_annual_cit"`
+	CumulativeRequired float64 `json:"cumulative_required"`
+	QuarterlyAmount   float64 `json:"quarterly_amount"`
+	CumulativePaid    float64 `json:"cumulative_paid"`
+	Compliant         bool    `json:"compliant"`
 }
 
 type PITResult struct {

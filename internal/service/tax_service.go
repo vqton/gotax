@@ -141,6 +141,7 @@ type TaxServiceInterface interface {
 	CalculateVAT(ctx context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error)
 	CalculateCIT(ctx context.Context, companyID string, year int, entries []domain.JournalEntry) (*domain.CITResult, error)
 	CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employees []domain.PITEmployeeInput) (*domain.PITResult, error)
+	CalculateQuarterlyProvisional(ctx context.Context, companyID string, year, quarter int, ytdEntries []domain.JournalEntry) (*domain.QuarterlyProvisionalResult, error)
 
 	// Declaration Engine
 	GenerateDeclaration(ctx context.Context, companyID string, declType domain.DeclarationType, period domain.TaxPeriod, userID string) (*domain.TaxDeclaration, error)
@@ -161,6 +162,9 @@ type TaxServiceInterface interface {
 
 	// E-Invoice Issuance
 	CheckInvoiceStatus(ctx context.Context, id string) error
+
+	// Deadline alerts: create alerts for calendars due within daysAhead
+	GenerateDeadlineAlerts(ctx context.Context, companyID string, daysAhead int) (int, error)
 }
 
 // GDTClient is the GDT API surface used by the service (invoice + declaration).
@@ -527,7 +531,7 @@ func (s *taxService) GenerateCalendarBatch(ctx context.Context, companyID string
 	count := 0
 	for _, tt := range taxTypes {
 		switch tt {
-		case domain.TaxTypeVAT:
+		case domain.TaxTypeVAT, domain.TaxTypePIT:
 			for m := 1; m <= 12; m++ {
 				key := fmt.Sprintf("%s:%s:%d:%d", companyID, tt, year, m)
 				if existingSet[key] {
@@ -547,7 +551,7 @@ func (s *taxService) GenerateCalendarBatch(ctx context.Context, companyID string
 					count++
 				}
 			}
-		case domain.TaxTypeCIT:
+		case domain.TaxTypeCIT, domain.TaxTypeTTDB, domain.TaxTypeBVMT, domain.TaxTypeFCT:
 			for q := 1; q <= 4; q++ {
 				key := fmt.Sprintf("%s:%s:%d:%d", companyID, tt, year, q)
 				if existingSet[key] {
@@ -834,6 +838,49 @@ func (s *taxService) ScanOverdueCalendars(ctx context.Context, companyID string)
 		if today.After(due) {
 			if err := s.repo.UpdateCalendarStatus(ctx, c.ID, domain.CalStatusOVERDUE); err == nil {
 				count++
+				_ = s.repo.CreateAlert(ctx, &domain.TaxAlert{
+					ID: fmt.Sprintf("ALERT-OVERDUE-%s", c.ID), CompanyID: companyID,
+					CalendarID: c.ID, AlertType: domain.AlertTypeCRITICAL,
+					Channel: domain.AlertChanALL,
+					Message: fmt.Sprintf("OVERDUE: %s declaration for %d-Q%d", c.TaxType, c.PeriodYear, c.PeriodNumber),
+					SentAt:  today.Format(time.RFC3339),
+				})
+			}
+		}
+	}
+	return count, nil
+}
+
+func (s *taxService) GenerateDeadlineAlerts(ctx context.Context, companyID string, daysAhead int) (int, error) {
+	cals, err := s.repo.GetCalendarByCompany(ctx, companyID)
+	if err != nil {
+		return 0, err
+	}
+	today := s.now()
+	deadline := today.AddDate(0, 0, daysAhead)
+	count := 0
+	for _, c := range cals {
+		if c.Status != domain.CalStatusPENDING {
+			continue
+		}
+		due, err := time.Parse("2006-01-02", c.PaymentDue)
+		if err != nil {
+			continue
+		}
+		if !due.Before(today) && !due.After(deadline) {
+			alertType := domain.AlertTypeWARNING
+			if due.Equal(today) || due.Before(today.AddDate(0, 0, 1)) {
+				alertType = domain.AlertTypeDUE_TODAY
+			}
+			alert := &domain.TaxAlert{
+				ID: fmt.Sprintf("ALERT-DUE-%s-%d", c.ID, today.Unix()), CompanyID: companyID,
+				CalendarID: c.ID, AlertType: alertType,
+				Channel: domain.AlertChanALL,
+				Message: fmt.Sprintf("%s declaration due %s (%s)", c.TaxType, c.PaymentDue, c.PeriodType),
+				SentAt:  today.Format(time.RFC3339),
+			}
+			if err := s.repo.CreateAlert(ctx, alert); err == nil {
+				count++
 			}
 		}
 	}
@@ -896,7 +943,28 @@ func (s *taxService) IssueEInvoice(ctx context.Context, id string) error {
 		inv.GDTResponse = string(raw)
 	}
 	inv.Status = domain.EInvStatusSUBMITTED
-	return s.repo.UpdateEInvoice(ctx, inv)
+	if err := s.repo.UpdateEInvoice(ctx, inv); err != nil {
+		return err
+	}
+	// Auto-post journal entry: Dr 131 (AR) / Cr 5111 (Revenue) / Cr 33311 (VAT)
+	if inv.GrandTotal > 0 {
+		je := &domain.JournalEntry{
+			EntryNumber: fmt.Sprintf("EINV-%s", inv.ID),
+			CompanyID:   inv.CompanyID,
+			EntryDate:   s.now(),
+			Description: fmt.Sprintf("E-invoice %s", inv.ID),
+			Status:      domain.JournalEntryPosted,
+			Lines: []domain.JournalLine{
+				{AccountCode: "131", DebitAmount: inv.GrandTotal},
+				{AccountCode: "5111", CreditAmount: inv.Subtotal},
+				{AccountCode: "33311", CreditAmount: inv.VATAmount},
+			},
+		}
+		if err := s.jeRepo.Create(ctx, je); err != nil {
+			return fmt.Errorf("e-invoice issued but journal post failed: %w", err)
+		}
+	}
+	return nil
 }
 
 // CheckInvoiceStatus polls GDT for the invoice's current status and
@@ -1245,10 +1313,61 @@ func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year in
 					}
 				}
 			}
+			// Track specific expense categories for CIT adjustments
+			if strings.HasPrefix(acct, "635") {
+				result.InterestExpense += line.DebitAmount
+			}
+			if strings.HasPrefix(acct, "632") {
+				result.RnDExpense += line.DebitAmount
+			}
 		}
 	}
+	// Thin capitalization: interest limited to 30% of EBITDA (Decree 20/2017 Art. 8)
+	if result.InterestExpense > 0 {
+		ebitda := result.Revenue - result.Expenses + result.InterestExpense // add back interest
+		limit := ebitda * 0.30
+		if result.InterestExpense > limit {
+			result.NonDeductible += result.InterestExpense - limit
+		}
+	}
+	// R&D super-deduction: 200% deduction (Circular 78/2014 Art. 26)
+	if result.RnDExpense > 0 {
+		result.NonDeductible -= result.RnDExpense
+	}
 	result.TaxableIncome = result.Revenue - result.Expenses + result.NonDeductible
+	// Deduct prior year CIT losses (5-year carry-forward)
+	if result.TaxableIncome > 0 {
+		losses, _ := s.repo.GetActiveCITLosses(ctx, companyID, year)
+		var totalUsed float64
+		for i := range losses {
+			remaining := losses[i].LossAmount - losses[i].UsedAmount
+			if remaining <= 0 {
+				continue
+			}
+			if result.TaxableIncome-totalUsed <= 0 {
+				break
+			}
+			apply := remaining
+			if apply > result.TaxableIncome-totalUsed {
+				apply = result.TaxableIncome - totalUsed
+			}
+			totalUsed += apply
+			losses[i].UsedAmount += apply
+			_ = s.repo.UpdateCITLoss(ctx, &losses[i])
+		}
+		result.LossUsed = totalUsed
+		result.TaxableIncome -= totalUsed
+	}
 	if result.TaxableIncome < 0 {
+		// Store loss for carry-forward (5-year expiry)
+		loss := &domain.CITLossCarryForward{
+			CompanyID:  companyID,
+			LossYear:   year,
+			LossAmount: -result.TaxableIncome,
+			ExpiryYear: year + 5,
+		}
+		_ = s.repo.CreateCITLoss(ctx, loss)
+		result.LossCarried = -result.TaxableIncome
 		result.TaxableIncome = 0
 	}
 	rate, err := s.resolveRate(ctx, domain.TaxTypeCIT, citSizeKey(result.Revenue), fmt.Sprintf("%04d-12-31", year))
@@ -1258,6 +1377,12 @@ func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year in
 	result.TaxRate = rate.RateValue
 	result.CITPayable = round2(result.TaxableIncome * result.TaxRate / 100)
 	result.CITFinal = result.CITPayable
+	// Check for CIT incentive reduction (e.g. new investment project 50% off)
+	incentive, err := s.resolveRate(ctx, domain.TaxTypeCIT, "INCENTIVE_NEW_PROJECT", fmt.Sprintf("%04d-12-31", year))
+	if err == nil && incentive.IncentiveReducPct > 0 {
+		result.IncentiveReduc = incentive.IncentiveReducPct
+		result.CITFinal = round2(result.CITPayable * (1 - incentive.IncentiveReducPct/100))
+	}
 	return result, nil
 }
 
@@ -1295,6 +1420,36 @@ func progressivePIT(monthlyTaxable float64) float64 {
 		}
 	}
 	return round2(monthlyTaxable*35/100 - 9850000)
+}
+
+func (s *taxService) CalculateQuarterlyProvisional(ctx context.Context, companyID string, year, quarter int, ytdEntries []domain.JournalEntry) (*domain.QuarterlyProvisionalResult, error) {
+	if companyID == "" {
+		return nil, domain.ErrCompanyIDRequired
+	}
+	// Calculate estimated annual CIT from YTD data
+	citResult, err := s.CalculateCIT(ctx, companyID, year, ytdEntries)
+	if err != nil {
+		return nil, err
+	}
+	estimatedAnnual := citResult.CITFinal
+	// Extrapolate: YTD CIT / quarter * 4
+	if quarter > 0 && quarter <= 4 {
+		estimatedAnnual = citResult.CITFinal / float64(quarter) * 4
+	}
+	// Cumulative required by this quarter
+	cumulativeRequired := round2(estimatedAnnual * float64(quarter) / 4)
+	// 80% rule: cumulative required must be ≥ 80% of estimated annual
+	compliant80 := cumulativeRequired >= round2(estimatedAnnual*0.80)
+	return &domain.QuarterlyProvisionalResult{
+		CompanyID:         companyID,
+		PeriodYear:        year,
+		Quarter:           quarter,
+		EstimatedAnnualCIT: round2(estimatedAnnual),
+		CumulativeRequired: cumulativeRequired,
+		QuarterlyAmount:   round2(cumulativeRequired),
+		CumulativePaid:    cumulativeRequired,
+		Compliant:         compliant80,
+	}, nil
 }
 
 func (s *taxService) CalculatePIT(ctx context.Context, companyID string, period domain.TaxPeriod, employees []domain.PITEmployeeInput) (*domain.PITResult, error) {

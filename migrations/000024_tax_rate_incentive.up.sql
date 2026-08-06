@@ -1,0 +1,1 @@
+ALTER TABLE tax_rates ADD COLUMN IF NOT EXISTS incentive_reduc_pct NUMERIC(5,2) NOT NULL DEFAULT 0;

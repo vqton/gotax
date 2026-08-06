@@ -92,3 +92,15 @@ type TaxAuditCaseGORM struct {
 }
 
 func (TaxAuditCaseGORM) TableName() string { return "tax_audit_cases" }
+
+type CITLossCarryForwardGORM struct {
+	ID         string  `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID  string  `gorm:"column:company_id;not null;size:36;index" json:"companyId"`
+	LossYear   int     `gorm:"column:loss_year;not null" json:"lossYear"`
+	LossAmount float64 `gorm:"column:loss_amount;not null" json:"lossAmount"`
+	UsedAmount float64 `gorm:"column:used_amount;not null;default:0" json:"usedAmount"`
+	ExpiryYear int     `gorm:"column:expiry_year;not null" json:"expiryYear"`
+	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+}
+
+func (CITLossCarryForwardGORM) TableName() string { return "cit_loss_carry_forwards" }

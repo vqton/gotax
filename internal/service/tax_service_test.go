@@ -278,6 +278,144 @@ func TestCalculateCIT_RateTableOverridesSize(t *testing.T) {
 	assert.Equal(t, 5000000.0, res.CITPayable) // 40M * 12.5%
 }
 
+func TestCalculateCIT_IncentiveReduction(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+	// Standard CIT rate 20%
+	require.NoError(t, repo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "CIT_STANDARD", TaxType: domain.TaxTypeCIT,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 20,
+		EffectiveFrom: "2026-01-01", IsActive: true,
+	}))
+	// Incentive: 50% reduction for new investment project
+	require.NoError(t, repo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "CIT_INCENTIVE_NEW_PROJECT", TaxType: domain.TaxTypeCIT,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 20,
+		IncentiveReducPct: 50,
+		ApplicableTo: "INCENTIVE_NEW_PROJECT",
+		EffectiveFrom: "2026-01-01", IsActive: true,
+	}))
+
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)), // 100M revenue
+		citEntry(vatLine("641", 60000000, 0)),   // 60M expenses
+	})
+	require.NoError(t, err)
+	// Taxable = 100M - 60M = 40M; CIT = 40M * 20% = 8M
+	assert.Equal(t, 8000000.0, res.CITPayable)
+	// Incentive: 50% reduction → CITFinal = 8M - 4M = 4M
+	assert.Equal(t, 4000000.0, res.CITFinal)
+	assert.Equal(t, 50.0, res.IncentiveReduc)
+}
+
+func TestCalculateCIT_LossCarryForward(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	// Year 2025: 100M revenue, 120M expenses → 20M loss
+	res2025, err := svc.CalculateCIT(ctx, "c1", 2025, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 120000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, res2025.TaxableIncome)
+	assert.Equal(t, 0.0, res2025.CITPayable)
+
+	// Year 2026: 100M revenue, 60M expenses → 40M taxable, minus 20M loss = 20M
+	res2026, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 60000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 20000000.0, res2026.TaxableIncome) // 40M - 20M loss
+	assert.Equal(t, 3000000.0, res2026.CITPayable)      // 20M * 15% (MICRO rate)
+	assert.Equal(t, 20000000.0, res2026.LossUsed)
+}
+
+func TestCalculateCIT_LossCarryForward_Expiry(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	// Year 2020: 100M loss
+	_, err := svc.CalculateCIT(ctx, "c1", 2020, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 200000000, 0)),
+	})
+	require.NoError(t, err)
+
+	// Year 2026: 6 years later — loss expired (5-year limit)
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 60000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 40000000.0, res.TaxableIncome) // no loss applied (expired)
+	assert.Equal(t, 0.0, res.LossUsed)
+}
+
+func TestCalculateCIT_ThinCap(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	// Revenue 100M, Operating expenses 40M, Interest expense 30M (account 635)
+	// EBITDA = 100M - 40M = 60M; 30% limit = 18M; disallowed = 30M - 18M = 12M
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 40000000, 0)),
+		citEntry(vatLine("635", 30000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 100000000.0, res.Revenue)
+	assert.Equal(t, 70000000.0, res.Expenses) // 40M + 30M
+	// NonDeductible includes thin cap disallowance: 12M
+	assert.Equal(t, 12000000.0, res.NonDeductible)
+	// Taxable = 100M - 70M + 12M = 42M
+	assert.Equal(t, 42000000.0, res.TaxableIncome)
+}
+
+func TestCalculateCIT_RnDSuperDeduction(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	// Revenue 100M, Expenses 60M (incl 10M R&D on account 632)
+	// R&D gets 200% deduction → add back 10M extra
+	res, err := svc.CalculateCIT(ctx, "c1", 2026, []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 100000000)),
+		citEntry(vatLine("641", 50000000, 0)),
+		citEntry(vatLine("632", 10000000, 0)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 100000000.0, res.Revenue)
+	assert.Equal(t, 60000000.0, res.Expenses)
+	// R&D 10M already in expenses; NonDeductible = -10M (negative = extra deduction)
+	// Taxable = 100M - 60M + (-10M) = 30M
+	assert.Equal(t, 30000000.0, res.TaxableIncome)
+}
+
+func TestCalculateQuarterlyProvisional(t *testing.T) {
+	svc, _ := newTaxTestSvc()
+	ctx := context.Background()
+	// Q1: 25M revenue, 15M expenses → 10M taxable → CIT 15% MICRO = 1.5M
+	entries := []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 25000000)),
+		citEntry(vatLine("641", 15000000, 0)),
+	}
+	prov, err := svc.CalculateQuarterlyProvisional(ctx, "c1", 2026, 1, entries)
+	require.NoError(t, err)
+	assert.Equal(t, 6000000.0, prov.EstimatedAnnualCIT) // 1.5M / 1 * 4
+	assert.Equal(t, 1500000.0, prov.QuarterlyAmount)     // 6M * 1/4
+
+	// Q3: cumulative 75M revenue, 45M expenses → 30M taxable → CIT = 4.5M
+	entriesQ3 := []domain.JournalEntry{
+		citEntry(vatLine("5111", 0, 75000000)),
+		citEntry(vatLine("641", 45000000, 0)),
+	}
+	provQ3, err := svc.CalculateQuarterlyProvisional(ctx, "c1", 2026, 3, entriesQ3)
+	require.NoError(t, err)
+	// Extrapolated annual = 4.5M / 3 * 4 = 6M
+	assert.Equal(t, 6000000.0, provQ3.EstimatedAnnualCIT)
+	// Cumulative required = 6M * 3/4 = 4.5M
+	assert.Equal(t, 4500000.0, provQ3.CumulativeRequired)
+	// 80% of 6M = 4.8M; 4.5M < 4.8M → NOT compliant
+	assert.False(t, provQ3.Compliant)
+}
+
 // ─── A4: PIT Engine ─────────────────────────────────────────────────────
 
 func TestCalculatePIT_ResidentProgressive(t *testing.T) {
@@ -701,7 +839,7 @@ func testEInvoice(status domain.EInvLifecycleStatus) *domain.EInvoice {
 
 func TestIssueEInvoice_SubmitsToGDT(t *testing.T) {
 	g := &stubGDT{submitResp: &domain.GDTSubmitResponse{TransactionID: "TXN-1", Status: "SUBMITTED", GDTRef: "GDT-1"}}
-	svc, repo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	svc, repo, jeRepo := newTaxTestSvcIssuer(g, &stubSigner{})
 	ctx := context.Background()
 	inv := testEInvoice(domain.EInvStatusDRAFT)
 	require.NoError(t, repo.CreateEInvoice(ctx, inv))
@@ -717,6 +855,17 @@ func TestIssueEInvoice_SubmitsToGDT(t *testing.T) {
 	assert.NotEmpty(t, updated.SigningDate)
 	// signer received the generated TXML, GDT received the signed XML
 	assert.Equal(t, "signed:"+updated.XMLBody, g.submittedXML)
+
+	// Verify journal entry auto-posted
+	entries, _ := jeRepo.GetByStatus(ctx, domain.JournalEntryPosted)
+	require.Len(t, entries, 1)
+	amounts := map[string]float64{}
+	for _, l := range entries[0].Lines {
+		amounts[l.AccountCode] = l.DebitAmount - l.CreditAmount
+	}
+	assert.Equal(t, 1100000.0, amounts["131"])   // Dr AR
+	assert.Equal(t, -1000000.0, amounts["5111"])  // Cr Revenue
+	assert.Equal(t, -100000.0, amounts["33311"])  // Cr VAT
 }
 
 func TestIssueEInvoice_WrongStatus(t *testing.T) {
@@ -858,6 +1007,49 @@ func TestCreateAmendmentInvoice_NotIssued(t *testing.T) {
 
 	_, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeREPLACEMENT, nil, "user-1")
 	assert.Error(t, err)
+}
+
+func TestCreateAmendmentInvoice_Replacement(t *testing.T) {
+	g := &stubGDT{}
+	svc, invRepo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	original := testEInvoice(domain.EInvStatusISSUED)
+	require.NoError(t, invRepo.CreateEInvoice(ctx, original))
+
+	replLines := []domain.EInvoiceLine{
+		{LineNumber: 1, Description: "Replaced item", Quantity: 2, UnitPrice: 500000, LineTotal: 1000000, VATRate: 10, VATAmount: 100000},
+	}
+	repl, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeREPLACEMENT, replLines, "user-1")
+	require.NoError(t, err)
+
+	assert.Equal(t, domain.EInvTypeREPLACEMENT, repl.InvoiceType)
+	assert.Equal(t, original.ID, repl.OriginalInvoiceID)
+	assert.Equal(t, domain.EInvStatusDRAFT, repl.Status)
+	assert.Equal(t, 1000000.0, repl.Subtotal)
+	assert.Equal(t, 100000.0, repl.VATAmount)
+	assert.Equal(t, 1100000.0, repl.GrandTotal)
+	assert.Equal(t, original.CompanyID, repl.CompanyID)
+	assert.Equal(t, original.Pattern, repl.Pattern)
+	assert.Equal(t, original.Serial, repl.Serial)
+}
+
+func TestCreateAmendmentInvoice_CancellationNote(t *testing.T) {
+	g := &stubGDT{}
+	svc, invRepo, _ := newTaxTestSvcIssuer(g, &stubSigner{})
+	ctx := context.Background()
+	original := testEInvoice(domain.EInvStatusISSUED)
+	require.NoError(t, invRepo.CreateEInvoice(ctx, original))
+
+	cancelLines := []domain.EInvoiceLine{
+		{LineNumber: 1, Description: "Cancel all", LineTotal: 1000000, VATRate: 10, VATAmount: 100000},
+	}
+	cn, err := svc.CreateAmendmentInvoice(ctx, original.ID, domain.EInvTypeCANCELLATION_NOTE, cancelLines, "user-1")
+	require.NoError(t, err)
+
+	assert.Equal(t, domain.EInvTypeCANCELLATION_NOTE, cn.InvoiceType)
+	assert.Equal(t, original.ID, cn.OriginalInvoiceID)
+	assert.Equal(t, domain.EInvStatusDRAFT, cn.Status)
+	assert.Equal(t, original.CompanyID, cn.CompanyID)
 }
 
 func TestPEMSigner_SignsAndVerifies(t *testing.T) {
@@ -1750,4 +1942,68 @@ func TestGenerateCalendarBatch_SkipsDuplicates(t *testing.T) {
 
 	entries, _ := repo.GetCalendarByCompany(ctx, "c1")
 	assert.Len(t, entries, 12, "still only 12 entries")
+}
+
+func TestGenerateCalendarBatch_AllTaxTypes(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	count, err := svc.GenerateCalendarBatch(ctx, "c1", 2026, []domain.TaxType{
+		domain.TaxTypeVAT, domain.TaxTypeCIT, domain.TaxTypePIT,
+		domain.TaxTypeTTDB, domain.TaxTypeBVMT,
+	})
+	require.NoError(t, err)
+	// VAT:12 + CIT:4 + PIT:12 + TTDB:4 + BVMT:4 = 36
+	assert.Equal(t, 36, count)
+
+	entries, err := repo.GetCalendarByCompany(ctx, "c1")
+	require.NoError(t, err)
+	assert.Len(t, entries, 36)
+
+	byType := map[domain.TaxType]int{}
+	for _, e := range entries {
+		byType[e.TaxType]++
+	}
+	assert.Equal(t, 12, byType[domain.TaxTypeVAT])
+	assert.Equal(t, 4, byType[domain.TaxTypeCIT])
+	assert.Equal(t, 12, byType[domain.TaxTypePIT])
+	assert.Equal(t, 4, byType[domain.TaxTypeTTDB])
+	assert.Equal(t, 4, byType[domain.TaxTypeBVMT])
+}
+
+func TestGenerateDeadlineAlerts(t *testing.T) {
+	svc, repo := newTaxTestSvc()
+	ctx := context.Background()
+
+	// Create calendar entry due in 3 days
+	require.NoError(t, repo.CreateCalendarEntry(ctx, &domain.TaxCalendar{
+		ID: "CAL-1", CompanyID: "c1", TaxType: domain.TaxTypeVAT,
+		PeriodType: domain.PeriodTypeMonthly, PeriodYear: 2026, PeriodNumber: 1,
+		StartDate: "2026-01-01", EndDate: "2026-01-31",
+		DeclarationDue: "2026-02-20", PaymentDue: "2026-02-20",
+		Status: domain.CalStatusPENDING,
+	}))
+
+	// Create calendar entry due today
+	require.NoError(t, repo.CreateCalendarEntry(ctx, &domain.TaxCalendar{
+		ID: "CAL-2", CompanyID: "c1", TaxType: domain.TaxTypeCIT,
+		PeriodType: domain.PeriodTypeQuarterly, PeriodYear: 2026, PeriodNumber: 1,
+		StartDate: "2026-01-01", EndDate: "2026-03-31",
+		DeclarationDue: "2026-04-30", PaymentDue: "2026-04-30",
+		Status: domain.CalStatusPENDING,
+	}))
+
+	// Set "now" to 2026-02-17 (3 days before CAL-1 due, 72 days before CAL-2)
+	svc.now = func() time.Time { return time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC) }
+
+	count, err := svc.GenerateDeadlineAlerts(ctx, "c1", 7)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "only CAL-1 is within 7 days")
+
+	alerts, err := repo.GetAlerts(ctx, "c1", 10)
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, "CAL-1", alerts[0].CalendarID)
+	assert.Equal(t, domain.AlertTypeWARNING, alerts[0].AlertType)
+	assert.Contains(t, alerts[0].Message, "VAT")
 }

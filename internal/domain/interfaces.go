@@ -228,6 +228,10 @@ type TaxRepository interface {
 	GetAuditCaseByID(ctx context.Context, id string) (*TaxAuditCase, error)
 	GetAuditCases(ctx context.Context, companyID string) ([]TaxAuditCase, error)
 	UpdateAuditCase(ctx context.Context, a *TaxAuditCase) error
+
+	CreateCITLoss(ctx context.Context, loss *CITLossCarryForward) error
+	GetActiveCITLosses(ctx context.Context, companyID string, beforeYear int) ([]CITLossCarryForward, error)
+	UpdateCITLoss(ctx context.Context, loss *CITLossCarryForward) error
 }
 
 // ─── Opening Balance Repository ───────────────────────────────────

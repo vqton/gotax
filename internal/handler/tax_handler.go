@@ -80,8 +80,9 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 			calendar.GET("/company/:companyID", h.GetCalendarByCompany)
 			calendar.GET("/period/:companyID/:year/:number", h.GetCalendarByPeriod)
 			calendar.GET("/:id", h.GetCalendarEntry)
-			calendar.POST("/scan-overdue", h.ScanOverdueCalendars)
-		}
+		calendar.POST("/scan-overdue", h.ScanOverdueCalendars)
+		calendar.POST("/generate-alerts", h.GenerateDeadlineAlerts)
+	}
 		alerts := tax.Group("/alerts")
 		{
 			alerts.POST("", h.CreateAlert)
@@ -99,6 +100,7 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 		{
 			calc.POST("/vat", h.CalculateVAT)
 			calc.POST("/cit", h.CalculateCIT)
+			calc.POST("/cit/provisional", h.CalculateQuarterlyProvisional)
 			calc.POST("/pit", h.CalculatePIT)
 		}
 	reconcile := tax.Group("/reconcile")
@@ -643,6 +645,26 @@ func (h *TaxHandler) ScanOverdueCalendars(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"overdue_count": count})
 }
 
+func (h *TaxHandler) GenerateDeadlineAlerts(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id required"})
+		return
+	}
+	daysAhead := 7
+	if d := c.Query("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 {
+			daysAhead = v
+		}
+	}
+	count, err := h.svc.GenerateDeadlineAlerts(c.Request.Context(), companyID, daysAhead)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"alerts_created": count})
+}
+
 // ─── Alerts ────────────────────────────────────────────────────────────
 
 func (h *TaxHandler) CreateAlert(c *gin.Context) {
@@ -777,6 +799,25 @@ func (h *TaxHandler) CalculatePIT(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.CalculatePIT(c.Request.Context(), req.CompanyID, req.Period, req.Employees)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *TaxHandler) CalculateQuarterlyProvisional(c *gin.Context) {
+	var req struct {
+		CompanyID string                `json:"company_id"`
+		Year      int                   `json:"year"`
+		Quarter   int                   `json:"quarter"`
+		Entries   []domain.JournalEntry `json:"entries"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	result, err := h.svc.CalculateQuarterlyProvisional(c.Request.Context(), req.CompanyID, req.Year, req.Quarter, req.Entries)
 	if err != nil {
 		h.taxError(c, err)
 		return

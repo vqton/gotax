@@ -1158,6 +1158,7 @@ type MemoryTaxRepo struct {
 	calendars   map[string]*domain.TaxCalendar
 	alerts      map[string]*domain.TaxAlert
 	auditCases  map[string]*domain.TaxAuditCase
+	citLossMap  map[string]*domain.CITLossCarryForward
 }
 
 func NewMemoryTaxRepo() *MemoryTaxRepo {
@@ -1169,6 +1170,7 @@ func NewMemoryTaxRepo() *MemoryTaxRepo {
 		calendars:   make(map[string]*domain.TaxCalendar),
 		alerts:      make(map[string]*domain.TaxAlert),
 		auditCases:  make(map[string]*domain.TaxAuditCase),
+		citLossMap:  make(map[string]*domain.CITLossCarryForward),
 	}
 }
 
@@ -1552,6 +1554,45 @@ func (r *MemoryTaxRepo) UpdateAuditCase(_ context.Context, a *domain.TaxAuditCas
 	}
 	cp := *a
 	r.auditCases[a.ID] = &cp
+	return nil
+}
+
+// ── CIT Loss Carry-Forward ──────────────────────────────────────────────
+
+func (r *MemoryTaxRepo) CreateCITLoss(_ context.Context, loss *domain.CITLossCarryForward) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *loss
+	if cp.ID == "" {
+		cp.ID = fmt.Sprintf("CITLOSS-%s-%d", cp.CompanyID, cp.LossYear)
+	}
+	r.citLossMap[cp.ID] = &cp
+	return nil
+}
+
+func (r *MemoryTaxRepo) GetActiveCITLosses(_ context.Context, companyID string, beforeYear int) ([]domain.CITLossCarryForward, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []domain.CITLossCarryForward
+	for _, loss := range r.citLossMap {
+		if loss.CompanyID == companyID && loss.LossYear < beforeYear && loss.ExpiryYear >= beforeYear {
+			if loss.UsedAmount < loss.LossAmount {
+				result = append(result, *loss)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].LossYear < result[j].LossYear })
+	return result, nil
+}
+
+func (r *MemoryTaxRepo) UpdateCITLoss(_ context.Context, loss *domain.CITLossCarryForward) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.citLossMap[loss.ID]; !ok {
+		return fmt.Errorf("CIT loss not found")
+	}
+	cp := *loss
+	r.citLossMap[loss.ID] = &cp
 	return nil
 }
 

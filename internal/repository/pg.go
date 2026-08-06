@@ -780,6 +780,7 @@ func (r *PGTaxRepo) CreateRate(ctx context.Context, rate *domain.TaxRate) error 
 		ID: rate.ID, TaxType: string(rate.TaxType), RateCode: rate.RateCode,
 		RateName: rate.RateName, RateType: string(rate.RateType),
 		EffectiveFrom: parseDate(rate.EffectiveFrom), IsActive: rate.IsActive,
+		IncentiveReducPct: float64Ptr(rate.IncentiveReducPct),
 		LegalRef: nullStrG(rate.LegalRef),
 	}).Error
 }
@@ -791,6 +792,7 @@ func (r *PGTaxRepo) GetRateByID(ctx context.Context, id string) (*domain.TaxRate
 		ID: m.ID, TaxType: domain.TaxType(m.TaxType), RateCode: m.RateCode,
 		RateName: m.RateName, RateType: domain.RateType(m.RateType),
 		RateValue: safeFloat64(m.RateValue), EffectiveFrom: safeTimeStr(m.EffectiveFrom), IsActive: m.IsActive,
+		IncentiveReducPct: safeFloat64(m.IncentiveReducPct),
 		LegalRef: safeStr(m.LegalRef), CreatedAt: safeTimeStr(m.CreatedAt),
 	}, nil
 }
@@ -809,6 +811,7 @@ func (r *PGTaxRepo) GetRates(ctx context.Context, filter domain.TaxRateFilter) (
 			RateType: domain.RateType(models[i].RateType),
 			RateValue: safeFloat64(models[i].RateValue),
 			EffectiveFrom: safeTimeStr(models[i].EffectiveFrom), IsActive: models[i].IsActive,
+			IncentiveReducPct: safeFloat64(models[i].IncentiveReducPct),
 			CreatedAt: safeTimeStr(models[i].CreatedAt),
 		}
 	}
@@ -1055,6 +1058,40 @@ func (r *PGTaxRepo) UpdateAuditCase(ctx context.Context, a *domain.TaxAuditCase)
 	return r.db.WithContext(ctx).Model(&domain.TaxAuditCaseGORM{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
 		"status": string(a.Status), "close_date": parseDate(a.ClosedAt), "notes": a.Findings,
 	}).Error
+}
+
+func (r *PGTaxRepo) CreateCITLoss(ctx context.Context, loss *domain.CITLossCarryForward) error {
+	g := domain.CITLossCarryForwardGORM{
+		ID: loss.ID, CompanyID: loss.CompanyID, LossYear: loss.LossYear,
+		LossAmount: loss.LossAmount, UsedAmount: loss.UsedAmount, ExpiryYear: loss.ExpiryYear,
+	}
+	return r.db.WithContext(ctx).Create(&g).Error
+}
+
+func (r *PGTaxRepo) GetActiveCITLosses(ctx context.Context, companyID string, beforeYear int) ([]domain.CITLossCarryForward, error) {
+	var rows []domain.CITLossCarryForwardGORM
+	err := r.db.WithContext(ctx).
+		Where("company_id = ? AND loss_year < ? AND expiry_year >= ? AND used_amount < loss_amount",
+			companyID, beforeYear, beforeYear).
+		Order("loss_year ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	var result []domain.CITLossCarryForward
+	for _, row := range rows {
+		result = append(result, domain.CITLossCarryForward{
+			ID: row.ID, CompanyID: row.CompanyID, LossYear: row.LossYear,
+			LossAmount: row.LossAmount, UsedAmount: row.UsedAmount, ExpiryYear: row.ExpiryYear,
+		})
+	}
+	return result, nil
+}
+
+func (r *PGTaxRepo) UpdateCITLoss(ctx context.Context, loss *domain.CITLossCarryForward) error {
+	return r.db.WithContext(ctx).Model(&domain.CITLossCarryForwardGORM{}).
+		Where("id = ?", loss.ID).
+		Update("used_amount", loss.UsedAmount).Error
 }
 
 // ─── Approval ─────────────────────────────────────────────────────────

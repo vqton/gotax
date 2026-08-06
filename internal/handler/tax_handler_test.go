@@ -741,6 +741,150 @@ func TestCalculateCIT(t *testing.T) {
 	assert.Equal(t, 6750000.0, result.CITPayable)     // 45M * 15%
 }
 
+func TestCalculateCIT_IncentiveReduction(t *testing.T) {
+	ts := setupTaxTest(t)
+	// Seed incentive rate: 50% reduction
+	ctx := context.Background()
+	require.NoError(t, ts.taxRepo.CreateRate(ctx, &domain.TaxRate{
+		RateCode: "CIT_INCENTIVE_NEW_PROJECT", TaxType: domain.TaxTypeCIT,
+		RateType: domain.RateTypePERCENTAGE, RateValue: 20,
+		IncentiveReducPct: 50,
+		ApplicableTo: "INCENTIVE_NEW_PROJECT",
+		EffectiveFrom: "2026-01-01", IsActive: true,
+	}))
+
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"year":2026,
+		"entries":[
+			{"entry_number":"E001","description":"Revenue","lines":[
+				{"account_code":"5111","debit_amount":0,"credit_amount":100000000}
+			]},
+			{"entry_number":"E002","description":"Expenses","lines":[
+				{"account_code":"641","debit_amount":60000000,"credit_amount":0}
+			]}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/calculate/cit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result domain.CITResult
+	json.Unmarshal(w.Body.Bytes(), &result)
+	assert.Equal(t, 40000000.0, result.TaxableIncome)
+	assert.Equal(t, 8000000.0, result.CITPayable)  // 40M * 20%
+	assert.Equal(t, 4000000.0, result.CITFinal)     // 50% reduction
+	assert.Equal(t, 50.0, result.IncentiveReduc)
+}
+
+func TestCalculateCIT_LossCarryForward(t *testing.T) {
+	ts := setupTaxTest(t)
+	ctx := context.Background()
+
+	// Year 2025: create a loss
+	body2025 := `{
+		"company_id":"` + ts.compID + `",
+		"year":2025,
+		"entries":[
+			{"entry_number":"E001","description":"Revenue","lines":[
+				{"account_code":"5111","debit_amount":0,"credit_amount":100000000}
+			]},
+			{"entry_number":"E002","description":"Expenses","lines":[
+				{"account_code":"641","debit_amount":120000000,"credit_amount":0}
+			]}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/calculate/cit", strings.NewReader(body2025))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Year 2026: profit, loss should reduce taxable income
+	body2026 := `{
+		"company_id":"` + ts.compID + `",
+		"year":2026,
+		"entries":[
+			{"entry_number":"E003","description":"Revenue","lines":[
+				{"account_code":"5111","debit_amount":0,"credit_amount":100000000}
+			]},
+			{"entry_number":"E004","description":"Expenses","lines":[
+				{"account_code":"641","debit_amount":60000000,"credit_amount":0}
+			]}
+		]
+	}`
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("POST", "/api/v1/tax/calculate/cit", strings.NewReader(body2026))
+	req2.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusOK, w2.Code)
+
+	var result domain.CITResult
+	json.Unmarshal(w2.Body.Bytes(), &result)
+	assert.Equal(t, 20000000.0, result.TaxableIncome) // 40M - 20M loss
+	assert.Equal(t, 20000000.0, result.LossUsed)
+
+	_ = ctx // used indirectly
+}
+
+func TestCalculateCIT_ThinCap(t *testing.T) {
+	ts := setupTaxTest(t)
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"year":2026,
+		"entries":[
+			{"entry_number":"E001","lines":[
+				{"account_code":"5111","debit_amount":0,"credit_amount":100000000}
+			]},
+			{"entry_number":"E002","lines":[
+				{"account_code":"641","debit_amount":40000000,"credit_amount":0}
+			]},
+			{"entry_number":"E003","lines":[
+				{"account_code":"635","debit_amount":30000000,"credit_amount":0}
+			]}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/calculate/cit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result domain.CITResult
+	json.Unmarshal(w.Body.Bytes(), &result)
+	assert.Equal(t, 12000000.0, result.NonDeductible) // thin cap disallowance
+	assert.Equal(t, 42000000.0, result.TaxableIncome)
+}
+
+func TestCalculateQuarterlyProvisional(t *testing.T) {
+	ts := setupTaxTest(t)
+	body := `{
+		"company_id":"` + ts.compID + `",
+		"year":2026,
+		"quarter":3,
+		"entries":[
+			{"entry_number":"E001","lines":[
+				{"account_code":"5111","debit_amount":0,"credit_amount":75000000}
+			]},
+			{"entry_number":"E002","lines":[
+				{"account_code":"641","debit_amount":45000000,"credit_amount":0}
+			]}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/tax/calculate/cit/provisional", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result domain.QuarterlyProvisionalResult
+	json.Unmarshal(w.Body.Bytes(), &result)
+	assert.Equal(t, 3, result.Quarter)
+	assert.Equal(t, 6000000.0, result.EstimatedAnnualCIT)
+}
+
 func TestCalculateVAT_ZeroInput(t *testing.T) {
 	ts := setupTaxTest(t)
 	body := `{

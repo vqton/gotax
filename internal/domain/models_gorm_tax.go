@@ -46,17 +46,18 @@ type TaxDeclarationLineGORM struct {
 func (TaxDeclarationLineGORM) TableName() string { return "tax_declaration_lines" }
 
 type TaxRateGORM struct {
-	ID           string    `gorm:"column:id;primaryKey;size:36" json:"id"`
-	TaxType      string    `gorm:"column:tax_type;not null;size:20;index" json:"taxType"`
-	RateCode     string    `gorm:"column:rate_code;not null;size:20;uniqueIndex" json:"rateCode"`
-	RateName     string    `gorm:"column:rate_name;not null;size:255" json:"rateName"`
-	RateType     string    `gorm:"column:rate_type;not null;size:30" json:"rateType"`
-	RateValue    *float64  `gorm:"column:rate_value" json:"rateValue"`
-	EffectiveFrom time.Time `gorm:"column:effective_from;not null;type:date" json:"effectiveFrom"`
-	EffectiveTo  *string   `gorm:"column:effective_to;type:date" json:"effectiveTo"`
-	IsActive     bool      `gorm:"column:is_active;default:true;index" json:"isActive"`
-	LegalRef     *string   `gorm:"column:legal_ref;size:255" json:"legalRef"`
-	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	ID                string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	TaxType           string    `gorm:"column:tax_type;not null;size:20;index" json:"taxType"`
+	RateCode          string    `gorm:"column:rate_code;not null;size:20;uniqueIndex" json:"rateCode"`
+	RateName          string    `gorm:"column:rate_name;not null;size:255" json:"rateName"`
+	RateType          string    `gorm:"column:rate_type;not null;size:30" json:"rateType"`
+	RateValue         *float64  `gorm:"column:rate_value" json:"rateValue"`
+	EffectiveFrom     time.Time `gorm:"column:effective_from;not null;type:date" json:"effectiveFrom"`
+	EffectiveTo       *string   `gorm:"column:effective_to;type:date" json:"effectiveTo"`
+	IsActive          bool      `gorm:"column:is_active;default:true;index" json:"isActive"`
+	IncentiveReducPct *float64  `gorm:"column:incentive_reduc_pct" json:"incentiveReducPct"`
+	LegalRef          *string   `gorm:"column:legal_ref;size:255" json:"legalRef"`
+	CreatedAt         time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }
 
 func (TaxRateGORM) TableName() string { return "tax_rates" }
