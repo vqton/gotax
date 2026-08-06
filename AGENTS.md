@@ -221,11 +221,18 @@ r.Static("/app", "./web/app")         // Main app pages
 | Cash | PROD | Receipts, payments, transfers, petty cash, advances |
 | Bank | PROD | Statements, reconciliation, payment orders, loans, term deposits |
 | FA | PROD | Full CRUD, depreciation engine (SL/DB), business ops, allocations, inventory |
-| Tax | ~95% | Full CRUD + 17 declaration types, payment automation (GL journal, late interest, calendar sync), reconciliation, penalty calc, batch generation. CIT advanced (incentive reduction, loss carry-forward 5yr, thin cap 30% EBITDA, R&D 200% super-deduction, quarterly provisionals). E-invoice lifecycle (replacement, cancellation, auto-post GL, UI). Calendar expanded (PIT, TTDB, BVMT, FCT), deadline alerts, full audit fields. Missing: form XML gen, GDT API push |
+| Tax | ~98% | Full CRUD + 17 declaration types, payment automation, reconciliation, penalty calc, batch generation. CIT advanced. E-invoice lifecycle with SoTienBangChu, buyer/seller info. Calendar expanded. TTDB/BVMT/NTNN rate lookup from TaxRate table. Missing: GDT API push (env-gated) |
 | Purchase | PROD (P2 closed) | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
 | Sale | PROD (P1 closed) | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
-| Warehouse | ~30% | Interface + PG + memory repos. Service incomplete |
-| Payroll | ~50% | Salary engine, SI/HI/UI calc, PIT, timekeeping, payslips, GL posting, declarations. UI complete (8 pages). Missing: approval workflow |
+| Warehouse | PROD | Full backend (9 repos, 48 routes, service with GL posting) + 9 frontend pages (categories, items, balances, transfers, adjustments, takes, valuations, transactions) |
+| Payroll | ~70% | Salary engine, SI/HI/UI calc, PIT, timekeeping, payslips, declarations. SubmitPeriod workflow. Missing: GL posting on approval, tax module KK_TNCN link |
+| Recurring Entries | PROD | Template-based recurring journal entries with RunNow + ProcessDue. Full module. |
+| Notifications | PROD | Entity-agnostic notification system with type/title/message/link. Mark read/delete. |
+| CCDC (Tools & Equipment) | PROD | ToolEquipment + ToolEquipmentCategory CRUD, account 153. |
+| Budget Management | PROD | Budget CRUD with variance report, bulk upsert, actuals sync from JE. |
+| Cash Flow | PROD | Cash flow statement from journal entries (operating/investing/financing). |
+| Data Export | PROD | Excel export for journal entries and trial balance (excelize/v2). |
+| Cost Centers | PROD | CostCenter CRUD with hierarchy (parent_id). |
 
 Full tax/purchase/warehouse/payroll specs at `docs/`.
 
@@ -257,7 +264,7 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 - **SQLite rejected**: Adding SQLite support does NOT make sense. Schema deeply PG-specific (`pgcrypto`, `gen_random_uuid()`, `TIMESTAMPTZ`, `plpgsql` triggers, `SUBSTRING FROM` regex, `GREATEST()`). 20+ raw SQL queries in PG repos. 18 migrations would need dual sets. In-memory backend already covers dev/test.
 - **No LINQ library needed**: Go has `samber/lo` (19k stars, 120+ functions), `ahmetb/go-linq` (3.6k stars, v4 with iter.Seq), `CreateLab/GLinq` (lazy, fluent). For this codebase, standard `for` loops + `slices.SortFunc` are sufficient. Don't add collection libraries unless profiling shows bottleneck.
 
-## Module Inventory (22 modules, ~498 routes)
+## Module Inventory (30+ modules, ~550+ routes)
 
 | Module | Prefix | Routes | Handler Lines | Status |
 |--------|--------|--------|---------------|--------|
@@ -275,13 +282,21 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 | COA Management | `/api/v1/coa/*` | 14 | ↑ | PROD |
 | User Auth (2FA/sessions) | `/api/v1/auth/*` | 10 | ↑ | PROD |
 | Company | `/api/v1/companies` | 48 | 714 | PROD |
-| Tax | `/api/v1/tax` | 53 | 1656 | ~95% |
+| Tax | `/api/v1/tax` | 53 | 1656 | ~98% |
 | Cash | `/api/v1/cash` | 40 | 639 | PROD |
 | Bank | `/api/v1/bank` | 37 | 563 | PROD |
 | Purchase (P2P) | `/api/v1/purchase` | 55 | 870 | PROD |
 | Sale (O2C) | `/api/v1/sale` | 52 | 890 | PROD |
-| Warehouse | `/api/v1/warehouse` | 48 | 729 | ~30% |
+| Warehouse | `/api/v1/warehouse` | 48 | 729 | PROD |
 | Fixed Assets | `/api/v1/fixed-assets` | 34 | 541 | PROD |
+| Payroll | `/api/v1/payroll` | 55 | 754 | ~70% |
+| Recurring Entries | `/api/v1/recurring-entries` | 7 | ~150 | PROD |
+| Notifications | `/api/v1/notifications` | 5 | ~120 | PROD |
+| CCDC | `/api/v1/ccdc` | 10 | ~200 | PROD |
+| Budget | `/api/v1/budgets` | 8 | ~180 | PROD |
+| Cost Centers | `/api/v1/cost-centers` | 6 | ~130 | PROD |
+| Cash Flow | (in reports) | 1 | ↑ | PROD |
+| Data Export | (in reports) | 2 | ↑ | PROD |
 
 ## Missing Modules (SME Gap Analysis)
 
@@ -289,15 +304,12 @@ Compared to MISA SME (19 subsystems, Vietnam market leader) and standard SME ERP
 
 | Module | Priority | Why Missing |
 |--------|----------|-------------|
-| **Payroll** | CRITICAL | Spec complete at `docs/payroll/`. Full build needed: salary engine, SI/HI/UI, PIT, timekeeping, payslips, GL posting, D02-TS/05/KK-TNCN declarations, approval workflow. Est. 12-16 weeks. |
-| **Tools & Equipment (CCDC)** | HIGH | Vietnamese accounting standard requires separate tracking from fixed assets. Account code 153. |
-| **Cost Accounting** | HIGH | Product/job costing for manufacturing/construction SMEs. |
-| **Budget Management** | HIGH | Budget planning by department, actual vs. budget variance. |
-| **Contracts** | MEDIUM | Sales/purchase contract tracking, renewal alerts. |
-| **CRM** | MEDIUM | Customer interaction history, pipeline. |
+| **Payroll** | ~70% | Built: salary engine, SI/HI/UI, PIT, timekeeping, payslips, declarations, SubmitPeriod workflow. Missing: GL posting on approval, tax module KK_TNCN link. |
+| **Contracts** | MEDIUM | Sales/purchase contract tracking, renewal alerts. Fields exist on entities but no standalone module. |
+| **CRM** | MEDIUM | Customer interaction history, pipeline. Not core accounting. |
 | **Notifications** | MEDIUM | Invoice due dates, approval reminders, low stock alerts. |
 | **Recurring Entries** | MEDIUM | Auto-generate monthly rent, depreciation entries. |
 | **Cash Flow Forecasting** | MEDIUM | Projected cash position from receivables/payables. |
 | **Data Import/Export** | MEDIUM | Bulk Excel import for initial setup. |
 
-**Verdict**: GoTax covers ~65% of Vietnamese SME needs. Without payroll, cannot be standalone.
+**Verdict**: GoTax covers ~85% of Vietnamese SME needs. Payroll ~70% is the main gap.
