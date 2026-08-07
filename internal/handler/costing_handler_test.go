@@ -26,8 +26,9 @@ func setupCostingTest() (*gin.Engine, *service.CostingPeriodService, *service.Co
 
 	periodSvc := service.NewCostingPeriodService(periodRepo)
 	engine := service.NewCostingEngine(periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo)
+	costingJESvc := service.NewCostingJEService(periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo, &mockJECreator{})
 
-	h := NewCostingHandler(periodSvc, engine)
+	h := NewCostingHandler(periodSvc, engine, costingJESvc)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -38,6 +39,12 @@ func setupCostingTest() (*gin.Engine, *service.CostingPeriodService, *service.Co
 	RegisterCostingRoutes(router, h, func(c *gin.Context) { c.Next() })
 
 	return router, periodSvc, engine, costObjectRepo, costPoolRepo, costPoolLineRepo
+}
+
+type mockJECreator struct{}
+
+func (m *mockJECreator) CreateEntry(_ context.Context, _ *domain.JournalEntry, _ string) error {
+	return nil
 }
 
 func TestCostingCreatePeriod(t *testing.T) {

@@ -11,12 +11,13 @@ import (
 )
 
 type CostingHandler struct {
-	periodSvc *service.CostingPeriodService
-	engine    *service.CostingEngine
+	periodSvc    *service.CostingPeriodService
+	engine       *service.CostingEngine
+	costingJESvc *service.CostingJEService
 }
 
-func NewCostingHandler(periodSvc *service.CostingPeriodService, engine *service.CostingEngine) *CostingHandler {
-	return &CostingHandler{periodSvc: periodSvc, engine: engine}
+func NewCostingHandler(periodSvc *service.CostingPeriodService, engine *service.CostingEngine, costingJESvc *service.CostingJEService) *CostingHandler {
+	return &CostingHandler{periodSvc: periodSvc, engine: engine, costingJESvc: costingJESvc}
 }
 
 func RegisterCostingRoutes(r *gin.Engine, h *CostingHandler, authMW gin.HandlerFunc) {
@@ -27,6 +28,7 @@ func RegisterCostingRoutes(r *gin.Engine, h *CostingHandler, authMW gin.HandlerF
 		periods.GET("", h.ListPeriods)
 		periods.GET("/:id", h.GetPeriod)
 		periods.POST("/:id/close", h.ClosePeriod)
+		periods.POST("/:id/close-je", h.ClosePeriodWithJE)
 	}
 
 	v1.POST("/costing/run", h.RunCosting)
@@ -89,6 +91,17 @@ func (h *CostingHandler) ClosePeriod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "period closed"})
+}
+
+func (h *CostingHandler) ClosePeriodWithJE(c *gin.Context) {
+	id := c.Param("id")
+	companyID := c.Query("company_id")
+	userID := c.GetString("user_id")
+	if err := h.costingJESvc.ClosePeriod(c.Request.Context(), companyID, id, userID); err != nil {
+		h.costingError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "period closed with journal entries"})
 }
 
 type runCostingRequest struct {
