@@ -20,7 +20,6 @@ type CostingJEService struct {
 	resultRepo       domain.CostingResultRepository
 	resultLineRepo   domain.CostingResultLineRepository
 	jeCreator        JECreator
-	collector        domain.CostDataCollector
 }
 
 func NewCostingJEService(
@@ -41,10 +40,6 @@ func NewCostingJEService(
 		resultLineRepo:   resultLineRepo,
 		jeCreator:        jeCreator,
 	}
-}
-
-func (s *CostingJEService) SetCollector(c domain.CostDataCollector) {
-	s.collector = c
 }
 
 func (s *CostingJEService) genJEID() string {
@@ -270,6 +265,11 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 		return nil
 	}
 
+	// Idempotency: skip if COGS already recorded for this object/period
+	if result.COGSAmt > 0 {
+		return nil
+	}
+
 	amount := result.UnitCost * quantity
 
 	// Account 632 — Cost of goods sold, Circular 99/2025, Appendix 01
@@ -286,7 +286,7 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 		return err
 	}
 
-	result.COGSAmt += amount
+	result.COGSAmt = amount
 	result.UpdatedAt = nowTimestamp()
 	return s.resultRepo.Update(ctx, result)
 }
@@ -299,27 +299,6 @@ func (s *CostingJEService) CollectMaterialCosts(ctx context.Context, companyID, 
 // CollectLaborCosts: aggregate payroll direct labor into cost pool
 func (s *CostingJEService) CollectLaborCosts(ctx context.Context, companyID, periodID string, lines []domain.CostPoolLineInput) error {
 	return s.collectCosts(ctx, companyID, periodID, "622", "Direct labor", "DIRECT_LABOR", lines)
-}
-
-// AutoCollectCosts uses the CostDataCollector to automatically gather costs from warehouse/payroll
-func (s *CostingJEService) AutoCollectCosts(ctx context.Context, companyID, periodID string) error {
-	if s.collector == nil {
-		return nil
-	}
-
-	matLines, err := s.collector.CollectMaterialCosts(ctx, companyID, periodID)
-	if err != nil {
-		return err
-	}
-	if err := s.CollectMaterialCosts(ctx, companyID, periodID, matLines); err != nil {
-		return err
-	}
-
-	labLines, err := s.collector.CollectLaborCosts(ctx, companyID, periodID)
-	if err != nil {
-		return err
-	}
-	return s.CollectLaborCosts(ctx, companyID, periodID, labLines)
 }
 
 func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName, poolType string, lines []domain.CostPoolLineInput) error {

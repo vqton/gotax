@@ -830,6 +830,7 @@ type CostingResultLineRepository interface {
 type CostDataCollector interface {
 	CollectMaterialCosts(ctx context.Context, companyID, periodID string) ([]CostPoolLineInput, error)
 	CollectLaborCosts(ctx context.Context, companyID, periodID string) ([]CostPoolLineInput, error)
+	CollectOverheadCosts(ctx context.Context, companyID, periodID string) ([]CostPoolLineInput, error)
 }
 
 type CostPoolLineInput struct {
