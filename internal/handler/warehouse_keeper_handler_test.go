@@ -24,8 +24,7 @@ func setupKeeperTest(t *testing.T) (*gin.Engine, *service.WarehouseKeeperService
 	keeperRepo := repository.NewMemoryWarehouseKeeperRepo()
 	whRepo := repository.NewMemoryWarehouseRepo()
 	itemRepo := repository.NewMemoryItemRepo()
-	balRepo := repository.NewMemoryStockBalanceRepo()
-	keeperSvc := service.NewWarehouseKeeperService(keeperRepo, whRepo, itemRepo, balRepo)
+	keeperSvc := service.NewWarehouseKeeperService(keeperRepo, whRepo, itemRepo)
 	keeperH := NewWarehouseKeeperHandler(keeperSvc)
 
 	r := gin.New()
@@ -33,7 +32,6 @@ func setupKeeperTest(t *testing.T) (*gin.Engine, *service.WarehouseKeeperService
 		c.Set("user_id", "test-user")
 		c.Set("username", "testuser")
 		c.Set("role", "admin")
-		c.Set("company_id", "CMP001")
 		c.Next()
 	})
 	noopMW := func(c *gin.Context) { c.Next() }
@@ -42,13 +40,15 @@ func setupKeeperTest(t *testing.T) (*gin.Engine, *service.WarehouseKeeperService
 	return r, keeperSvc
 }
 
+const testCompanyID = "CMP001"
+
 // ─── Assignment ────────────────────────────────────────────────────────
 
 func TestKeeperCreateAssignment(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	body := `{"warehouse_id":"WH001","user_id":"USR001","role":"keeper","effective_from":"2026-01-01"}`
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/assignments", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/assignments?company_id="+testCompanyID, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 201, w.Code)
@@ -61,12 +61,12 @@ func TestKeeperCreateAssignment(t *testing.T) {
 func TestKeeperListAssignments(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	svc.CreateAssignment(t.Context(), &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "USR001",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "USR001",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}, "test-user")
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/assignments", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/assignments?company_id="+testCompanyID, nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	var result []domain.WarehouseKeeperAssignment
@@ -77,7 +77,7 @@ func TestKeeperListAssignments(t *testing.T) {
 func TestKeeperGetAssignment(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	a := &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "USR001",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "USR001",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}
 	svc.CreateAssignment(t.Context(), a, "test-user")
@@ -91,7 +91,7 @@ func TestKeeperGetAssignment(t *testing.T) {
 func TestKeeperDeleteAssignment(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	a := &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "USR001",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "USR001",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}
 	svc.CreateAssignment(t.Context(), a, "test-user")
@@ -106,15 +106,14 @@ func TestKeeperDeleteAssignment(t *testing.T) {
 
 func TestKeeperRecordSlips(t *testing.T) {
 	r, svc := setupKeeperTest(t)
-	// Create assignment first
 	svc.CreateAssignment(t.Context(), &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "test-user",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "test-user",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}, "test-user")
 
 	body := `{"warehouse_id":"WH001","slips":[{"item_id":"ITM001","voucher_type":"receipt","voucher_no":"GRN-001","receipt_qty":10}]}`
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/ledger/record", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/ledger/record?company_id="+testCompanyID, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -123,15 +122,15 @@ func TestKeeperRecordSlips(t *testing.T) {
 func TestKeeperListLedgerEntries(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	svc.CreateAssignment(t.Context(), &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "test-user",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "test-user",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}, "test-user")
-	svc.RecordSlips(t.Context(), "CMP001", "WH001", []service.RecordSlipRequest{
+	svc.RecordSlips(t.Context(), testCompanyID, "WH001", []service.RecordSlipRequest{
 		{ItemID: "ITM001", VoucherType: domain.VoucherReceipt, VoucherNo: "GRN-001", ReceiptQty: 10},
 	}, "test-user")
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/ledger?warehouse_id=WH001", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/ledger?company_id="+testCompanyID+"&warehouse_id=WH001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -139,16 +138,15 @@ func TestKeeperListLedgerEntries(t *testing.T) {
 func TestKeeperUnrecordEntry(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	svc.CreateAssignment(t.Context(), &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "test-user",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "test-user",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}, "test-user")
-	svc.RecordSlips(t.Context(), "CMP001", "WH001", []service.RecordSlipRequest{
+	svc.RecordSlips(t.Context(), testCompanyID, "WH001", []service.RecordSlipRequest{
 		{ItemID: "ITM001", VoucherType: domain.VoucherReceipt, VoucherNo: "GRN-001", ReceiptQty: 10},
 	}, "test-user")
 
-	// Get the entry ID
 	entries, _, _ := svc.ListLedgerEntries(t.Context(), domain.LedgerFilter{
-		CompanyID: "CMP001", WarehouseID: "WH001",
+		CompanyID: testCompanyID, WarehouseID: "WH001",
 	})
 	require.NotEmpty(t, entries)
 
@@ -163,15 +161,15 @@ func TestKeeperUnrecordEntry(t *testing.T) {
 func TestKeeperGetLedgerBalance(t *testing.T) {
 	r, svc := setupKeeperTest(t)
 	svc.CreateAssignment(t.Context(), &domain.WarehouseKeeperAssignment{
-		CompanyID: "CMP001", WarehouseID: "WH001", UserID: "test-user",
+		CompanyID: testCompanyID, WarehouseID: "WH001", UserID: "test-user",
 		Role: domain.KeeperRoleKeeper, EffectiveFrom: mustTime("2026-01-01"),
 	}, "test-user")
-	svc.RecordSlips(t.Context(), "CMP001", "WH001", []service.RecordSlipRequest{
+	svc.RecordSlips(t.Context(), testCompanyID, "WH001", []service.RecordSlipRequest{
 		{ItemID: "ITM001", VoucherType: domain.VoucherReceipt, VoucherNo: "GRN-001", ReceiptQty: 10},
 	}, "test-user")
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/ledger/balance?warehouse_id=WH001&item_id=ITM001", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/ledger/balance?company_id="+testCompanyID+"&warehouse_id=WH001&item_id=ITM001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	var result struct {
@@ -186,7 +184,7 @@ func TestKeeperGetLedgerBalance(t *testing.T) {
 func TestKeeperPendingSlips(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/pending-slips?warehouse_id=WH001", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/pending-slips?company_id="+testCompanyID+"&warehouse_id=WH001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -194,7 +192,7 @@ func TestKeeperPendingSlips(t *testing.T) {
 func TestKeeperPendingSlipsCount(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/pending-slips/count?warehouse_id=WH001", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/pending-slips/count?company_id="+testCompanyID+"&warehouse_id=WH001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -204,7 +202,7 @@ func TestKeeperPendingSlipsCount(t *testing.T) {
 func TestKeeperReconciliation(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/reconciliation?warehouse_id=WH001&from=2026-01-01&to=2026-12-31", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/reconciliation?company_id="+testCompanyID+"&warehouse_id=WH001&from=2026-01-01&to=2026-12-31", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -214,7 +212,7 @@ func TestKeeperReconciliation(t *testing.T) {
 func TestKeeperStockCard(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/stock-card?warehouse_id=WH001&item_id=ITM001&period=2026-01", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/stock-card?company_id="+testCompanyID+"&warehouse_id=WH001&item_id=ITM001&period=2026-01", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 }
@@ -224,9 +222,31 @@ func TestKeeperStockCard(t *testing.T) {
 func TestKeeperInventorySummary(t *testing.T) {
 	r, _ := setupKeeperTest(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/reports/inventory-summary?warehouse_id=WH001", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/keeper/reports/inventory-summary?company_id="+testCompanyID+"&warehouse_id=WH001", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
+}
+
+// ─── Validation ────────────────────────────────────────────────────────
+
+func TestKeeperCreateAssignmentInvalidRole(t *testing.T) {
+	r, _ := setupKeeperTest(t)
+	body := `{"warehouse_id":"WH001","user_id":"USR001","role":"invalid","effective_from":"2026-01-01"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/assignments?company_id="+testCompanyID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestKeeperCreateAssignmentMissingCompany(t *testing.T) {
+	r, _ := setupKeeperTest(t)
+	body := `{"warehouse_id":"WH001","user_id":"USR001","role":"keeper","effective_from":"2026-01-01"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/warehouse/keeper/assignments", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code) // company_id required via query param
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────

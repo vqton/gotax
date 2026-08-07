@@ -53,11 +53,11 @@ type WarehouseKeeperAssignment struct {
 }
 
 func (a *WarehouseKeeperAssignment) Validate() error {
-	if a.CompanyID == "" { return ErrWarehouseNotFound } // TODO: proper errors
-	if a.WarehouseID == "" { return ErrWarehouseNotFound }
-	if a.UserID == "" { return ErrWarehouseNotFound }
-	if a.Role != KeeperRoleKeeper && a.Role != KeeperRoleManager { return ErrWarehouseNotFound }
-	if a.EffectiveTo != nil && a.EffectiveTo.Before(a.EffectiveFrom) { return ErrWarehouseNotFound }
+	if a.CompanyID == "" { return ErrKeeperCompanyRequired }
+	if a.WarehouseID == "" { return ErrKeeperWarehouseRequired }
+	if a.UserID == "" { return ErrKeeperUserRequired }
+	if a.Role != KeeperRoleKeeper && a.Role != KeeperRoleManager { return ErrKeeperRoleInvalid }
+	if a.EffectiveTo != nil && a.EffectiveTo.Before(a.EffectiveFrom) { return ErrKeeperDateInvalid }
 	return nil
 }
 

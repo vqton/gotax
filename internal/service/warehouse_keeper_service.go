@@ -11,7 +11,6 @@ type WarehouseKeeperService struct {
 	keeperRepo domain.WarehouseKeeperRepository
 	whRepo     domain.WarehouseRepository
 	itemRepo   domain.ItemRepository
-	balRepo    domain.StockBalanceRepository
 	now        func() time.Time
 }
 
@@ -19,13 +18,11 @@ func NewWarehouseKeeperService(
 	keeperRepo domain.WarehouseKeeperRepository,
 	whRepo domain.WarehouseRepository,
 	itemRepo domain.ItemRepository,
-	balRepo domain.StockBalanceRepository,
 ) *WarehouseKeeperService {
 	return &WarehouseKeeperService{
 		keeperRepo: keeperRepo,
 		whRepo:     whRepo,
 		itemRepo:   itemRepo,
-		balRepo:    balRepo,
 		now:        time.Now,
 	}
 }
@@ -67,12 +64,12 @@ func (s *WarehouseKeeperService) GetActiveKeeper(ctx context.Context, companyID,
 // ─── Stock Ledger ───────────────────────────────────────────────────────────
 
 func (s *WarehouseKeeperService) RecordSlips(ctx context.Context, companyID, warehouseID string, slips []RecordSlipRequest, recordedBy string) error {
-	for _, slip := range slips {
-		// Regulation: keeper must have active assignment to record (Art. 6, Law on Accounting 2015)
-		if _, err := s.keeperRepo.GetActiveAssignment(ctx, companyID, warehouseID, s.now()); err != nil {
-			return err
-		}
+	// Regulation: keeper must have active assignment to record (Art. 6, Law on Accounting 2015)
+	if _, err := s.keeperRepo.GetActiveAssignment(ctx, companyID, warehouseID, s.now()); err != nil {
+		return err
+	}
 
+	for _, slip := range slips {
 		balance, err := s.keeperRepo.GetLedgerBalance(ctx, companyID, warehouseID, slip.ItemID)
 		if err != nil {
 			return err

@@ -74,7 +74,7 @@ func (h *WarehouseKeeperHandler) CreateAssignment(c *gin.Context) {
 		return
 	}
 	a := &domain.WarehouseKeeperAssignment{
-		CompanyID:     c.GetString("company_id"),
+		CompanyID:     c.Query("company_id"),
 		WarehouseID:   req.WarehouseID,
 		UserID:        req.UserID,
 		Role:          domain.KeeperRole(req.Role),
@@ -97,7 +97,11 @@ func (h *WarehouseKeeperHandler) CreateAssignment(c *gin.Context) {
 }
 
 func (h *WarehouseKeeperHandler) ListAssignments(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
 	assignments, err := h.svc.ListAssignments(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -182,10 +186,10 @@ func (h *WarehouseKeeperHandler) DeleteAssignment(c *gin.Context) {
 // ─── Stock Ledger ───────────────────────────────────────────────────────────
 
 func (h *WarehouseKeeperHandler) ListLedgerEntries(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
-	if warehouseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id is required"})
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
 		return
 	}
 	filter := domain.LedgerFilter{
@@ -198,11 +202,19 @@ func (h *WarehouseKeeperHandler) ListLedgerEntries(c *gin.Context) {
 		PageSize:    50,
 	}
 	if from := c.Query("from"); from != "" {
-		t, _ := time.Parse("2006-01-02", from)
+		t, err := time.Parse("2006-01-02", from)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from date"})
+			return
+		}
 		filter.From = t
 	}
 	if to := c.Query("to"); to != "" {
-		t, _ := time.Parse("2006-01-02", to)
+		t, err := time.Parse("2006-01-02", to)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to date"})
+			return
+		}
 		filter.To = t
 	}
 	entries, total, err := h.svc.ListLedgerEntries(c.Request.Context(), filter)
@@ -224,7 +236,11 @@ func (h *WarehouseKeeperHandler) GetLedgerEntry(c *gin.Context) {
 }
 
 func (h *WarehouseKeeperHandler) RecordSlips(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
 	var req struct {
 		WarehouseID string `json:"warehouse_id" binding:"required"`
 		Slips       []struct {
@@ -279,11 +295,11 @@ func (h *WarehouseKeeperHandler) UnrecordEntry(c *gin.Context) {
 }
 
 func (h *WarehouseKeeperHandler) GetLedgerBalance(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
 	itemID := c.Query("item_id")
-	if warehouseID == "" || itemID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id and item_id are required"})
+	if companyID == "" || warehouseID == "" || itemID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id, warehouse_id, and item_id are required"})
 		return
 	}
 	balance, err := h.svc.GetLedgerBalance(c.Request.Context(), companyID, warehouseID, itemID)
@@ -297,10 +313,10 @@ func (h *WarehouseKeeperHandler) GetLedgerBalance(c *gin.Context) {
 // ─── Pending Slips ──────────────────────────────────────────────────────────
 
 func (h *WarehouseKeeperHandler) GetPendingSlips(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
-	if warehouseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id is required"})
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
 		return
 	}
 	slips, err := h.svc.GetPendingSlips(c.Request.Context(), companyID, warehouseID)
@@ -312,10 +328,10 @@ func (h *WarehouseKeeperHandler) GetPendingSlips(c *gin.Context) {
 }
 
 func (h *WarehouseKeeperHandler) GetPendingSlipsCount(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
-	if warehouseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id is required"})
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
 		return
 	}
 	count, err := h.svc.GetPendingSlipsCount(c.Request.Context(), companyID, warehouseID)
@@ -329,20 +345,30 @@ func (h *WarehouseKeeperHandler) GetPendingSlipsCount(c *gin.Context) {
 // ─── Reconciliation ─────────────────────────────────────────────────────────
 
 func (h *WarehouseKeeperHandler) GetReconciliationReport(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
-	if warehouseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id is required"})
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
 		return
 	}
 	now := time.Now()
 	from := now.AddDate(0, 0, -30)
 	to := now
 	if f := c.Query("from"); f != "" {
-		from, _ = time.Parse("2006-01-02", f)
+		parsed, err := time.Parse("2006-01-02", f)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from date"})
+			return
+		}
+		from = parsed
 	}
 	if t := c.Query("to"); t != "" {
-		to, _ = time.Parse("2006-01-02", t)
+		parsed, err := time.Parse("2006-01-02", t)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to date"})
+			return
+		}
+		to = parsed
 	}
 	items, err := h.svc.GetReconciliationReport(c.Request.Context(), companyID, warehouseID, from, to)
 	if err != nil {
@@ -355,12 +381,12 @@ func (h *WarehouseKeeperHandler) GetReconciliationReport(c *gin.Context) {
 // ─── Stock Card ─────────────────────────────────────────────────────────────
 
 func (h *WarehouseKeeperHandler) GetStockCard(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
 	itemID := c.Query("item_id")
 	period := c.Query("period")
-	if warehouseID == "" || itemID == "" || period == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id, item_id, and period are required"})
+	if companyID == "" || warehouseID == "" || itemID == "" || period == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id, warehouse_id, item_id, and period are required"})
 		return
 	}
 	card, err := h.svc.GetStockCard(c.Request.Context(), companyID, warehouseID, itemID, period)
@@ -374,10 +400,10 @@ func (h *WarehouseKeeperHandler) GetStockCard(c *gin.Context) {
 // ─── Keeper Reports ─────────────────────────────────────────────────────────
 
 func (h *WarehouseKeeperHandler) GetInventorySummary(c *gin.Context) {
-	companyID := c.GetString("company_id")
+	companyID := c.Query("company_id")
 	warehouseID := c.Query("warehouse_id")
-	if warehouseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "warehouse_id is required"})
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
 		return
 	}
 	items, err := h.svc.GetInventorySummary(c.Request.Context(), companyID, warehouseID)

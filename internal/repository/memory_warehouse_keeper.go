@@ -278,7 +278,6 @@ func (r *MemoryWarehouseKeeperRepo) GetStockCard(_ context.Context, companyID, w
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	periodStart := period + "-01"
 	var lines []domain.StockCardLine
 	for _, e := range r.ledger {
 		if e.CompanyID != companyID || e.WarehouseID != warehouseID || e.ItemID != itemID || e.Status != domain.LedgerStatusRecorded {
@@ -309,7 +308,6 @@ func (r *MemoryWarehouseKeeperRepo) GetStockCard(_ context.Context, companyID, w
 		Period:      period,
 		Lines:       lines,
 	}
-	_ = periodStart
 	if len(lines) > 0 {
 		card.OpeningBalance = lines[0].BalanceQty - lines[0].ReceiptQty
 		card.ClosingBalance = lines[len(lines)-1].BalanceQty
