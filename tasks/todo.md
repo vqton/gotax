@@ -1,120 +1,186 @@
-# Tax Module → 100% — Task Checklist
+# Task List: Thủ Kho (Warehouse Keeper) Module
 
-## Phase 1: Core Declaration Types
+Generated from `tasks/plan.md`. Check off as tasks complete.
 
-### VAT Forms
-- [ ] Task 1: GTGT03 quarterly VAT declaration
-- [ ] Task 2: GTGT02 monthly VAT (small enterprise / direct method)
-- [ ] Task 3: GTGT04 per-occurrence VAT
-- [ ] Task 4: GTGT05 non-VAT paysubmit
+## Phase 1: Foundation (Week 1)
 
-### CIT Forms
-- [ ] Task 5: TNDN02 CIT quarterly provisional
-- [ ] Task 6: TNDN04 CIT annual finalization
-- [ ] Task 7: TNDN05 CIT restructuring
-- [ ] Task 8: TNDN06 CIT petroleum
+- [ ] **Task 1:** Migration — Database Schema (4 tables)
+  - Acceptance: 4 tables with FKs, indexes; `.up.sql` + `.down.sql`; migration runs
+  - Verify: `ls migrations/000031*`; `DATABASE_URL=... go run .`
+  - Files: `migrations/000031_warehouse_keeper.{up,down}.sql`
+  - Size: S
 
-### PIT & Other Forms
-- [ ] Task 9: KK_TNCN PIT withholding declaration
-- [ ] Task 10: QTT_TNCN PIT quarterly declaration
-- [ ] Task 11: TTDB01 resource tax
-- [ ] Task 12: BVMT01 environmental protection tax
-- [ ] Task 13: NTNN01-03 non-resident income tax
+- [ ] **Task 2:** Domain Models
+  - Acceptance: 4 structs + filter/types match specs §1; JSON + validate tags; `go build` passes
+  - Verify: `go vet ./internal/domain/`
+  - Files: `internal/domain/models_warehouse_keeper.go`
+  - Size: S
 
-### Checkpoint: Phase 1
-- [ ] All 17 declaration types generate valid HTKK XML
-- [ ] Each form has service + handler tests
-- [ ] `go test -count=1 ./internal/service/ ./internal/handler/`
+- [ ] **Task 3:** Repository Interface
+  - Acceptance: 14-method interface in `interfaces.go`; matches specs §2
+  - Verify: `go vet ./internal/domain/`
+  - Files: `internal/domain/interfaces.go` (append)
+  - Size: XS
 
----
+- [ ] **Task 4:** PG Repository
+  - Acceptance: All 14 methods; GORM; error handling; pagination
+  - Verify: `go vet ./internal/repository/`
+  - Files: `internal/repository/pg_warehouse_keeper.go`
+  - Size: M
 
-## Phase 2: CIT Advanced Logic
+- [ ] **Task 5:** Memory Repository
+  - Acceptance: All 14 methods; RWMutex; ID generation; copy-before-mutate
+  - Verify: `go vet ./internal/repository/`
+  - Files: `internal/repository/memory_warehouse_keeper.go`
+  - Size: M
 
-- [ ] Task 14: CIT incentive reduction engine
-- [ ] Task 15: CIT loss carry-forward (5-year limit)
-- [ ] Task 16: CIT non-deductible itemization (thin cap, R&D)
-- [ ] Task 17: CIT quarterly provisional payments (≥80% rule)
+- [ ] **Task 6:** Service
+  - Acceptance: Assignment CRUD + overlap validation; recording/un-recording; reconciliation; config
+  - Verify: `go vet ./internal/service/`
+  - Files: `internal/service/warehouse_keeper_service.go`
+  - Size: L
 
-### Checkpoint: Phase 2
-- [ ] CIT handles incentives, loss c/f, thin cap
-- [ ] Quarterly provisional ≥80% validation works
-- [ ] All CIT tests pass
-
----
-
-## Phase 3: E-Invoice Completion
-
-- [ ] Task 18: Adjustment e-invoice workflow
-- [ ] Task 19: Replacement e-invoice workflow
-- [ ] Task 20: Cancellation note e-invoice workflow
-- [ ] Task 21: E-invoice → journal entry auto-posting
-
-### Checkpoint: Phase 3
-- [ ] Full e-invoice lifecycle: create → issue → adjust/replace/cancel → GL
-- [ ] All e-invoice tests pass
+### Checkpoint: Foundation
+- [ ] `go vet ./...` passes
+- [ ] All domain models compile
+- [ ] Both repos compile
+- [ ] Service compiles
+- [ ] **GATE: Review before Phase 2**
 
 ---
 
-## Phase 4: Calendar & Automation
+## Phase 2: API Layer (Week 2)
 
-- [ ] Task 22: Tax calendar auto-generation (annual, per company)
-- [ ] Task 23: Tax alert auto-generation (deadline-based)
-- [ ] Task 24: Payment late interest scheduled calculation
-- [ ] Task 25: Payment → GL auto-posting
+- [ ] **Task 7:** Handler — Assignment Endpoints
+  - Acceptance: 5 CRUD endpoints; proper HTTP codes; error mapping
+  - Verify: `go vet ./internal/handler/`
+  - Files: `internal/handler/warehouse_keeper_handler.go`
+  - Size: M
 
-### Checkpoint: Phase 4
-- [ ] Calendar auto-generates for full year
-- [ ] Alerts fire before deadlines
-- [ ] Late interest calculates correctly
-- [ ] Payments post to GL
+- [ ] **Task 8:** Handler — Ledger & Recording Endpoints
+  - Acceptance: 7 endpoints; bulk record; un-record with reason
+  - Verify: `go vet ./internal/handler/`
+  - Files: `internal/handler/warehouse_keeper_handler.go` (append)
+  - Size: M
 
----
+- [ ] **Task 9:** Handler — Reports & Config Endpoints
+  - Acceptance: 6 endpoints; reconciliation; stock card; config
+  - Verify: `go vet ./internal/handler/`
+  - Files: `internal/handler/warehouse_keeper_handler.go` (append)
+  - Size: M
 
-## Phase 5: Advanced Tax
+- [ ] **Task 10:** Route Registration + main.go Wiring
+  - Acceptance: Routes under `/api/v1/warehouse/keeper/`; auth MW; main.go wired
+  - Verify: `JWT_SECRET=devsecret go run .` starts; curl returns 401
+  - Files: `warehouse_keeper_handler.go`, `handler.go`, `main.go`
+  - Size: M
 
-- [ ] Task 26: FCT (Foreign Contractor Tax)
-- [ ] Task 27: Transfer pricing (Decree 255/2026)
-- [ ] Task 28: Global Minimum Tax (Pillar 2)
-- [ ] Task 29: Tax consolidation (multi-entity)
-- [ ] Task 30: Tax audit workflow
+- [ ] **Task 11:** Handler Tests — Assignment
+  - Acceptance: 5 tests; in-memory repos; mock auth MW
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeper`
+  - Files: `internal/handler/warehouse_keeper_handler_test.go`
+  - Size: M
 
-### Checkpoint: Phase 5
-- [ ] All advanced tax modules have domain + service + handler + tests
-- [ ] FCT declaration generates valid XML
+- [ ] **Task 12:** Handler Tests — Ledger & Recording
+  - Acceptance: 4 tests; record/un-record/pending
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeper`
+  - Files: `internal/handler/warehouse_keeper_handler_test.go` (append)
+  - Size: M
 
----
-
-## Phase 6: Reports & PDF
-
-- [ ] Task 31: Tax declaration PDF rendering
-- [ ] Task 32: Tax summary reports
-
-### Checkpoint: Phase 6
-- [ ] PDF renders for all declaration types
-- [ ] Summary reports return correct data
-
----
-
-## Phase 7: GDT Production
-
-- [ ] Task 33: GDT real endpoint integration + mTLS auth
-- [ ] Task 34: GDT sandbox testing
-
-### Checkpoint: Phase 7
-- [ ] GDT submission works against sandbox
-- [ ] Full flow: declaration → XML → sign → submit → ack
+### Checkpoint: API Layer
+- [ ] 18 routes registered
+- [ ] Auth required on all keeper routes
+- [ ] Assignment tests pass
+- [ ] Ledger tests pass
+- [ ] `go test -count=1 ./...` passes (no regressions)
+- [ ] **GATE: Review before Phase 3**
 
 ---
 
-## Summary
+## Phase 3: Reports & Polish (Week 3)
 
-| Phase | Tasks | Est. Duration |
-|-------|-------|---------------|
-| Phase 1 | 13 | 2-3 weeks |
-| Phase 2 | 4 | 1-2 weeks |
-| Phase 3 | 4 | 1-2 weeks |
-| Phase 4 | 4 | 1 week |
-| Phase 5 | 5 | 2-3 weeks |
-| Phase 6 | 2 | 1 week |
-| Phase 7 | 2 | 1 week |
-| **Total** | **34** | **9-13 weeks** |
+- [ ] **Task 13:** Reconciliation Report
+  - Acceptance: Per-item keeper vs accounting qty; variance highlighting; Excel export
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeperReconciliation`
+  - Files: `warehouse_keeper_service.go`, `warehouse_keeper_handler.go`
+  - Size: S
+
+- [ ] **Task 14:** Stock Card Report
+  - Acceptance: Opening/closing balance; line items; period filter
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeperStockCard`
+  - Files: `warehouse_keeper_service.go`, `warehouse_keeper_handler.go`
+  - Size: S
+
+- [ ] **Task 15:** Keeper Reports (Summary, Detail, Variance)
+  - Acceptance: 3 report types; proper formatting
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeperReport`
+  - Files: `warehouse_keeper_service.go`, `warehouse_keeper_handler.go`
+  - Size: S
+
+- [ ] **Task 16:** Module Toggle
+  - Acceptance: Config get/update; module_enabled gates keeper routes
+  - Verify: `go test -count=1 ./internal/handler/ -run TestKeeperConfig`
+  - Files: `warehouse_keeper_service.go`, `warehouse_keeper_handler.go`
+  - Size: XS
+
+### Checkpoint: Reports
+- [ ] Reconciliation works
+- [ ] Stock Card works
+- [ ] Reports work
+- [ ] Toggle works
+- [ ] `go test -count=1 ./...` passes
+- [ ] **GATE: Review before Phase 4**
+
+---
+
+## Phase 4: Frontend (Week 4)
+
+- [ ] **Task 17:** Keeper Assignment Page
+  - Acceptance: CRUD UI; Alpine.js; uses apiGet/apiPost
+  - Verify: Page loads in browser
+  - Files: `web/app/warehouse-keeper-assignments.html`
+  - Size: M
+
+- [ ] **Task 18:** Pending Slips Page
+  - Acceptance: Checkbox selection; bulk Ghi sổ; slip count
+  - Verify: Can record slips from UI
+  - Files: `web/app/warehouse-keeper-pending.html`
+  - Size: M
+
+- [ ] **Task 19:** Stock Ledger Page
+  - Acceptance: Filters; table; print button; pagination
+  - Verify: Ledger displays correctly
+  - Files: `web/app/warehouse-keeper-ledger.html`
+  - Size: M
+
+- [ ] **Task 20:** Stock Card + Reconciliation Pages
+  - Acceptance: Both pages functional; export buttons
+  - Verify: Both pages load and display data
+  - Files: `web/app/warehouse-keeper-stock-card.html`, `web/app/warehouse-keeper-reconciliation.html`
+  - Size: M
+
+- [ ] **Task 21:** Count + Config Pages
+  - Acceptance: Count sheet; config toggles
+  - Verify: Both pages load
+  - Files: `web/app/warehouse-keeper-count.html`, `web/app/warehouse-keeper-config.html`
+  - Size: M
+
+### Checkpoint: Complete
+- [ ] All 7 frontend pages created
+- [ ] All backend tests pass
+- [ ] `go build ./...` passes
+- [ ] `go test -count=1 ./...` passes (no regressions)
+- [ ] All BRD §10 success criteria met
+- [ ] **FINAL REVIEW**
+
+---
+
+## Progress Summary
+
+| Phase | Tasks | Done | Status |
+|-------|-------|------|--------|
+| Foundation | 6 | 0/6 | NOT STARTED |
+| API Layer | 6 | 0/6 | NOT STARTED |
+| Reports | 4 | 0/4 | NOT STARTED |
+| Frontend | 5 | 0/5 | NOT STARTED |
+| **Total** | **21** | **0/21** | **NOT STARTED** |
