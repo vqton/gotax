@@ -94,10 +94,9 @@ func (s *CostReportService) GetCostCalculationSheet(ctx context.Context, company
 }
 
 type CostSummary struct {
-	PeriodID         string
-	Items            []CostSummaryItem
-	TotalAllObjects  float64
-	TotalUnitCost    float64
+	PeriodID        string
+	Items           []CostSummaryItem
+	TotalAllObjects float64
 }
 
 type CostSummaryItem struct {
@@ -166,41 +165,27 @@ func (s *CostReportService) GetWIPValuation(ctx context.Context, companyID, peri
 	items := make([]WIPValuationItem, 0)
 	totalWIP := 0.0
 	for _, r := range results {
+		obj, err := s.costObjectRepo.GetByID(ctx, r.CostObjectID)
+		if err != nil {
+			continue
+		}
+		var wipCost, wipQty float64
 		if r.WIPBegin > 0 || r.WIPEnd > 0 {
-			obj, err := s.costObjectRepo.GetByID(ctx, r.CostObjectID)
-			if err != nil {
-				continue
-			}
-			wipCost := r.WIPEnd * r.UnitCost
-			items = append(items, WIPValuationItem{
-				ObjectID:   r.CostObjectID,
-				ObjectCode: obj.Code,
-				ObjectName: obj.Name,
-				WIPCost:    wipCost,
-				Quantity:   r.WIPEnd,
-				UnitCost:   r.UnitCost,
-			})
-			totalWIP += wipCost
+			wipCost = r.WIPEnd * r.UnitCost
+			wipQty = r.WIPEnd
+		} else {
+			wipCost = r.TotalCost
+			wipQty = r.OutputQuantity
 		}
-	}
-
-	// If no WIP-specific data, show all results as WIP (simplified)
-	if len(items) == 0 {
-		for _, r := range results {
-			obj, err := s.costObjectRepo.GetByID(ctx, r.CostObjectID)
-			if err != nil {
-				continue
-			}
-			items = append(items, WIPValuationItem{
-				ObjectID:   r.CostObjectID,
-				ObjectCode: obj.Code,
-				ObjectName: obj.Name,
-				WIPCost:    r.TotalCost,
-				Quantity:   r.OutputQuantity,
-				UnitCost:   r.UnitCost,
-			})
-			totalWIP += r.TotalCost
-		}
+		items = append(items, WIPValuationItem{
+			ObjectID:   r.CostObjectID,
+			ObjectCode: obj.Code,
+			ObjectName: obj.Name,
+			WIPCost:    wipCost,
+			Quantity:   wipQty,
+			UnitCost:   r.UnitCost,
+		})
+		totalWIP += wipCost
 	}
 
 	return &WIPValuationReport{
@@ -242,6 +227,7 @@ func (s *CostReportService) GetVarianceAnalysis(ctx context.Context, companyID, 
 			continue
 		}
 
+		// Variance = Actual - Standard, where Standard = (std_mat + std_lab + std_oh) × quantity
 		standardCost := (obj.StandardMaterial + obj.StandardLabor + obj.StandardOverhead) * obj.PlanQuantity
 		variance := r.TotalCost - standardCost
 		varianceType := "UNFAVORABLE"
