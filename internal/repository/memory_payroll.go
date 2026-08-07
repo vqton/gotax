@@ -59,6 +59,19 @@ type MemoryPayrollRepo struct {
 	// Holidays
 	holidays      map[string]*domain.PayrollHoliday
 	holidayByComp map[string][]string
+
+	// Salary Grades
+	salaryGrades   map[string]*domain.SalaryGrade
+	gradeByCompany map[string][]string
+
+	// Salary Scales
+	salaryScales   map[string]*domain.SalaryScale
+	scaleByCompany map[string][]string
+	scaleByGrade   map[string][]string
+
+	// Employee Salary Grade Assignments
+	empSalaryGrade map[string]*domain.EmployeeSalaryGrade
+	esgByCompany   map[string][]string
 }
 
 func NewMemoryPayrollRepo() *MemoryPayrollRepo {
@@ -87,6 +100,13 @@ func NewMemoryPayrollRepo() *MemoryPayrollRepo {
 		tmplByCompany:   make(map[string][]string),
 		holidays:        make(map[string]*domain.PayrollHoliday),
 		holidayByComp:   make(map[string][]string),
+		salaryGrades:    make(map[string]*domain.SalaryGrade),
+		gradeByCompany:  make(map[string][]string),
+		salaryScales:    make(map[string]*domain.SalaryScale),
+		scaleByCompany:  make(map[string][]string),
+		scaleByGrade:    make(map[string][]string),
+		empSalaryGrade:  make(map[string]*domain.EmployeeSalaryGrade),
+		esgByCompany:    make(map[string][]string),
 	}
 }
 
@@ -716,4 +736,217 @@ func (r *MemoryPayrollRepo) DeleteHoliday(_ context.Context, id string) error {
 		}
 	}
 	return nil
+}
+
+// ─── Salary Grades ─────────────────────────────────────────────
+
+func (r *MemoryPayrollRepo) CreateSalaryGrade(_ context.Context, g *domain.SalaryGrade) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *g
+	if cp.ID == "" {
+		cp.ID = payrollUUID()
+	}
+	if cp.MidSalary == 0 && cp.MinSalary > 0 && cp.MaxSalary > 0 {
+		cp.MidSalary = (cp.MinSalary + cp.MaxSalary) / 2
+	}
+	now := time.Now()
+	cp.CreatedAt = now
+	cp.UpdatedAt = now
+	r.salaryGrades[cp.ID] = &cp
+	r.gradeByCompany[cp.CompanyID] = append(r.gradeByCompany[cp.CompanyID], cp.ID)
+	g.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPayrollRepo) GetSalaryGrade(_ context.Context, id string) (*domain.SalaryGrade, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	g, ok := r.salaryGrades[id]
+	if !ok {
+		return nil, fmt.Errorf("salary grade not found")
+	}
+	cp := *g
+	return &cp, nil
+}
+
+func (r *MemoryPayrollRepo) UpdateSalaryGrade(_ context.Context, g *domain.SalaryGrade) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.salaryGrades[g.ID]; !ok {
+		return fmt.Errorf("salary grade not found")
+	}
+	g.UpdatedAt = time.Now()
+	r.salaryGrades[g.ID] = g
+	return nil
+}
+
+func (r *MemoryPayrollRepo) DeleteSalaryGrade(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	g, ok := r.salaryGrades[id]
+	if !ok {
+		return fmt.Errorf("salary grade not found")
+	}
+	delete(r.salaryGrades, id)
+	ids := r.gradeByCompany[g.CompanyID]
+	for i, uid := range ids {
+		if uid == id {
+			r.gradeByCompany[g.CompanyID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+func (r *MemoryPayrollRepo) ListSalaryGrades(_ context.Context, companyID string) ([]domain.SalaryGrade, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.gradeByCompany[companyID]
+	var result []domain.SalaryGrade
+	for _, id := range ids {
+		if g, ok := r.salaryGrades[id]; ok {
+			result = append(result, *g)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Level < result[j].Level })
+	return result, nil
+}
+
+// ─── Salary Scales ─────────────────────────────────────────────
+
+func (r *MemoryPayrollRepo) CreateSalaryScale(_ context.Context, s *domain.SalaryScale) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *s
+	if cp.ID == "" {
+		cp.ID = payrollUUID()
+	}
+	now := time.Now()
+	cp.CreatedAt = now
+	cp.UpdatedAt = now
+	r.salaryScales[cp.ID] = &cp
+	r.scaleByCompany[cp.CompanyID] = append(r.scaleByCompany[cp.CompanyID], cp.ID)
+	r.scaleByGrade[cp.GradeID] = append(r.scaleByGrade[cp.GradeID], cp.ID)
+	s.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPayrollRepo) GetSalaryScale(_ context.Context, id string) (*domain.SalaryScale, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	s, ok := r.salaryScales[id]
+	if !ok {
+		return nil, fmt.Errorf("salary scale not found")
+	}
+	cp := *s
+	return &cp, nil
+}
+
+func (r *MemoryPayrollRepo) UpdateSalaryScale(_ context.Context, s *domain.SalaryScale) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.salaryScales[s.ID]; !ok {
+		return fmt.Errorf("salary scale not found")
+	}
+	s.UpdatedAt = time.Now()
+	r.salaryScales[s.ID] = s
+	return nil
+}
+
+func (r *MemoryPayrollRepo) DeleteSalaryScale(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.salaryScales[id]
+	if !ok {
+		return fmt.Errorf("salary scale not found")
+	}
+	delete(r.salaryScales, id)
+	ids := r.scaleByCompany[s.CompanyID]
+	for i, uid := range ids {
+		if uid == id {
+			r.scaleByCompany[s.CompanyID] = append(ids[:i], ids[i+1:]...)
+			break
+		}
+	}
+	gradeIDs := r.scaleByGrade[s.GradeID]
+	for i, uid := range gradeIDs {
+		if uid == id {
+			r.scaleByGrade[s.GradeID] = append(gradeIDs[:i], gradeIDs[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+func (r *MemoryPayrollRepo) ListSalaryScales(_ context.Context, companyID string) ([]domain.SalaryScale, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.scaleByCompany[companyID]
+	var result []domain.SalaryScale
+	for _, id := range ids {
+		if s, ok := r.salaryScales[id]; ok {
+			result = append(result, *s)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Level < result[j].Level })
+	return result, nil
+}
+
+func (r *MemoryPayrollRepo) ListSalaryScalesByGrade(_ context.Context, gradeID string) ([]domain.SalaryScale, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.scaleByGrade[gradeID]
+	var result []domain.SalaryScale
+	for _, id := range ids {
+		if s, ok := r.salaryScales[id]; ok {
+			result = append(result, *s)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Level < result[j].Level })
+	return result, nil
+}
+
+// ─── Employee Salary Grade Assignments ──────────────────────────
+
+func (r *MemoryPayrollRepo) CreateEmployeeSalaryGrade(_ context.Context, e *domain.EmployeeSalaryGrade) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *e
+	if cp.ID == "" {
+		cp.ID = payrollUUID()
+	}
+	now := time.Now()
+	cp.CreatedAt = now
+	r.empSalaryGrade[cp.EmployeeID] = &cp
+	r.esgByCompany[cp.CompanyID] = append(r.esgByCompany[cp.CompanyID], cp.ID)
+	e.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPayrollRepo) GetEmployeeSalaryGrade(_ context.Context, employeeID string) (*domain.EmployeeSalaryGrade, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.empSalaryGrade[employeeID]
+	if !ok {
+		return nil, fmt.Errorf("employee salary grade not found")
+	}
+	cp := *e
+	return &cp, nil
+}
+
+func (r *MemoryPayrollRepo) ListEmployeeSalaryGrades(_ context.Context, companyID string) ([]domain.EmployeeSalaryGrade, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.esgByCompany[companyID]
+	var result []domain.EmployeeSalaryGrade
+	for _, id := range ids {
+		for _, e := range r.empSalaryGrade {
+			if e.ID == id {
+				result = append(result, *e)
+				break
+			}
+		}
+	}
+	return result, nil
 }

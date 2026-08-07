@@ -108,6 +108,26 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.GET("/holidays", h.ListHolidays)
 		pw.POST("/holidays", h.CreateHoliday)
 		pw.DELETE("/holidays/:id", h.DeleteHoliday)
+
+		// Salary Grades
+		pw.GET("/salary-grades", h.ListSalaryGrades)
+		pw.POST("/salary-grades", h.CreateSalaryGrade)
+		pw.GET("/salary-grades/:id", h.GetSalaryGrade)
+		pw.PUT("/salary-grades/:id", h.UpdateSalaryGrade)
+		pw.DELETE("/salary-grades/:id", h.DeleteSalaryGrade)
+
+		// Salary Scales
+		pw.GET("/salary-scales", h.ListSalaryScales)
+		pw.POST("/salary-scales", h.CreateSalaryScale)
+		pw.GET("/salary-scales/:id", h.GetSalaryScale)
+		pw.PUT("/salary-scales/:id", h.UpdateSalaryScale)
+		pw.DELETE("/salary-scales/:id", h.DeleteSalaryScale)
+		pw.GET("/salary-grades/:id/scales", h.ListSalaryScalesByGrade)
+
+		// Employee Salary Grade Assignments
+		pw.POST("/employee-salary-grades", h.AssignEmployeeSalaryGrade)
+		pw.GET("/employee-salary-grades/:employee_id", h.GetEmployeeSalaryGrade)
+		pw.GET("/employee-salary-grades", h.ListEmployeeSalaryGrades)
 	}
 }
 
@@ -123,13 +143,18 @@ func (h *PayrollHandler) payrollError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrPayrollComponentNotFound),
 		errors.Is(err, domain.ErrPayrollTemplateNotFound),
 		errors.Is(err, domain.ErrPayrollHolidayNotFound),
-		errors.Is(err, domain.ErrPayrollTimekeepingNotFound):
+		errors.Is(err, domain.ErrPayrollTimekeepingNotFound),
+		errors.Is(err, domain.ErrPayrollSalaryGradeNotFound),
+		errors.Is(err, domain.ErrPayrollSalaryScaleNotFound),
+		errors.Is(err, domain.ErrPayrollESGNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollComponentExists),
 		errors.Is(err, domain.ErrPayrollTemplateExists),
-		errors.Is(err, domain.ErrPayrollHolidayExists):
+		errors.Is(err, domain.ErrPayrollHolidayExists),
+		errors.Is(err, domain.ErrPayrollSalaryGradeExists),
+		errors.Is(err, domain.ErrPayrollSalaryScaleExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodNotDraft),
 		errors.Is(err, domain.ErrPayrollLeaveAlreadyProcessed):
@@ -813,4 +838,159 @@ func (h *PayrollHandler) CalcRetroactive(c *gin.Context) {
 	}
 	result := h.svc.CalcRetroactivePay(input)
 	c.JSON(http.StatusOK, result)
+}
+
+// ─── Salary Grades ─────────────────────────────────────────────
+
+func (h *PayrollHandler) ListSalaryGrades(c *gin.Context) {
+	companyID := c.Query("company_id")
+	grades, err := h.svc.ListSalaryGrades(c.Request.Context(), companyID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, grades)
+}
+
+func (h *PayrollHandler) CreateSalaryGrade(c *gin.Context) {
+	var grade domain.SalaryGrade
+	if err := c.ShouldBindJSON(&grade); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.CreateSalaryGrade(c.Request.Context(), &grade); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, grade)
+}
+
+func (h *PayrollHandler) GetSalaryGrade(c *gin.Context) {
+	grade, err := h.svc.GetSalaryGrade(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, grade)
+}
+
+func (h *PayrollHandler) UpdateSalaryGrade(c *gin.Context) {
+	var grade domain.SalaryGrade
+	if err := c.ShouldBindJSON(&grade); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	grade.ID = c.Param("id")
+	if err := h.svc.UpdateSalaryGrade(c.Request.Context(), &grade); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, grade)
+}
+
+func (h *PayrollHandler) DeleteSalaryGrade(c *gin.Context) {
+	if err := h.svc.DeleteSalaryGrade(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// ─── Salary Scales ─────────────────────────────────────────────
+
+func (h *PayrollHandler) ListSalaryScales(c *gin.Context) {
+	companyID := c.Query("company_id")
+	scales, err := h.svc.ListSalaryScales(c.Request.Context(), companyID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, scales)
+}
+
+func (h *PayrollHandler) CreateSalaryScale(c *gin.Context) {
+	var scale domain.SalaryScale
+	if err := c.ShouldBindJSON(&scale); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.CreateSalaryScale(c.Request.Context(), &scale); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, scale)
+}
+
+func (h *PayrollHandler) GetSalaryScale(c *gin.Context) {
+	scale, err := h.svc.GetSalaryScale(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, scale)
+}
+
+func (h *PayrollHandler) UpdateSalaryScale(c *gin.Context) {
+	var scale domain.SalaryScale
+	if err := c.ShouldBindJSON(&scale); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	scale.ID = c.Param("id")
+	if err := h.svc.UpdateSalaryScale(c.Request.Context(), &scale); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, scale)
+}
+
+func (h *PayrollHandler) DeleteSalaryScale(c *gin.Context) {
+	if err := h.svc.DeleteSalaryScale(c.Request.Context(), c.Param("id")); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func (h *PayrollHandler) ListSalaryScalesByGrade(c *gin.Context) {
+	scales, err := h.svc.ListSalaryScalesByGrade(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, scales)
+}
+
+// ─── Employee Salary Grade Assignments ──────────────────────────
+
+func (h *PayrollHandler) AssignEmployeeSalaryGrade(c *gin.Context) {
+	var assign domain.EmployeeSalaryGrade
+	if err := c.ShouldBindJSON(&assign); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.AssignEmployeeSalaryGrade(c.Request.Context(), &assign); err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, assign)
+}
+
+func (h *PayrollHandler) GetEmployeeSalaryGrade(c *gin.Context) {
+	grade, err := h.svc.GetEmployeeSalaryGrade(c.Request.Context(), c.Param("employee_id"))
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, grade)
+}
+
+func (h *PayrollHandler) ListEmployeeSalaryGrades(c *gin.Context) {
+	companyID := c.Query("company_id")
+	grades, err := h.svc.ListEmployeeSalaryGrades(c.Request.Context(), companyID)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, grades)
 }

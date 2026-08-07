@@ -81,6 +81,26 @@ type PayrollRepository interface {
 	GetConfig(ctx context.Context, companyID, key string) (*domain.PayrollConfig, error)
 	SetConfig(ctx context.Context, c *domain.PayrollConfig) error
 
+	// Salary Grades
+	CreateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error
+	GetSalaryGrade(ctx context.Context, id string) (*domain.SalaryGrade, error)
+	UpdateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error
+	DeleteSalaryGrade(ctx context.Context, id string) error
+	ListSalaryGrades(ctx context.Context, companyID string) ([]domain.SalaryGrade, error)
+
+	// Salary Scales
+	CreateSalaryScale(ctx context.Context, s *domain.SalaryScale) error
+	GetSalaryScale(ctx context.Context, id string) (*domain.SalaryScale, error)
+	UpdateSalaryScale(ctx context.Context, s *domain.SalaryScale) error
+	DeleteSalaryScale(ctx context.Context, id string) error
+	ListSalaryScales(ctx context.Context, companyID string) ([]domain.SalaryScale, error)
+	ListSalaryScalesByGrade(ctx context.Context, gradeID string) ([]domain.SalaryScale, error)
+
+	// Employee Salary Grade Assignments
+	CreateEmployeeSalaryGrade(ctx context.Context, e *domain.EmployeeSalaryGrade) error
+	GetEmployeeSalaryGrade(ctx context.Context, employeeID string) (*domain.EmployeeSalaryGrade, error)
+	ListEmployeeSalaryGrades(ctx context.Context, companyID string) ([]domain.EmployeeSalaryGrade, error)
+
 	// Salary components
 	CreateComponent(ctx context.Context, sc *domain.SalaryComponent) error
 	GetComponent(ctx context.Context, id string) (*domain.SalaryComponent, error)
@@ -651,6 +671,114 @@ func (s *PayrollService) DeleteTemplate(ctx context.Context, id string) error {
 		return err
 	}
 	return s.repo.DeleteTemplate(ctx, id)
+}
+
+// ─── Salary Grades ─────────────────────────────────────────────
+
+func (s *PayrollService) CreateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error {
+	grades, _ := s.repo.ListSalaryGrades(ctx, g.CompanyID)
+	for _, existing := range grades {
+		if existing.Code == g.Code {
+			return domain.ErrPayrollSalaryGradeExists
+		}
+	}
+	g.IsActive = true
+	return s.repo.CreateSalaryGrade(ctx, g)
+}
+
+func (s *PayrollService) GetSalaryGrade(ctx context.Context, id string) (*domain.SalaryGrade, error) {
+	return s.repo.GetSalaryGrade(ctx, id)
+}
+
+func (s *PayrollService) UpdateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error {
+	_, err := s.repo.GetSalaryGrade(ctx, g.ID)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateSalaryGrade(ctx, g)
+}
+
+func (s *PayrollService) DeleteSalaryGrade(ctx context.Context, id string) error {
+	_, err := s.repo.GetSalaryGrade(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteSalaryGrade(ctx, id)
+}
+
+func (s *PayrollService) ListSalaryGrades(ctx context.Context, companyID string) ([]domain.SalaryGrade, error) {
+	return s.repo.ListSalaryGrades(ctx, companyID)
+}
+
+// ─── Salary Scales ─────────────────────────────────────────────
+
+func (s *PayrollService) CreateSalaryScale(ctx context.Context, sc *domain.SalaryScale) error {
+	// Validate grade exists
+	_, err := s.repo.GetSalaryGrade(ctx, sc.GradeID)
+	if err != nil {
+		return domain.ErrPayrollSalaryGradeNotFound
+	}
+	// Check duplicate code within grade
+	scales, _ := s.repo.ListSalaryScalesByGrade(ctx, sc.GradeID)
+	for _, existing := range scales {
+		if existing.Code == sc.Code {
+			return domain.ErrPayrollSalaryScaleExists
+		}
+	}
+	sc.IsActive = true
+	return s.repo.CreateSalaryScale(ctx, sc)
+}
+
+func (s *PayrollService) GetSalaryScale(ctx context.Context, id string) (*domain.SalaryScale, error) {
+	return s.repo.GetSalaryScale(ctx, id)
+}
+
+func (s *PayrollService) UpdateSalaryScale(ctx context.Context, sc *domain.SalaryScale) error {
+	_, err := s.repo.GetSalaryScale(ctx, sc.ID)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateSalaryScale(ctx, sc)
+}
+
+func (s *PayrollService) DeleteSalaryScale(ctx context.Context, id string) error {
+	_, err := s.repo.GetSalaryScale(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteSalaryScale(ctx, id)
+}
+
+func (s *PayrollService) ListSalaryScales(ctx context.Context, companyID string) ([]domain.SalaryScale, error) {
+	return s.repo.ListSalaryScales(ctx, companyID)
+}
+
+func (s *PayrollService) ListSalaryScalesByGrade(ctx context.Context, gradeID string) ([]domain.SalaryScale, error) {
+	return s.repo.ListSalaryScalesByGrade(ctx, gradeID)
+}
+
+// ─── Employee Salary Grade Assignments ──────────────────────────
+
+func (s *PayrollService) AssignEmployeeSalaryGrade(ctx context.Context, e *domain.EmployeeSalaryGrade) error {
+	// Validate grade exists
+	_, err := s.repo.GetSalaryGrade(ctx, e.GradeID)
+	if err != nil {
+		return fmt.Errorf("salary grade not found: %w", err)
+	}
+	// Validate scale exists
+	_, err = s.repo.GetSalaryScale(ctx, e.ScaleID)
+	if err != nil {
+		return fmt.Errorf("salary scale not found: %w", err)
+	}
+	return s.repo.CreateEmployeeSalaryGrade(ctx, e)
+}
+
+func (s *PayrollService) GetEmployeeSalaryGrade(ctx context.Context, employeeID string) (*domain.EmployeeSalaryGrade, error) {
+	return s.repo.GetEmployeeSalaryGrade(ctx, employeeID)
+}
+
+func (s *PayrollService) ListEmployeeSalaryGrades(ctx context.Context, companyID string) ([]domain.EmployeeSalaryGrade, error) {
+	return s.repo.ListEmployeeSalaryGrades(ctx, companyID)
 }
 
 // ─── Holidays ───────────────────────────────────────────────────

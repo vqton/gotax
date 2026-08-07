@@ -363,6 +363,52 @@ type SalaryTemplateComponent struct {
 	Order            int     `json:"order"`
 }
 
+// ─── Salary Grade & Scale ──────────────────────────────────────
+
+// SalaryGrade represents a job grade level (e.g., G1-G10).
+type SalaryGrade struct {
+	ID          string    `json:"id"`
+	CompanyID   string    `json:"company_id"`
+	Code        string    `json:"code"`        // e.g., "G1", "G2", "G5"
+	Name        string    `json:"name"`        // e.g., "Nhân viên", "Trưởng phòng"
+	MinSalary   float64   `json:"min_salary"`  // Minimum base salary for this grade
+	MaxSalary   float64   `json:"max_salary"`  // Maximum base salary for this grade
+	MidSalary   float64   `json:"mid_salary"`  // Midpoint (auto-calculated)
+	Level       int       `json:"level"`       // Numeric level for sorting (1, 2, 3...)
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// SalaryScale defines salary steps within a grade (e.g., G1.1, G1.2, G1.3).
+type SalaryScale struct {
+	ID          string    `json:"id"`
+	CompanyID   string    `json:"company_id"`
+	GradeID     string    `json:"grade_id"`     // Reference to SalaryGrade
+	Code        string    `json:"code"`         // e.g., "G1.1", "G1.2"
+	Name        string    `json:"name"`         // e.g., "Bậc 1", "Bậc 2"
+	BaseSalary  float64   `json:"base_salary"`  // Fixed base salary for this step
+	Level       int       `json:"level"`        // Step number (1, 2, 3...)
+	MinYears    float64   `json:"min_years"`    // Minimum years in grade to reach this step
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// EmployeeSalaryGrade tracks which grade/scale an employee is assigned to.
+type EmployeeSalaryGrade struct {
+	ID           string     `json:"id"`
+	EmployeeID   string     `json:"employee_id"`
+	CompanyID    string     `json:"company_id"`
+	GradeID      string     `json:"grade_id"`
+	ScaleID      string     `json:"scale_id"`
+	BaseSalary   float64    `json:"base_salary"`   // Actual salary (may be within grade range)
+	EffectiveFrom string    `json:"effective_from"` // YYYY-MM-DD
+	EffectiveTo   string    `json:"effective_to,omitempty"`
+	Reason       string     `json:"reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 // InsuranceSummary aggregates insurance data for a period.
 type InsuranceSummary struct {
 	PeriodID          string  `json:"period_id"`

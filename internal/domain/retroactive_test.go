@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ─── Retroactive Pay Tests ──────────────────────────────────────
@@ -99,4 +100,70 @@ func TestRetroactivePay_Defaults(t *testing.T) {
 		DaysInMonth:   0,
 	})
 	assert.Equal(t, 30, result.DaysAtOld+result.DaysAtNew)
+}
+
+// ─── Retroactive Pay GL Journal Entry Tests ─────────────────────
+
+func TestGenerateRetroactivePayJE_PayIncrease(t *testing.T) {
+	result := CalcRetroactivePay(RetroactivePayInput{
+		OldBaseSalary: 10_000_000,
+		NewBaseSalary: 12_000_000,
+		EffectiveDay:  16,
+		DaysInMonth:   30,
+	})
+	entry := GenerateRetroactivePayJE(RetroactiveJEInput{
+		CompanyID:   "CMP001",
+		EmployeeID:  "NV001",
+		PeriodMonth: 7,
+		PeriodYear:  2026,
+		Result:      result,
+	})
+	require.NotNil(t, entry)
+	assert.Equal(t, "CMP001", entry.CompanyID)
+	assert.Len(t, entry.Lines, 2)
+	assert.Equal(t, "6421", entry.Lines[0].AccountCode)
+	assert.Equal(t, 1_000_000.0, entry.Lines[0].DebitAmount)
+	assert.Equal(t, "3331", entry.Lines[1].AccountCode)
+	assert.Equal(t, 1_000_000.0, entry.Lines[1].CreditAmount)
+	assert.True(t, entry.HasDebit())
+	assert.True(t, entry.HasCredit())
+	assert.Equal(t, entry.TotalDebit(), entry.TotalCredit())
+}
+
+func TestGenerateRetroactivePayJE_PayDecrease(t *testing.T) {
+	result := CalcRetroactivePay(RetroactivePayInput{
+		OldBaseSalary: 12_000_000,
+		NewBaseSalary: 10_000_000,
+		EffectiveDay:  16,
+		DaysInMonth:   30,
+	})
+	entry := GenerateRetroactivePayJE(RetroactiveJEInput{
+		CompanyID:   "CMP001",
+		EmployeeID:  "NV001",
+		PeriodMonth: 7,
+		PeriodYear:  2026,
+		Result:      result,
+	})
+	require.NotNil(t, entry)
+	assert.Equal(t, "3331", entry.Lines[0].AccountCode)
+	assert.Equal(t, 1_000_000.0, entry.Lines[0].DebitAmount)
+	assert.Equal(t, "6421", entry.Lines[1].AccountCode)
+	assert.Equal(t, 1_000_000.0, entry.Lines[1].CreditAmount)
+}
+
+func TestGenerateRetroactivePayJE_NoChange(t *testing.T) {
+	result := CalcRetroactivePay(RetroactivePayInput{
+		OldBaseSalary: 10_000_000,
+		NewBaseSalary: 10_000_000,
+		EffectiveDay:  16,
+		DaysInMonth:   30,
+	})
+	entry := GenerateRetroactivePayJE(RetroactiveJEInput{
+		CompanyID:   "CMP001",
+		EmployeeID:  "NV001",
+		PeriodMonth: 7,
+		PeriodYear:  2026,
+		Result:      result,
+	})
+	assert.Nil(t, entry, "no change should return nil")
 }

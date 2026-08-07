@@ -411,3 +411,105 @@ func (r *PGPayrollRepo) DeleteHoliday(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// ─── Salary Grades ─────────────────────────────────────────────
+
+func (r *PGPayrollRepo) CreateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error {
+	now := time.Now()
+	g.CreatedAt = now
+	g.UpdatedAt = now
+	if g.MidSalary == 0 && g.MinSalary > 0 && g.MaxSalary > 0 {
+		g.MidSalary = (g.MinSalary + g.MaxSalary) / 2
+	}
+	return r.db.WithContext(ctx).Create(g).Error
+}
+
+func (r *PGPayrollRepo) GetSalaryGrade(ctx context.Context, id string) (*domain.SalaryGrade, error) {
+	var g domain.SalaryGrade
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&g).Error; err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (r *PGPayrollRepo) UpdateSalaryGrade(ctx context.Context, g *domain.SalaryGrade) error {
+	g.UpdatedAt = time.Now()
+	return r.db.WithContext(ctx).Where("id = ?", g.ID).Updates(g).Error
+}
+
+func (r *PGPayrollRepo) DeleteSalaryGrade(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.SalaryGrade{}).Error
+}
+
+func (r *PGPayrollRepo) ListSalaryGrades(ctx context.Context, companyID string) ([]domain.SalaryGrade, error) {
+	var grades []domain.SalaryGrade
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("level ASC").Find(&grades).Error; err != nil {
+		return nil, err
+	}
+	return grades, nil
+}
+
+// ─── Salary Scales ─────────────────────────────────────────────
+
+func (r *PGPayrollRepo) CreateSalaryScale(ctx context.Context, s *domain.SalaryScale) error {
+	now := time.Now()
+	s.CreatedAt = now
+	s.UpdatedAt = now
+	return r.db.WithContext(ctx).Create(s).Error
+}
+
+func (r *PGPayrollRepo) GetSalaryScale(ctx context.Context, id string) (*domain.SalaryScale, error) {
+	var s domain.SalaryScale
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (r *PGPayrollRepo) UpdateSalaryScale(ctx context.Context, s *domain.SalaryScale) error {
+	s.UpdatedAt = time.Now()
+	return r.db.WithContext(ctx).Where("id = ?", s.ID).Updates(s).Error
+}
+
+func (r *PGPayrollRepo) DeleteSalaryScale(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.SalaryScale{}).Error
+}
+
+func (r *PGPayrollRepo) ListSalaryScales(ctx context.Context, companyID string) ([]domain.SalaryScale, error) {
+	var scales []domain.SalaryScale
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Order("level ASC").Find(&scales).Error; err != nil {
+		return nil, err
+	}
+	return scales, nil
+}
+
+func (r *PGPayrollRepo) ListSalaryScalesByGrade(ctx context.Context, gradeID string) ([]domain.SalaryScale, error) {
+	var scales []domain.SalaryScale
+	if err := r.db.WithContext(ctx).Where("grade_id = ?", gradeID).Order("level ASC").Find(&scales).Error; err != nil {
+		return nil, err
+	}
+	return scales, nil
+}
+
+// ─── Employee Salary Grade Assignments ──────────────────────────
+
+func (r *PGPayrollRepo) CreateEmployeeSalaryGrade(ctx context.Context, e *domain.EmployeeSalaryGrade) error {
+	e.CreatedAt = time.Now()
+	return r.db.WithContext(ctx).Create(e).Error
+}
+
+func (r *PGPayrollRepo) GetEmployeeSalaryGrade(ctx context.Context, employeeID string) (*domain.EmployeeSalaryGrade, error) {
+	var e domain.EmployeeSalaryGrade
+	if err := r.db.WithContext(ctx).Where("employee_id = ?", employeeID).Order("effective_from DESC").First(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (r *PGPayrollRepo) ListEmployeeSalaryGrades(ctx context.Context, companyID string) ([]domain.EmployeeSalaryGrade, error) {
+	var grades []domain.EmployeeSalaryGrade
+	if err := r.db.WithContext(ctx).Where("company_id = ?", companyID).Find(&grades).Error; err != nil {
+		return nil, err
+	}
+	return grades, nil
+}

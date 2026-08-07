@@ -690,3 +690,50 @@ func CalcRetroactivePay(input RetroactivePayInput) RetroactivePayResult {
 
 	return result
 }
+
+// ─── Retroactive Pay GL Journal Entry ───────────────────────────
+
+// RetroactiveJEInput holds data for generating retroactive pay journal entries.
+type RetroactiveJEInput struct {
+	CompanyID   string
+	EmployeeID  string
+	PeriodMonth int
+	PeriodYear  int
+	Result      RetroactivePayResult
+}
+
+// GenerateRetroactivePayJE creates a journal entry for retroactive pay adjustment.
+// If retro > 0 (pay increase): Debit 6421 (salary expense), Credit 3331 (salary payable)
+// If retro < 0 (pay decrease): Debit 3331 (salary payable), Credit 6421 (salary expense)
+func GenerateRetroactivePayJE(input RetroactiveJEInput) *JournalEntry {
+	if input.Result.RetroAmount == 0 {
+		return nil
+	}
+
+	desc := fmt.Sprintf("Điều chỉnh lương %02d/%d — NV %s", input.PeriodMonth, input.PeriodYear, input.EmployeeID)
+
+	entry := &JournalEntry{
+		CompanyID:   input.CompanyID,
+		EntryNumber: fmt.Sprintf("PC-RC-%02d%04d-%s", input.PeriodMonth, input.PeriodYear, input.EmployeeID),
+		EntryDate:   time.Now(),
+		Description: desc,
+		Status:      JournalEntryDraft,
+	}
+
+	if input.Result.RetroAmount > 0 {
+		// Pay increase: more expense
+		entry.Lines = []JournalLine{
+			{LineNumber: 1, AccountCode: "6421", DebitAmount: input.Result.RetroAmount, Description: "Tăng lương cơ bản"},
+			{LineNumber: 2, AccountCode: "3331", CreditAmount: input.Result.RetroAmount, Description: "Phải trả người lao động"},
+		}
+	} else {
+		// Pay decrease: less expense
+		absRetro := -input.Result.RetroAmount
+		entry.Lines = []JournalLine{
+			{LineNumber: 1, AccountCode: "3331", DebitAmount: absRetro, Description: "Giảm phải trả người lao động"},
+			{LineNumber: 2, AccountCode: "6421", CreditAmount: absRetro, Description: "Giảm lương cơ bản"},
+		}
+	}
+
+	return entry
+}
