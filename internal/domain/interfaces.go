@@ -778,3 +778,50 @@ type WarehouseKeeperRepository interface {
 	// Keeper Reports
 	GetKeeperInventorySummary(ctx context.Context, companyID, warehouseID string) ([]KeeperInventorySummaryItem, error)
 }
+
+// ─── Cost Accounting Repositories ─────────────────────────────────
+
+type CostObjectRepository interface {
+	Create(ctx context.Context, co *CostObject) error
+	GetByID(ctx context.Context, id string) (*CostObject, error)
+	GetByCode(ctx context.Context, companyID, code string) (*CostObject, error)
+	List(ctx context.Context, companyID string) ([]CostObject, error)
+	Update(ctx context.Context, co *CostObject) error
+	Delete(ctx context.Context, id string) error
+}
+
+type CostPoolRepository interface {
+	Create(ctx context.Context, cp *CostPool) error
+	GetByID(ctx context.Context, id string) (*CostPool, error)
+	ListByPeriod(ctx context.Context, companyID, periodID string) ([]CostPool, error)
+	Update(ctx context.Context, cp *CostPool) error
+	Delete(ctx context.Context, id string) error
+}
+
+type CostPoolLineRepository interface {
+	Create(ctx context.Context, line *CostPoolLine) error
+	ListByPool(ctx context.Context, poolID string) ([]CostPoolLine, error)
+	DeleteByPool(ctx context.Context, poolID string) error
+}
+
+type CostingPeriodRepository interface {
+	Create(ctx context.Context, cp *CostingPeriod) error
+	GetByID(ctx context.Context, id string) (*CostingPeriod, error)
+	GetByYearMonth(ctx context.Context, companyID string, year, month int) (*CostingPeriod, error)
+	List(ctx context.Context, companyID string) ([]CostingPeriod, error)
+	Update(ctx context.Context, cp *CostingPeriod) error
+}
+
+type CostingResultRepository interface {
+	Create(ctx context.Context, cr *CostingResult) error
+	GetByID(ctx context.Context, id string) (*CostingResult, error)
+	ListByPeriod(ctx context.Context, companyID, periodID string) ([]CostingResult, error)
+	Update(ctx context.Context, cr *CostingResult) error
+	Delete(ctx context.Context, id string) error
+}
+
+type CostingResultLineRepository interface {
+	Create(ctx context.Context, line *CostingResultLine) error
+	ListByResult(ctx context.Context, resultID string) ([]CostingResultLine, error)
+	DeleteByResult(ctx context.Context, resultID string) error
+}
