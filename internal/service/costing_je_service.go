@@ -380,7 +380,8 @@ func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID
 	return s.jeCreator.CreateEntry(ctx, entry, "system")
 }
 
-// ReopenPeriod: reverse close, generate reversal entries, set period back to OPEN
+// ReopenPeriod: reverse close, generate reversal entries, set period back to OPEN.
+// Each JE is created independently — partial failures leave JEs that can be individually reversed.
 func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID string) error {
 	period, err := s.periodRepo.GetByID(ctx, periodID)
 	if err != nil {
@@ -390,6 +391,8 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 		return fmt.Errorf("period is not closed")
 	}
 
+	var errs []error
+
 	results, err := s.resultRepo.ListByPeriod(ctx, companyID, periodID)
 	if err != nil {
 		return err
@@ -397,38 +400,41 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 
 	for i := range results {
 		r := &results[i]
-		if r.Status == "FINAL" {
-			// Reverse WIP transfer: Dr 154, Cr 155
-			reversal := buildCostEntry(
+		if r.Status != "FINAL" {
+			continue
+		}
+
+		// Reverse WIP transfer: Dr 154, Cr 155
+		reversal := buildCostEntry(
+			s.genJEID(), companyID,
+			fmt.Sprintf("REV-WIP-%s-%s", periodID, r.CostObjectID),
+			fmt.Sprintf("Reversal WIP transfer - %s", r.CostObjectID),
+			"154", "155",
+			r.TotalCost,
+		)
+		if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
+			errs = append(errs, fmt.Errorf("WIP reversal for %s: %w", r.CostObjectID, err))
+			continue
+		}
+
+		// Reverse COGS: Dr 155, Cr 632
+		if r.COGSAmt > 0 {
+			cogsReversal := buildCostEntry(
 				s.genJEID(), companyID,
-				fmt.Sprintf("REV-WIP-%s-%s", periodID, r.CostObjectID),
-				fmt.Sprintf("Reversal WIP transfer - %s", r.CostObjectID),
-				"154", "155",
-				r.TotalCost,
+				fmt.Sprintf("REV-COGS-%s-%s", periodID, r.CostObjectID),
+				fmt.Sprintf("Reversal COGS - %s", r.CostObjectID),
+				"155", "632",
+				r.COGSAmt,
 			)
-			if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
-				return err
+			if err := s.jeCreator.CreateEntry(ctx, cogsReversal, "system"); err != nil {
+				errs = append(errs, fmt.Errorf("COGS reversal for %s: %w", r.CostObjectID, err))
 			}
+		}
 
-			// Reverse COGS: Dr 155, Cr 632
-			if r.COGSAmt > 0 {
-				cogsReversal := buildCostEntry(
-					s.genJEID(), companyID,
-					fmt.Sprintf("REV-COGS-%s-%s", periodID, r.CostObjectID),
-					fmt.Sprintf("Reversal COGS - %s", r.CostObjectID),
-					"155", "632",
-					r.COGSAmt,
-				)
-				if err := s.jeCreator.CreateEntry(ctx, cogsReversal, "system"); err != nil {
-					return err
-				}
-			}
-
-			r.COGSAmt = 0
-			r.UpdatedAt = nowTimestamp()
-			if err := s.resultRepo.Update(ctx, r); err != nil {
-				return err
-			}
+		r.COGSAmt = 0
+		r.UpdatedAt = nowTimestamp()
+		if err := s.resultRepo.Update(ctx, r); err != nil {
+			errs = append(errs, fmt.Errorf("result update for %s: %w", r.CostObjectID, err))
 		}
 	}
 
@@ -438,17 +444,18 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 	}
 
 	for _, pool := range pools {
-		if pool.TotalAmount > 0 {
-			reversal := buildCostEntry(
-				s.genJEID(), companyID,
-				fmt.Sprintf("REV-COST-%s-%s", periodID, pool.GLAccountCode),
-				fmt.Sprintf("Reversal cost allocation - %s", pool.Name),
-				pool.GLAccountCode, "154",
-				pool.TotalAmount,
-			)
-			if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
-				return err
-			}
+		if pool.TotalAmount <= 0 {
+			continue
+		}
+		reversal := buildCostEntry(
+			s.genJEID(), companyID,
+			fmt.Sprintf("REV-COST-%s-%s", periodID, pool.GLAccountCode),
+			fmt.Sprintf("Reversal cost allocation - %s", pool.Name),
+			pool.GLAccountCode, "154",
+			pool.TotalAmount,
+		)
+		if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
+			errs = append(errs, fmt.Errorf("pool reversal for %s: %w", pool.GLAccountCode, err))
 		}
 	}
 
@@ -456,5 +463,13 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 	period.ClosedBy = ""
 	period.ClosedAt = ""
 
-	return s.periodRepo.Update(ctx, period)
+	if err := s.periodRepo.Update(ctx, period); err != nil {
+		errs = append(errs, fmt.Errorf("period update: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("reopen completed with errors: %v", errs)
+	}
+
+	return nil
 }
