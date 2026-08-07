@@ -15,7 +15,7 @@ Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123
 
 ```
 main.go                     →  entrypoint, DI wiring, backend selection (PG via GORM vs memory)
-internal/domain/            →  models, repository interfaces, errors. Zero external deps. 42 files, all package domain.
+internal/domain/            →  models, repository interfaces, errors. Zero external deps. 44 files, all package domain.
 internal/auth/              →  JWT (RS256), TOTP, bcrypt, rate limiter
 internal/authz/             →  Casbin RBAC policies
 internal/config/            →  viper config loader
@@ -48,7 +48,7 @@ HTTP → gin.Engine → authMW (JWT verify) → roleMW (RBAC) → Handler → Se
 
 ## Domain Models
 
-`internal/domain/models*.go` — all `package domain`. Split by bounded context. 42 files, all same package.
+`internal/domain/models*.go` — all `package domain`. Split by bounded context. 44 files, all same package.
 
 Adding a model = add to correct existing file or create new `models_*.go`. No sub-packages, no import changes.
 
@@ -78,7 +78,7 @@ Same pattern across all module handlers.
 
 ## Routes
 
-Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, budH, ccdcH, ccH, authMW, adminMW)` at `handler/handler.go:208`.
+Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, budH, ccdcH, ccH, keeperH, authMW, adminMW)` at `handler/handler.go:208`.
 
 | Group | Prefix | Handler |
 |-------|--------|---------|
@@ -92,6 +92,7 @@ Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH,
 | Purchase | `/api/v1/purchase/**` | `PurchaseHandler` |
 | Sale | `/api/v1/sale/**` | `SaleHandler` |
 | Warehouse | `/api/v1/warehouse/**` | `WarehouseHandler` |
+| Warehouse Keeper | `/api/v1/warehouse/keeper/**` | `WarehouseKeeperHandler` |
 | Fixed Asset | `/api/v1/fixed-assets/**` | `FAHandler` |
 | Payroll | `/api/v1/payroll/**` | `PayrollHandler` |
 | Recurring | `/api/v1/recurring-entries/**` | `RecurringHandler` |
@@ -128,7 +129,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000030_cost_centers`.
+~30 versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Versioned files have both `.up.sql` and `.down.sql`. Current latest: `000031_warehouse_keeper`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -148,6 +149,7 @@ Per-module naming: `pg_<module>.go` + `memory_<module>.go` in `internal/reposito
 | Purchase | `pg_purchase.go` | `memory_purchase.go` |
 | Sale | `pg_sale.go` | `memory_sale.go` |
 | Warehouse | `pg_warehouse.go` | `memory_warehouse.go` |
+| Warehouse Keeper | `pg_warehouse_keeper.go` | `memory_warehouse_keeper.go` |
 | FA | `pg_fa.go` | `memory_fa.go` |
 | Opening Balance | `pg_opening_balance.go` | `memory_opening_balance.go` |
 | Payroll | `pg_payroll.go` | `memory_payroll.go` |
@@ -189,6 +191,7 @@ Memory ID convention: copy struct before mutation, generate ID for copy, write I
 | `ccdc_handler.go` | Tools & equipment CRUD |
 | `cost_handler.go` | Cost center CRUD with hierarchy |
 | `notification_handler.go` | Notification list, read, delete |
+| `warehouse_keeper_handler.go` | Keeper assignments, stock ledger recording, reconciliation, stock card |
 | `casbin_register.go` | `RegisterRoutesWithCompanyOpt` — alternative route registration with extra variadic middleware |
 
 ## Validate Package
@@ -239,6 +242,7 @@ r.Static("/app", "./web/app")         // Main app pages
 | Purchase | PROD | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
 | Sale | PROD | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
 | Warehouse | PROD | Full backend (9 repos, 48 routes, service with GL posting) + 9 frontend pages |
+| Warehouse Keeper | ~30% | Backend PROD (14-method repo, 18 endpoints, 15 tests). Missing: frontend pages, pending slips implementation, reconciliation report enrichment |
 | Payroll | ~80% | Net-to-gross, 13th-month, severance, retroactive pay, GL journal entries, multi-level approval, salary grades/scales, declarations (D02-TS, 05/KK-TNCN, TK3-TS). Missing: device integration, mobile self-service |
 | Recurring Entries | PROD | Template-based recurring journal entries with RunNow + ProcessDue |
 | Notifications | PROD | Entity-agnostic notification system with type/title/message/link |
@@ -324,7 +328,7 @@ Karpathy: no comments unless API surface. ERP rules below override for business-
 2. Language consistent throughout file (Go only, no mixed Vietnamese in code)
 3. Revision history updated with current ticket ID (if file has one)
 
-## Module Inventory (30+ modules, ~550+ routes)
+## Module Inventory (31+ modules, ~570+ routes)
 
 | Module | Prefix | Routes | Handler Lines | Status |
 |--------|--------|--------|---------------|--------|
@@ -348,6 +352,7 @@ Karpathy: no comments unless API surface. ERP rules below override for business-
 | Purchase (P2P) | `/api/v1/purchase` | 55 | 870 | PROD |
 | Sale (O2C) | `/api/v1/sale` | 52 | 890 | PROD |
 | Warehouse | `/api/v1/warehouse` | 48 | 729 | PROD |
+| Warehouse Keeper | `/api/v1/warehouse/keeper` | 18 | 389 | ~30% |
 | Fixed Assets | `/api/v1/fixed-assets` | 34 | 541 | PROD |
 | Payroll | `/api/v1/payroll` | 55 | 754 | ~80% |
 | Recurring Entries | `/api/v1/recurring-entries` | 7 | ~150 | PROD |
