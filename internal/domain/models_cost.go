@@ -128,11 +128,12 @@ type CostingResult struct {
 type CostCategory string
 
 const (
-	CostCategoryDirectMaterial CostCategory = "DIRECT_MATERIAL"
-	CostCategoryDirectLabor    CostCategory = "DIRECT_LABOR"
-	CostCategoryOverhead       CostCategory = "OVERHEAD"
-	CostCategoryVariance       CostCategory = "VARIANCE"
-	CostCategoryProcessInfo    CostCategory = "PROCESS_INFO"
+	CostCategoryDirectMaterial    CostCategory = "DIRECT_MATERIAL"
+	CostCategoryDirectLabor       CostCategory = "DIRECT_LABOR"
+	CostCategoryOverhead          CostCategory = "OVERHEAD"
+	CostCategoryVariance          CostCategory = "VARIANCE"
+	CostCategoryProcessInfo       CostCategory = "PROCESS_INFO"
+	CostCategoryByProductDeduction CostCategory = "BY_PRODUCT_DEDUCTION"
 )
 
 // CostingResultLine is a detailed cost breakdown within a costing result.

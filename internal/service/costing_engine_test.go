@@ -340,3 +340,242 @@ func TestWIPValuation_TransferToFinishedGoods(t *testing.T) {
 	updated, _ := resultRepo.GetByID(ctx, r.ID)
 	assert.Equal(t, "FINAL", updated.Status)
 }
+
+// --- By-product Exclusion Method Tests ---
+
+func TestByProductCosting_DeductsByProductValue(t *testing.T) {
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
+	ctx := context.Background()
+
+	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	// Main product: lumber with by-product NRV deduction
+	// StandardCost holds the by-product NRV to deduct
+	mainObj := &domain.CostObject{
+		ID: "OBJ-BYPROD-001", CompanyID: "COMP1", Code: "LUMBER001", Name: "Lumber",
+		Type: "PRODUCT", CostingMethod: "BY_PRODUCT", StandardCost: 50000000, PlanQuantity: 1000, IsActive: true,
+	}
+	_ = costObjectRepo.Create(ctx, mainObj)
+
+	// Total production cost = 1B
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-MAT", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "621", Name: "Materials", Status: "OPEN", TotalAmount: 600000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-M-1", PoolID: "POOL-MAT", SourceType: "JOURNAL", Description: "Logs", Amount: 600000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-LAB", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "622", Name: "Labor", Status: "OPEN", TotalAmount: 250000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-L-1", PoolID: "POOL-LAB", SourceType: "PAYROLL", Description: "Sawmill", Amount: 250000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-OH", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "627", Name: "Overhead", Status: "OPEN", TotalAmount: 150000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-O-1", PoolID: "POOL-OH", SourceType: "DEPRECIATION", Description: "Machines", Amount: 150000000,
+	})
+
+	err := engine.RunCosting(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+
+	results, _ := engine.resultRepo.ListByPeriod(ctx, "COMP1", "CP-TEST")
+	var lumberResult domain.CostingResult
+	for _, r := range results {
+		if r.CostObjectID == "OBJ-BYPROD-001" {
+			lumberResult = r
+			break
+		}
+	}
+
+	// Total cost = 1B, By-product NRV = 50M
+	// Main product cost = 1B - 50M = 950M
+	// Unit cost = 950M / 1000 = 950,000
+	assert.Equal(t, 950000000.0, lumberResult.TotalCost)
+	assert.Equal(t, 950000.0, lumberResult.UnitCost)
+
+	// Check by-product deduction line
+	lines, _ := engine.resultLineRepo.ListByResult(ctx, lumberResult.ID)
+	hasByProdDeduction := false
+	for _, l := range lines {
+		if l.CostCategory == "BY_PRODUCT_DEDUCTION" {
+			hasByProdDeduction = true
+			assert.Equal(t, -50000000.0, l.ActualAmount) // negative = deduction
+		}
+	}
+	assert.True(t, hasByProdDeduction, "should have by-product deduction line")
+}
+
+// --- Report Tests ---
+
+func TestCostReport_CostCalculationSheet(t *testing.T) {
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo := setupCostingEngineTest(t)
+	ctx := context.Background()
+
+	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	obj := &domain.CostObject{
+		ID: "OBJ-RPT-001", CompanyID: "COMP1", Code: "RPT001", Name: "Report Product",
+		Type: "PRODUCT", CostingMethod: "SIMPLE", PlanQuantity: 100, IsActive: true,
+	}
+	_ = costObjectRepo.Create(ctx, obj)
+
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-MAT", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "621", Name: "Materials", Status: "OPEN", TotalAmount: 50000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-M-1", PoolID: "POOL-MAT", SourceType: "JOURNAL", Description: "Mat", Amount: 50000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-LAB", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "622", Name: "Labor", Status: "OPEN", TotalAmount: 30000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-L-1", PoolID: "POOL-LAB", SourceType: "PAYROLL", Description: "Labor", Amount: 30000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-OH", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "627", Name: "Overhead", Status: "OPEN", TotalAmount: 20000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-O-1", PoolID: "POOL-OH", SourceType: "MANUAL", Description: "OH", Amount: 20000000,
+	})
+
+	err := engine.RunCosting(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+
+	// Test report generation
+	svc := NewCostReportService(resultRepo, resultLineRepo, costObjectRepo)
+	report, err := svc.GetCostCalculationSheet(ctx, "COMP1", "CP-TEST", "OBJ-RPT-001")
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, "RPT001", report.ObjectCode)
+	assert.Equal(t, 100000000.0, report.TotalCost)
+	assert.Equal(t, 1000000.0, report.UnitCost)
+	assert.Len(t, report.Lines, 3) // mat, lab, oh
+}
+
+func TestCostReport_CostSummary(t *testing.T) {
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo := setupCostingEngineTest(t)
+	ctx := context.Background()
+
+	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	obj1 := &domain.CostObject{
+		ID: "OBJ-SUM-001", CompanyID: "COMP1", Code: "SUM001", Name: "Product A",
+		Type: "PRODUCT", CostingMethod: "SIMPLE", PlanQuantity: 100, IsActive: true,
+	}
+	obj2 := &domain.CostObject{
+		ID: "OBJ-SUM-002", CompanyID: "COMP1", Code: "SUM002", Name: "Product B",
+		Type: "PRODUCT", CostingMethod: "SIMPLE", PlanQuantity: 200, IsActive: true,
+	}
+	_ = costObjectRepo.Create(ctx, obj1)
+	_ = costObjectRepo.Create(ctx, obj2)
+
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-MAT", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "621", Name: "Materials", Status: "OPEN", TotalAmount: 100000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-M-1", PoolID: "POOL-MAT", SourceType: "JOURNAL", Description: "Mat", Amount: 100000000,
+	})
+
+	err := engine.RunCosting(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+
+	svc := NewCostReportService(resultRepo, resultLineRepo, costObjectRepo)
+	summary, err := svc.GetCostSummary(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+	assert.NotNil(t, summary)
+	assert.Len(t, summary.Items, 2)
+	assert.Equal(t, 200000000.0, summary.TotalAllObjects) // 100M × 2 objects
+}
+
+func TestCostReport_WIPValuation(t *testing.T) {
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo := setupCostingEngineTest(t)
+	ctx := context.Background()
+
+	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	obj := &domain.CostObject{
+		ID: "OBJ-WIP-RPT", CompanyID: "COMP1", Code: "WIPRPT01", Name: "WIP Product",
+		Type: "PRODUCT", CostingMethod: "SIMPLE", PlanQuantity: 100, IsActive: true,
+	}
+	_ = costObjectRepo.Create(ctx, obj)
+
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-MAT", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "621", Name: "Materials", Status: "OPEN", TotalAmount: 50000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-M-1", PoolID: "POOL-MAT", SourceType: "JOURNAL", Description: "Mat", Amount: 50000000,
+	})
+
+	err := engine.RunCosting(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+
+	svc := NewCostReportService(resultRepo, resultLineRepo, costObjectRepo)
+	wipReport, err := svc.GetWIPValuation(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+	assert.NotNil(t, wipReport)
+	assert.Len(t, wipReport.Items, 1)
+	assert.Equal(t, 50000000.0, wipReport.TotalWIP)
+}
+
+func TestCostReport_VarianceAnalysis(t *testing.T) {
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, resultLineRepo := setupCostingEngineTest(t)
+	ctx := context.Background()
+
+	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	obj := &domain.CostObject{
+		ID: "OBJ-VAR-001", CompanyID: "COMP1", Code: "VAR001", Name: "Variance Product",
+		Type: "PRODUCT", CostingMethod: "STANDARD",
+		StandardMaterial: 500000, StandardLabor: 200000, StandardOverhead: 150000,
+		PlanQuantity: 1000, IsActive: true,
+	}
+	_ = costObjectRepo.Create(ctx, obj)
+
+	// Actual: 550M + 220M + 160M = 930M
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-MAT", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "621", Name: "Materials", Status: "OPEN", TotalAmount: 550000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-M-1", PoolID: "POOL-MAT", SourceType: "JOURNAL", Description: "Mat", Amount: 550000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-LAB", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "622", Name: "Labor", Status: "OPEN", TotalAmount: 220000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-L-1", PoolID: "POOL-LAB", SourceType: "PAYROLL", Description: "Labor", Amount: 220000000,
+	})
+	_ = costPoolRepo.Create(ctx, &domain.CostPool{
+		ID: "POOL-OH", CompanyID: "COMP1", PeriodID: "CP-TEST",
+		GLAccountCode: "627", Name: "Overhead", Status: "OPEN", TotalAmount: 160000000,
+	})
+	_ = costPoolLineRepo.Create(ctx, &domain.CostPoolLine{
+		ID: "LINE-O-1", PoolID: "POOL-OH", SourceType: "DEPRECIATION", Description: "OH", Amount: 160000000,
+	})
+
+	err := engine.RunCosting(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+
+	svc := NewCostReportService(resultRepo, resultLineRepo, costObjectRepo)
+	varianceReport, err := svc.GetVarianceAnalysis(ctx, "COMP1", "CP-TEST")
+	assert.NoError(t, err)
+	assert.NotNil(t, varianceReport)
+	assert.Len(t, varianceReport.Items, 1)
+
+	item := varianceReport.Items[0]
+	assert.Equal(t, 930000000.0, item.ActualCost)
+	assert.Equal(t, 850000000.0, item.StandardCost)
+	assert.Equal(t, 80000000.0, item.Variance)
+	assert.Equal(t, "UNFAVORABLE", item.VarianceType)
+}

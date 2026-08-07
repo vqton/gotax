@@ -187,5 +187,26 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 		}
 	}
 
+	// By-product exclusion: deduct by-product NRV from main product cost
+	if obj.CostingMethod == "BY_PRODUCT" {
+		byProductNRV := obj.StandardCost // StandardCost holds NRV for by-product objects
+		if byProductNRV > 0 {
+			deductedCost := totalCost - byProductNRV
+			if deductedCost < 0 {
+				deductedCost = 0
+			}
+			result.TotalCost = deductedCost
+			if outputQuantity > 0 {
+				result.UnitCost = deductedCost / outputQuantity
+			}
+			if err := e.resultRepo.Update(ctx, result); err != nil {
+				return err
+			}
+			if err := e.createResultLine(ctx, result.ID, domain.CostCategoryByProductDeduction, "154", "By-product NRV deduction", 0, -byProductNRV, -byProductNRV); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
