@@ -6,17 +6,18 @@
 
 ---
 
-## What We Built (Phases 1-9)
+## What We Built (Phases 1-10)
 
 | Layer | Scope | Status |
 |-------|-------|--------|
-| Domain models | 14 structs, 13 enums (added RetroactivePayInput/Result) | ✅ |
+| Domain models | 17 structs, 16 enums (added SalaryGrade, SalaryScale, EmployeeSalaryGrade) | ✅ |
 | Calculation engine | SI/HI/UI, PIT 7→5 brackets, OT/night/holiday, **net-to-gross**, **13th-month**, **severance**, **retroactive pay** | ✅ |
-| GL integration | Auto-posting on approval (3 balanced journal entries) | ✅ |
+| GL integration | Auto-posting on approval + **retroactive pay GL entries** | ✅ |
 | Approval workflow | **Multi-level: DRAFT → PROCESSING → REVIEWING → APPROVED** | ✅ |
 | Declarations | D02-TS, 05/KK-TNCN, TK3-TS XML generation | ✅ |
 | Payslip PDF | maroto/v2 generation with income/deduction breakdown | ✅ |
-| Tests | ~180 tests (domain + service + handler) | ✅ |
+| Salary Grade/Scale | **Full CRUD: grades, scales, employee assignments** | ✅ |
+| Tests | ~200 tests (domain + service + handler) | ✅ |
 
 ---
 
@@ -71,20 +72,20 @@
 
 ---
 
-## Scorecard Summary (Updated)
+## Scorecard Summary (Final)
 
 | Category | GoTax | MISA | Fast | Bravo |
 |----------|-------|------|------|-------|
 | Core calculation | **12/12** | 12/12 | 10/12 | 11/12 |
 | Timekeeping | 4/6 | 6/6 | 4/6 | 5/6 |
 | Period management | **5/5** | 5/5 | 4/5 | 5/5 |
-| Employee config | 5/6 | 6/6 | 5/6 | 6/6 |
+| Employee config | **6/6** | 6/6 | 5/6 | 6/6 |
 | Payslip | **3/4** | 4/4 | 3/4 | 3/4 |
 | GL/Declarations | **5/5** | 5/5 | 2/5 | 4/5 |
 | Reporting | 1/4 | 4/4 | 2/4 | 3/4 |
-| **TOTAL** | **35/42 (83%)** | **42/42 (100%)** | **30/42 (71%)** | **37/42 (88%)** |
+| **TOTAL** | **36/42 (86%)** | **42/42 (100%)** | **30/42 (71%)** | **37/42 (88%)** |
 
-**Improvement:** 64% → 74% → 83% (+19 points total)
+**Final improvement:** 64% → 74% → 83% → **86%** (+22 points total)
 
 ### What GoTax Already Beats Competition On
 1. **PIT brackets**: Dual 7→5 bracket support (transition 2026) vs competitors single schedule
