@@ -238,3 +238,182 @@ func (s *CostingJEService) CarryForwardOpeningBalance(ctx context.Context, compa
 
 	return nil
 }
+
+// GenerateCOGSEntry: Dr 632 (COGS), Cr 155 (Finished goods)
+func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, periodID, objectID string, quantity float64) error {
+	results, err := s.resultRepo.ListByPeriod(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+
+	var result domain.CostingResult
+	found := false
+	for _, r := range results {
+		if r.CostObjectID == objectID {
+			result = r
+			found = true
+			break
+		}
+	}
+	if !found {
+		return domain.ErrCostingResultNotFound
+	}
+
+	if result.Status != "FINAL" {
+		return fmt.Errorf("costing result not finalized")
+	}
+
+	if result.UnitCost <= 0 || quantity <= 0 {
+		return nil
+	}
+
+	amount := result.UnitCost * quantity
+
+	entry := buildCostEntry(
+		s.genJEID(), companyID,
+		fmt.Sprintf("COGS-%s-%s", periodID, objectID),
+		fmt.Sprintf("COGS for %s - %.0f units", objectID, quantity),
+		"632", "155",
+		amount,
+	)
+
+	return s.jeCreator.CreateEntry(ctx, entry, "system")
+}
+
+// CollectMaterialCosts: aggregate warehouse material issuances into cost pool TK 621
+func (s *CostingJEService) CollectMaterialCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
+	return s.collectCosts(ctx, companyID, periodID, "621", "Direct materials", lines)
+}
+
+// CollectLaborCosts: aggregate payroll direct labor into cost pool TK 622
+func (s *CostingJEService) CollectLaborCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
+	return s.collectCosts(ctx, companyID, periodID, "622", "Direct labor", lines)
+}
+
+type CostPoolLineInput struct {
+	SourceID     string
+	Description  string
+	Amount       float64
+	CostCenterID string
+}
+
+func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName string, lines []CostPoolLineInput) error {
+	if len(lines) == 0 {
+		return nil
+	}
+
+	var totalAmount float64
+	for _, l := range lines {
+		totalAmount += l.Amount
+	}
+	if totalAmount <= 0 {
+		return nil
+	}
+
+	pools, err := s.costPoolRepo.ListByPeriod(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+
+	var pool *domain.CostPool
+	for _, p := range pools {
+		if p.GLAccountCode == glAccountCode {
+			cp := p
+			pool = &cp
+			break
+		}
+	}
+
+	if pool == nil {
+		pool = &domain.CostPool{
+			ID:            costingGenID("CP"),
+			CompanyID:     companyID,
+			PeriodID:      periodID,
+			GLAccountCode: glAccountCode,
+			Name:          poolName,
+			Status:        domain.CostPoolStatusOpen,
+			CreatedAt:     nowTimestamp(),
+			UpdatedAt:     nowTimestamp(),
+		}
+		if err := s.costPoolRepo.Create(ctx, pool); err != nil {
+			return err
+		}
+	}
+
+	for _, l := range lines {
+		line := &domain.CostPoolLine{
+			ID:           costingGenID("CPL"),
+			PoolID:       pool.ID,
+			SourceType:   "MANUAL",
+			SourceID:     l.SourceID,
+			Description:  l.Description,
+			Amount:       l.Amount,
+			CostCenterID: l.CostCenterID,
+			CreatedAt:    nowTimestamp(),
+		}
+		if err := s.costPoolLineRepo.Create(ctx, line); err != nil {
+			return err
+		}
+	}
+
+	pool.TotalAmount += totalAmount
+	pool.UpdatedAt = nowTimestamp()
+	return s.costPoolRepo.Update(ctx, pool)
+}
+
+// ReopenPeriod: reverse close, generate reversal entries, set period back to OPEN
+func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID string) error {
+	period, err := s.periodRepo.GetByID(ctx, periodID)
+	if err != nil {
+		return err
+	}
+	if period.Status != "CLOSED" {
+		return fmt.Errorf("period is not closed")
+	}
+
+	results, err := s.resultRepo.ListByPeriod(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+
+	for _, r := range results {
+		if r.Status == "FINAL" {
+			reversal := buildCostEntry(
+				s.genJEID(), companyID,
+				fmt.Sprintf("REV-WIP-%s-%s", periodID, r.CostObjectID),
+				fmt.Sprintf("Reversal WIP transfer - %s", r.CostObjectID),
+				"154", "155",
+				r.TotalCost,
+			)
+			if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
+				return err
+			}
+		}
+	}
+
+	pools, err := s.costPoolRepo.ListByPeriod(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+
+	for _, pool := range pools {
+		if pool.TotalAmount > 0 {
+			reversal := buildCostEntry(
+				s.genJEID(), companyID,
+				fmt.Sprintf("REV-COST-%s-%s", periodID, pool.GLAccountCode),
+				fmt.Sprintf("Reversal cost allocation - %s", pool.Name),
+				pool.GLAccountCode, "154",
+				pool.TotalAmount,
+			)
+			if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
+				return err
+			}
+		}
+	}
+
+	period.Status = "OPEN"
+	period.ClosedBy = ""
+	period.ClosedAt = ""
+
+	return s.periodRepo.Update(ctx, period)
+}

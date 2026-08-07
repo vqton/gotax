@@ -306,3 +306,118 @@ func TestCostingJE_OpeningBalanceCarryForward_NoPrevious(t *testing.T) {
 	results, _ := resultRepo.ListByPeriod(ctx, "COMP1", currPeriodID)
 	assert.Len(t, results, 0)
 }
+
+func TestCostingJE_COGSEntry(t *testing.T) {
+	svc, periodRepo, _, _, _, resultRepo, _ := setupCostingJETest(t)
+	ctx := context.Background()
+
+	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
+	result := &domain.CostingResult{
+		ID: "CR-001", CompanyID: "COMP1", PeriodID: periodID, CostObjectID: "OBJ-001",
+		CostingMethod: "SIMPLE", TotalCost: 50000000, OutputQuantity: 100, UnitCost: 500000,
+		Status: "FINAL",
+	}
+	_ = resultRepo.Create(ctx, result)
+
+	err := svc.GenerateCOGSEntry(ctx, "COMP1", periodID, "OBJ-001", 50)
+	assert.NoError(t, err)
+
+	entries := svc.jeCreator.(*testJECreator).entries
+	assert.Len(t, entries, 1)
+
+	entry := entries[0]
+	assert.Equal(t, "632", entry.Lines[0].AccountCode)
+	assert.Equal(t, 25000000.0, entry.Lines[0].DebitAmount)
+	assert.Equal(t, "155", entry.Lines[1].AccountCode)
+	assert.Equal(t, 25000000.0, entry.Lines[1].CreditAmount)
+}
+
+func TestCostingJE_COGSEntry_NotFinal(t *testing.T) {
+	svc, periodRepo, _, _, _, resultRepo, _ := setupCostingJETest(t)
+	ctx := context.Background()
+
+	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
+	result := &domain.CostingResult{
+		ID: "CR-001", CompanyID: "COMP1", PeriodID: periodID, CostObjectID: "OBJ-001",
+		CostingMethod: "SIMPLE", TotalCost: 50000000, OutputQuantity: 100, UnitCost: 500000,
+		Status: "DRAFT",
+	}
+	_ = resultRepo.Create(ctx, result)
+
+	err := svc.GenerateCOGSEntry(ctx, "COMP1", periodID, "OBJ-001", 50)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not finalized")
+}
+
+func TestCostingJE_CollectMaterialCosts(t *testing.T) {
+	svc, periodRepo, _, costPoolRepo, costPoolLineRepo, _, _ := setupCostingJETest(t)
+	ctx := context.Background()
+
+	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	lines := []CostPoolLineInput{
+		{SourceID: "WH-001", Description: "Raw material A", Amount: 30000000},
+		{SourceID: "WH-002", Description: "Raw material B", Amount: 20000000},
+	}
+
+	err := svc.CollectMaterialCosts(ctx, "COMP1", periodID, lines)
+	assert.NoError(t, err)
+
+	pools, _ := costPoolRepo.ListByPeriod(ctx, "COMP1", periodID)
+	assert.Len(t, pools, 1)
+	assert.Equal(t, "621", pools[0].GLAccountCode)
+	assert.Equal(t, 50000000.0, pools[0].TotalAmount)
+
+	poolLines, _ := costPoolLineRepo.ListByPool(ctx, pools[0].ID)
+	assert.Len(t, poolLines, 2)
+}
+
+func TestCostingJE_CollectLaborCosts(t *testing.T) {
+	svc, periodRepo, _, costPoolRepo, _, _, _ := setupCostingJETest(t)
+	ctx := context.Background()
+
+	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
+
+	lines := []CostPoolLineInput{
+		{SourceID: "PAY-001", Description: "Direct labor line 1", Amount: 40000000},
+	}
+
+	err := svc.CollectLaborCosts(ctx, "COMP1", periodID, lines)
+	assert.NoError(t, err)
+
+	pools, _ := costPoolRepo.ListByPeriod(ctx, "COMP1", periodID)
+	assert.Len(t, pools, 1)
+	assert.Equal(t, "622", pools[0].GLAccountCode)
+	assert.Equal(t, 40000000.0, pools[0].TotalAmount)
+}
+
+func TestCostingJE_ReopenPeriod(t *testing.T) {
+	svc, periodRepo, _, costPoolRepo, _, resultRepo, _ := setupCostingJETest(t)
+	ctx := context.Background()
+
+	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
+	period, _ := periodRepo.GetByID(ctx, periodID)
+	period.Status = "CLOSED"
+	_ = periodRepo.Update(ctx, period)
+
+	result := &domain.CostingResult{
+		ID: "CR-001", CompanyID: "COMP1", PeriodID: periodID, CostObjectID: "OBJ-001",
+		CostingMethod: "SIMPLE", TotalCost: 50000000, Status: "FINAL",
+	}
+	_ = resultRepo.Create(ctx, result)
+
+	pool := &domain.CostPool{
+		ID: "POOL-001", CompanyID: "COMP1", PeriodID: periodID,
+		GLAccountCode: "621", Name: "Direct materials", Status: "OPEN", TotalAmount: 30000000,
+	}
+	_ = costPoolRepo.Create(ctx, pool)
+
+	err := svc.ReopenPeriod(ctx, "COMP1", periodID)
+	assert.NoError(t, err)
+
+	periodAfter, _ := periodRepo.GetByID(ctx, periodID)
+	assert.Equal(t, "OPEN", periodAfter.Status)
+
+	entries := svc.jeCreator.(*testJECreator).entries
+	assert.Len(t, entries, 2)
+}

@@ -18,6 +18,8 @@ type pgCostObject struct {
 	Name          string    `gorm:"column:name"`
 	Type          string    `gorm:"column:type"`
 	CostingMethod string    `gorm:"column:costing_method"`
+	ParentID      *string   `gorm:"column:parent_id"`
+	GLAccountCode *string   `gorm:"column:gl_account_code"`
 	CostCenterID  *string   `gorm:"column:cost_center_id"`
 	UnitOfMeasure *string   `gorm:"column:unit_of_measure"`
 	StandardCost  float64   `gorm:"column:standard_cost"`
@@ -60,6 +62,12 @@ func toPGCostObject(co *domain.CostObject) *pgCostObject {
 		CreatedAt:     created,
 		UpdatedAt:     updated,
 	}
+	if co.ParentID != "" {
+		m.ParentID = &co.ParentID
+	}
+	if co.GLAccountCode != "" {
+		m.GLAccountCode = &co.GLAccountCode
+	}
 	if co.CostCenterID != "" {
 		m.CostCenterID = &co.CostCenterID
 	}
@@ -82,6 +90,12 @@ func toDomainCostObject(m *pgCostObject) *domain.CostObject {
 		IsActive:      m.IsActive,
 		CreatedAt:     m.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:     m.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+	if m.ParentID != nil {
+		co.ParentID = *m.ParentID
+	}
+	if m.GLAccountCode != nil {
+		co.GLAccountCode = *m.GLAccountCode
 	}
 	if m.CostCenterID != nil {
 		co.CostCenterID = *m.CostCenterID
@@ -135,15 +149,18 @@ func (r *PGCostObjectRepo) Delete(ctx context.Context, id string) error {
 // ─── CostPool ──────────────────────────────────────────────────────────────
 
 type pgCostPool struct {
-	ID            string    `gorm:"column:id;primaryKey"`
-	CompanyID     string    `gorm:"column:company_id"`
-	PeriodID      string    `gorm:"column:period_id"`
-	GLAccountCode string    `gorm:"column:gl_account_code"`
-	Name          string    `gorm:"column:name"`
-	Status        string    `gorm:"column:status"`
-	TotalAmount   float64   `gorm:"column:total_amount"`
-	CreatedAt     time.Time `gorm:"column:created_at"`
-	UpdatedAt     time.Time `gorm:"column:updated_at"`
+	ID              string    `gorm:"column:id;primaryKey"`
+	CompanyID       string    `gorm:"column:company_id"`
+	PeriodID        string    `gorm:"column:period_id"`
+	Code            *string   `gorm:"column:code"`
+	GLAccountCode   string    `gorm:"column:gl_account_code"`
+	PoolType        *string   `gorm:"column:pool_type"`
+	AllocationBase  *string   `gorm:"column:allocation_base"`
+	Name            string    `gorm:"column:name"`
+	Status          string    `gorm:"column:status"`
+	TotalAmount     float64   `gorm:"column:total_amount"`
+	CreatedAt       time.Time `gorm:"column:created_at"`
+	UpdatedAt       time.Time `gorm:"column:updated_at"`
 }
 
 func (pgCostPool) TableName() string { return "cost_pools" }
@@ -166,7 +183,7 @@ func toPGCostPool(cp *domain.CostPool) *pgCostPool {
 	} else {
 		updated = time.Now()
 	}
-	return &pgCostPool{
+	m := &pgCostPool{
 		ID:            cp.ID,
 		CompanyID:     cp.CompanyID,
 		PeriodID:      cp.PeriodID,
@@ -177,10 +194,20 @@ func toPGCostPool(cp *domain.CostPool) *pgCostPool {
 		CreatedAt:     created,
 		UpdatedAt:     updated,
 	}
+	if cp.Code != "" {
+		m.Code = &cp.Code
+	}
+	if cp.PoolType != "" {
+		m.PoolType = &cp.PoolType
+	}
+	if cp.AllocationBase != "" {
+		m.AllocationBase = &cp.AllocationBase
+	}
+	return m
 }
 
 func toDomainCostPool(m *pgCostPool) *domain.CostPool {
-	return &domain.CostPool{
+	cp := &domain.CostPool{
 		ID:            m.ID,
 		CompanyID:     m.CompanyID,
 		PeriodID:      m.PeriodID,
@@ -191,6 +218,16 @@ func toDomainCostPool(m *pgCostPool) *domain.CostPool {
 		CreatedAt:     m.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:     m.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
+	if m.Code != nil {
+		cp.Code = *m.Code
+	}
+	if m.PoolType != nil {
+		cp.PoolType = *m.PoolType
+	}
+	if m.AllocationBase != nil {
+		cp.AllocationBase = *m.AllocationBase
+	}
+	return cp
 }
 
 func (r *PGCostPoolRepo) Create(ctx context.Context, cp *domain.CostPool) error {

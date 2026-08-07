@@ -52,6 +52,8 @@ type CostObject struct {
 	Name              string          `json:"name"`
 	Type              CostObjectType  `json:"type"`
 	CostingMethod     CostingMethod   `json:"costing_method"`
+	ParentID          string          `json:"parent_id,omitempty"`
+	GLAccountCode     string          `json:"gl_account_code,omitempty"`
 	CostCenterID      string          `json:"cost_center_id,omitempty"`
 	UnitOfMeasure     string          `json:"unit_of_measure,omitempty"`
 	StandardCost      float64         `json:"standard_cost,omitempty"`
@@ -69,15 +71,18 @@ type CostObject struct {
 
 // CostPool collects costs before allocation to cost objects (tài khoản tập hợp chi phí).
 type CostPool struct {
-	ID            string         `json:"id"`
-	CompanyID     string         `json:"company_id"`
-	PeriodID      string         `json:"period_id"`
-	GLAccountCode string         `json:"gl_account_code"` // e.g. 621, 622, 627
-	Name          string         `json:"name"`
-	Status        CostPoolStatus `json:"status"`
-	TotalAmount   float64        `json:"total_amount"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
+	ID              string         `json:"id"`
+	CompanyID       string         `json:"company_id"`
+	PeriodID        string         `json:"period_id"`
+	Code            string         `json:"code"`
+	GLAccountCode   string         `json:"gl_account_code"` // e.g. 621, 622, 627
+	PoolType        string         `json:"pool_type"`       // DIRECT_MATERIAL, DIRECT_LABOR, OVERHEAD
+	AllocationBase  string         `json:"allocation_base,omitempty"` // LABOR_COST, MACHINE_HOURS, UNITS
+	Name            string         `json:"name"`
+	Status          CostPoolStatus `json:"status"`
+	TotalAmount     float64        `json:"total_amount"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
 }
 
 // CostPoolLine is a single cost entry within a pool.

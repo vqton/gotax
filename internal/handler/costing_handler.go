@@ -29,6 +29,10 @@ func RegisterCostingRoutes(r *gin.Engine, h *CostingHandler, authMW gin.HandlerF
 		periods.GET("/:id", h.GetPeriod)
 		periods.POST("/:id/close", h.ClosePeriod)
 		periods.POST("/:id/close-je", h.ClosePeriodWithJE)
+		periods.POST("/:id/reopen", h.ReopenPeriod)
+		periods.POST("/:id/collect-materials", h.CollectMaterialCosts)
+		periods.POST("/:id/collect-labor", h.CollectLaborCosts)
+		periods.POST("/:id/cogs", h.GenerateCOGS)
 	}
 
 	v1.POST("/costing/run", h.RunCosting)
@@ -102,6 +106,70 @@ func (h *CostingHandler) ClosePeriodWithJE(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "period closed with journal entries"})
+}
+
+func (h *CostingHandler) ReopenPeriod(c *gin.Context) {
+	id := c.Param("id")
+	companyID := c.Query("company_id")
+	if err := h.costingJESvc.ReopenPeriod(c.Request.Context(), companyID, id); err != nil {
+		h.costingError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "period reopened"})
+}
+
+type collectCostsRequest struct {
+	Lines []service.CostPoolLineInput `json:"lines"`
+}
+
+func (h *CostingHandler) CollectMaterialCosts(c *gin.Context) {
+	id := c.Param("id")
+	companyID := c.Query("company_id")
+	var req collectCostsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if err := h.costingJESvc.CollectMaterialCosts(c.Request.Context(), companyID, id, req.Lines); err != nil {
+		h.costingError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "material costs collected"})
+}
+
+func (h *CostingHandler) CollectLaborCosts(c *gin.Context) {
+	id := c.Param("id")
+	companyID := c.Query("company_id")
+	var req collectCostsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if err := h.costingJESvc.CollectLaborCosts(c.Request.Context(), companyID, id, req.Lines); err != nil {
+		h.costingError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "labor costs collected"})
+}
+
+type generateCOGSRequest struct {
+	ObjectID string  `json:"object_id"`
+	Quantity float64 `json:"quantity"`
+}
+
+func (h *CostingHandler) GenerateCOGS(c *gin.Context) {
+	id := c.Param("id")
+	companyID := c.Query("company_id")
+	var req generateCOGSRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if err := h.costingJESvc.GenerateCOGSEntry(c.Request.Context(), companyID, id, req.ObjectID, req.Quantity); err != nil {
+		h.costingError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "COGS entry generated"})
 }
 
 type runCostingRequest struct {
