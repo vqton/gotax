@@ -424,8 +424,8 @@ type pgCostingResult struct {
 	TotalCost      float64   `gorm:"column:total_cost"`
 	OutputQuantity float64   `gorm:"column:output_quantity"`
 	UnitCost       float64   `gorm:"column:unit_cost"`
-	WIPBegin       float64   `gorm:"column:wip_begin"`
-	WIPEnd         float64   `gorm:"column:wip_end"`
+	WIPBegin       float64   `gorm:"column:wip_beginning"`
+	WIPEnd         float64   `gorm:"column:wip_ending"`
 	Status         string    `gorm:"column:status"`
 	CreatedAt      time.Time `gorm:"column:created_at"`
 	UpdatedAt      time.Time `gorm:"column:updated_at"`
