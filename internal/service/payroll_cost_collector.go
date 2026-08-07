@@ -9,12 +9,12 @@ import (
 // PayrollCostCollector implements CostDataCollector for payroll direct labor costs.
 type PayrollCostCollector struct {
 	payrollRepo interface {
-		ListByPeriod(ctx context.Context, periodID string) ([]domain.PayrollRun, error)
+		ListRunsByPeriod(ctx context.Context, periodID string) ([]domain.PayrollRun, error)
 	}
 }
 
 func NewPayrollCostCollector(payrollRepo interface {
-	ListByPeriod(ctx context.Context, periodID string) ([]domain.PayrollRun, error)
+	ListRunsByPeriod(ctx context.Context, periodID string) ([]domain.PayrollRun, error)
 }) *PayrollCostCollector {
 	return &PayrollCostCollector{payrollRepo: payrollRepo}
 }
@@ -24,7 +24,7 @@ func (c *PayrollCostCollector) CollectMaterialCosts(ctx context.Context, company
 }
 
 func (c *PayrollCostCollector) CollectLaborCosts(ctx context.Context, companyID, periodID string) ([]domain.CostPoolLineInput, error) {
-	runs, err := c.payrollRepo.ListByPeriod(ctx, periodID)
+	runs, err := c.payrollRepo.ListRunsByPeriod(ctx, periodID)
 	if err != nil {
 		return nil, err
 	}

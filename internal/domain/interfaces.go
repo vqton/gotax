@@ -834,8 +834,9 @@ type CostDataCollector interface {
 }
 
 type CostPoolLineInput struct {
-	SourceID     string
-	Description  string
-	Amount       float64
-	CostCenterID string
+	SourceID      string
+	Description   string
+	Amount        float64
+	CostCenterID  string
+	CostObjectID  string
 }
