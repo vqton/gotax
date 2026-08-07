@@ -239,7 +239,7 @@ r.Static("/app", "./web/app")         // Main app pages
 | Purchase | PROD | Full domain models + repos + service + handlers + 55 routes. Missing: GDT API push, supplier portal |
 | Sale | PROD | Full O2C: customers, SQ, SO, DN, invoices, receipts, CNs, AR txn. Missing: e-invoice TXML, GDT push |
 | Warehouse | PROD | Full backend (9 repos, 48 routes, service with GL posting) + 9 frontend pages |
-| Payroll | ~70% | Salary engine, SI/HI/UI calc, PIT, timekeeping, payslips, declarations. SubmitPeriod workflow. Missing: GL posting on approval, tax module KK_TNCN link |
+| Payroll | ~80% | Net-to-gross, 13th-month, severance, retroactive pay, GL journal entries, multi-level approval, salary grades/scales, declarations (D02-TS, 05/KK-TNCN, TK3-TS). Missing: device integration, mobile self-service |
 | Recurring Entries | PROD | Template-based recurring journal entries with RunNow + ProcessDue |
 | Notifications | PROD | Entity-agnostic notification system with type/title/message/link |
 | CCDC | PROD | ToolEquipment + ToolEquipmentCategory CRUD, account 153 |
@@ -278,6 +278,52 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 - **SQLite rejected**: Adding SQLite support does NOT make sense. Schema deeply PG-specific (`pgcrypto`, `gen_random_uuid()`, `TIMESTAMPTZ`, `plpgsql` triggers, `SUBSTRING FROM` regex, `GREATEST()`). 20+ raw SQL queries in PG repos. 18 migrations would need dual sets. In-memory backend already covers dev/test.
 - **No LINQ library needed**: Go has `samber/lo` (19k stars, 120+ functions), `ahmetb/go-linq` (3.6k stars, v4 with iter.Seq), `CreateLab/GLinq` (lazy, fluent). For this codebase, standard `for` loops + `slices.SortFunc` are sufficient. Don't add collection libraries unless profiling shows bottleneck.
 
+## Commenting & Documentation Standards
+
+Karpathy: no comments unless API surface. ERP rules below override for business-logic-heavy code.
+
+**When to comment (mandatory):**
+- Business rule driven by regulation (Circular 99, Decree 123, Labor Code 2019 Art. 46)
+- Non-obvious accounting logic (net-to-gross search, dual-half-year PIT brackets)
+- Account mapping decisions (which GL account why)
+- Data exclusion reasons in migrations
+
+**When NOT to comment:**
+- What syntax does (`// iterate over slice` — delete)
+- Obvious flow (`// call service` — delete)
+- Self-documenting names (`CalculateNetToGross` — name is enough)
+
+**Standard task tags:**
+```
+// TODO: sync with master CRM before go-live
+// FIX: temporary patch during UAT
+// DEPRECATED: old table, kept for migration rollback
+```
+
+**Migration scripts (ETL):**
+- Comment why data format changes between legacy and new
+- Comment why datasets excluded (e.g., pre-2020 per sign-off)
+- Use `CREATE TABLE IF NOT EXISTS` — always
+
+**GL account mapping comments:**
+```
+// Account 6421 — Salary expense per Circular 99/2025, Appendix 01
+// Account 3331 — Payable to employee (salary withheld)
+// Account 3335 — SI payable (employer portion, Art. 86 Social Insurance Law)
+```
+
+**Revision history (complex business logic files only):**
+```go
+// REVISION HISTORY:
+// 2026-08-07   dev   PAYROLL-001   Initial: net-to-gross with dual-half-year PIT
+// 2026-08-07   dev   PAYROLL-002   Add: severance per Labor Code 2019 Art. 46
+```
+
+**Pre-deployment checklist:**
+1. No hardcoded credentials, API keys, or payroll data in comments
+2. Language consistent throughout file (Go only, no mixed Vietnamese in code)
+3. Revision history updated with current ticket ID (if file has one)
+
 ## Module Inventory (30+ modules, ~550+ routes)
 
 | Module | Prefix | Routes | Handler Lines | Status |
@@ -303,7 +349,7 @@ Full tax/purchase/warehouse/payroll specs at `docs/`.
 | Sale (O2C) | `/api/v1/sale` | 52 | 890 | PROD |
 | Warehouse | `/api/v1/warehouse` | 48 | 729 | PROD |
 | Fixed Assets | `/api/v1/fixed-assets` | 34 | 541 | PROD |
-| Payroll | `/api/v1/payroll` | 55 | 754 | ~70% |
+| Payroll | `/api/v1/payroll` | 55 | 754 | ~80% |
 | Recurring Entries | `/api/v1/recurring-entries` | 7 | ~150 | PROD |
 | Notifications | `/api/v1/notifications` | 5 | ~120 | PROD |
 | CCDC | `/api/v1/ccdc` | 10 | ~200 | PROD |
@@ -318,7 +364,7 @@ Compared to MISA SME (19 subsystems, Vietnam market leader) and standard SME ERP
 
 | Module | Priority | Why Missing |
 |--------|----------|-------------|
-| **Payroll** | ~70% | Built: salary engine, SI/HI/UI, PIT, timekeeping, payslips, declarations, SubmitPeriod workflow. Missing: GL posting on approval, tax module KK_TNCN link. |
+| **Payroll** | ~80% | Built: salary engine, SI/HI/UI, PIT, timekeeping, payslips, declarations, SubmitPeriod, net-to-gross, 13th-month, severance, retroactive pay, GL posting, multi-level approval, salary grades. Missing: device integration, mobile self-service |
 | **Contracts** | MEDIUM | Sales/purchase contract tracking, renewal alerts. Fields exist on entities but no standalone module. |
 | **CRM** | MEDIUM | Customer interaction history, pipeline. Not core accounting. |
 | **Notifications** | MEDIUM | Invoice due dates, approval reminders, low stock alerts. |

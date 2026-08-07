@@ -750,3 +750,31 @@ type BudgetRepository interface {
 	Delete(ctx context.Context, id string) error
 	Upsert(ctx context.Context, b *Budget) error
 }
+
+// ─── Warehouse Keeper Repository ─────────────────────────────────
+
+type WarehouseKeeperRepository interface {
+	// Assignment
+	CreateAssignment(ctx context.Context, a *WarehouseKeeperAssignment) error
+	GetAssignment(ctx context.Context, id string) (*WarehouseKeeperAssignment, error)
+	ListAssignments(ctx context.Context, companyID string) ([]WarehouseKeeperAssignment, error)
+	GetActiveAssignment(ctx context.Context, companyID, warehouseID string, date time.Time) (*WarehouseKeeperAssignment, error)
+	UpdateAssignment(ctx context.Context, a *WarehouseKeeperAssignment) error
+	DeleteAssignment(ctx context.Context, id string) error
+
+	// Stock Ledger
+	CreateLedgerEntry(ctx context.Context, e *StockLedgerEntry) error
+	GetLedgerEntry(ctx context.Context, id string) (*StockLedgerEntry, error)
+	ListLedgerEntries(ctx context.Context, filter LedgerFilter) ([]StockLedgerEntry, int, error)
+	UnrecordLedgerEntry(ctx context.Context, id string, unrecordedBy string, reason string) error
+	GetLedgerBalance(ctx context.Context, companyID, warehouseID, itemID string) (float64, error)
+
+	// Reconciliation
+	GetReconciliationReport(ctx context.Context, companyID, warehouseID string, from, to time.Time) ([]KeeperReconciliationItem, error)
+
+	// Stock Card
+	GetStockCard(ctx context.Context, companyID, warehouseID, itemID string, period string) (*StockCard, error)
+
+	// Keeper Reports
+	GetKeeperInventorySummary(ctx context.Context, companyID, warehouseID string) ([]KeeperInventorySummaryItem, error)
+}

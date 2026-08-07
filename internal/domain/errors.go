@@ -611,3 +611,15 @@ var (
 var (
 	ErrNotificationNotFound = errors.New("notification not found")
 )
+
+// Warehouse Keeper errors
+var (
+	ErrKeeperAssignmentNotFound   = errors.New("keeper assignment not found")
+	ErrKeeperAssignmentOverlap    = errors.New("keeper assignment overlaps with existing")
+	ErrKeeperNotAssigned          = errors.New("no active keeper assignment for this warehouse")
+	ErrLedgerEntryNotFound        = errors.New("ledger entry not found")
+	ErrLedgerEntryAlreadyRecorded = errors.New("ledger entry already recorded")
+	ErrLedgerEntryAlreadyUnrecorded = errors.New("ledger entry already unrecorded")
+	ErrUnrecordReasonRequired     = errors.New("unrecord reason is required")
+	ErrKeeperConfigNotFound       = errors.New("keeper config not found")
+)

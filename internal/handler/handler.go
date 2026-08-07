@@ -205,7 +205,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 	}
 }
 
-func RegisterRoutesWithCompany(r *gin.Engine, h *Handler, ch *CompanyHandler, th *TaxHandler, cashH *CashHandler, bankH *BankHandler, purchaseH *PurchaseHandler, saleH *SaleHandler, whH *WarehouseHandler, faH *FAHandler, pwH *PayrollHandler, recH *RecurringHandler, budH *BudgetHandler, ccdcH *CCDCHandler, ccH *CostCenterHandler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
+func RegisterRoutesWithCompany(r *gin.Engine, h *Handler, ch *CompanyHandler, th *TaxHandler, cashH *CashHandler, bankH *BankHandler, purchaseH *PurchaseHandler, saleH *SaleHandler, whH *WarehouseHandler, faH *FAHandler, pwH *PayrollHandler, recH *RecurringHandler, budH *BudgetHandler, ccdcH *CCDCHandler, ccH *CostCenterHandler, keeperH *WarehouseKeeperHandler, authMW gin.HandlerFunc, adminMW gin.HandlerFunc) {
 	RegisterRoutes(r, h, authMW, adminMW)
 	RegisterCompanyRoutes(r, ch, authMW, adminMW)
 	RegisterTaxRoutes(r, th, authMW)
@@ -220,4 +220,5 @@ func RegisterRoutesWithCompany(r *gin.Engine, h *Handler, ch *CompanyHandler, th
 	RegisterBudgetRoutes(r, budH, authMW)
 	RegisterCCDCRoutes(r, ccdcH, authMW)
 	RegisterCostCenterRoutes(r, ccH, authMW)
+	RegisterKeeperRoutes(r, keeperH, authMW)
 }
