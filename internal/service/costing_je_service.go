@@ -239,7 +239,7 @@ func (s *CostingJEService) CarryForwardOpeningBalance(ctx context.Context, compa
 	return nil
 }
 
-// GenerateCOGSEntry: Dr 632 (COGS), Cr 155 (Finished goods)
+// GenerateCOGSEntry: Dr 632, Cr 155
 func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, periodID, objectID string, quantity float64) error {
 	results, err := s.resultRepo.ListByPeriod(ctx, companyID, periodID)
 	if err != nil {
@@ -269,6 +269,8 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 
 	amount := result.UnitCost * quantity
 
+	// Account 632 — Cost of goods sold, Circular 99/2025, Appendix 01
+	// Account 155 — Finished goods inventory, Circular 99/2025, Appendix 01
 	entry := buildCostEntry(
 		s.genJEID(), companyID,
 		fmt.Sprintf("COGS-%s-%s", periodID, objectID),
@@ -280,14 +282,14 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 	return s.jeCreator.CreateEntry(ctx, entry, "system")
 }
 
-// CollectMaterialCosts: aggregate warehouse material issuances into cost pool TK 621
+// CollectMaterialCosts: aggregate warehouse issuances into cost pool
 func (s *CostingJEService) CollectMaterialCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
-	return s.collectCosts(ctx, companyID, periodID, "621", "Direct materials", lines)
+	return s.collectCosts(ctx, companyID, periodID, "621", "Direct materials", "DIRECT_MATERIAL", lines)
 }
 
-// CollectLaborCosts: aggregate payroll direct labor into cost pool TK 622
+// CollectLaborCosts: aggregate payroll direct labor into cost pool
 func (s *CostingJEService) CollectLaborCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
-	return s.collectCosts(ctx, companyID, periodID, "622", "Direct labor", lines)
+	return s.collectCosts(ctx, companyID, periodID, "622", "Direct labor", "DIRECT_LABOR", lines)
 }
 
 type CostPoolLineInput struct {
@@ -297,7 +299,7 @@ type CostPoolLineInput struct {
 	CostCenterID string
 }
 
-func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName string, lines []CostPoolLineInput) error {
+func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName, poolType string, lines []CostPoolLineInput) error {
 	if len(lines) == 0 {
 		return nil
 	}
@@ -330,6 +332,7 @@ func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID
 			CompanyID:     companyID,
 			PeriodID:      periodID,
 			GLAccountCode: glAccountCode,
+			PoolType:      poolType,
 			Name:          poolName,
 			Status:        domain.CostPoolStatusOpen,
 			CreatedAt:     nowTimestamp(),
@@ -358,7 +361,21 @@ func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID
 
 	pool.TotalAmount += totalAmount
 	pool.UpdatedAt = nowTimestamp()
-	return s.costPoolRepo.Update(ctx, pool)
+	if err := s.costPoolRepo.Update(ctx, pool); err != nil {
+		return err
+	}
+
+	// Account 621/622 — Cost pools per Circular 99/2025, Appendix 01
+	// Account 154 — Work-in-progress, Circular 99/2025, Appendix 01
+	entry := buildCostEntry(
+		s.genJEID(), companyID,
+		fmt.Sprintf("COLLECT-%s-%s", periodID, glAccountCode),
+		fmt.Sprintf("Collect costs: %s", poolName),
+		"154", glAccountCode,
+		totalAmount,
+	)
+
+	return s.jeCreator.CreateEntry(ctx, entry, "system")
 }
 
 // ReopenPeriod: reverse close, generate reversal entries, set period back to OPEN
