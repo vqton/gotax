@@ -46,19 +46,25 @@ const (
 
 // CostObject is the unit to which costs are allocated (sản phẩm, dịch vụ, công trình).
 type CostObject struct {
-	ID             string          `json:"id"`
-	CompanyID      string          `json:"company_id"`
-	Code           string          `json:"code"`
-	Name           string          `json:"name"`
-	Type           CostObjectType  `json:"type"`
-	CostingMethod  CostingMethod   `json:"costing_method"`
-	CostCenterID   string          `json:"cost_center_id,omitempty"`
-	UnitOfMeasure  string          `json:"unit_of_measure,omitempty"`
-	StandardCost   float64         `json:"standard_cost,omitempty"`
-	PlanQuantity   float64         `json:"plan_quantity,omitempty"`
-	IsActive       bool            `json:"is_active"`
-	CreatedAt      string          `json:"created_at"`
-	UpdatedAt      string          `json:"updated_at"`
+	ID                string          `json:"id"`
+	CompanyID         string          `json:"company_id"`
+	Code              string          `json:"code"`
+	Name              string          `json:"name"`
+	Type              CostObjectType  `json:"type"`
+	CostingMethod     CostingMethod   `json:"costing_method"`
+	CostCenterID      string          `json:"cost_center_id,omitempty"`
+	UnitOfMeasure     string          `json:"unit_of_measure,omitempty"`
+	StandardCost      float64         `json:"standard_cost,omitempty"`
+	StandardMaterial  float64         `json:"standard_material,omitempty"`
+	StandardLabor     float64         `json:"standard_labor,omitempty"`
+	StandardOverhead  float64         `json:"standard_overhead,omitempty"`
+	PlanQuantity      float64         `json:"plan_quantity,omitempty"`
+	CompletedUnits    float64         `json:"completed_units,omitempty"`
+	WIPUnits          float64         `json:"wip_units,omitempty"`
+	CompletionPct     float64         `json:"completion_pct,omitempty"`
+	IsActive          bool            `json:"is_active"`
+	CreatedAt         string          `json:"created_at"`
+	UpdatedAt         string          `json:"updated_at"`
 }
 
 // CostPool collects costs before allocation to cost objects (tài khoản tập hợp chi phí).
@@ -118,16 +124,27 @@ type CostingResult struct {
 	UpdatedAt     string          `json:"updated_at"`
 }
 
+// CostCategory classifies the type of cost in a costing result line.
+type CostCategory string
+
+const (
+	CostCategoryDirectMaterial CostCategory = "DIRECT_MATERIAL"
+	CostCategoryDirectLabor    CostCategory = "DIRECT_LABOR"
+	CostCategoryOverhead       CostCategory = "OVERHEAD"
+	CostCategoryVariance       CostCategory = "VARIANCE"
+	CostCategoryProcessInfo    CostCategory = "PROCESS_INFO"
+)
+
 // CostingResultLine is a detailed cost breakdown within a costing result.
 type CostingResultLine struct {
-	ID             string  `json:"id"`
-	ResultID       string  `json:"result_id"`
-	CostCategory   string  `json:"cost_category"`   // DIRECT_MATERIAL, DIRECT_LABOR, OVERHEAD
-	GLAccountCode  string  `json:"gl_account_code"`
-	Description    string  `json:"description"`
-	PlannedAmount  float64 `json:"planned_amount"`
-	ActualAmount   float64 `json:"actual_amount"`
-	AllocatedAmount float64 `json:"allocated_amount"`
-	Coefficient    float64 `json:"coefficient,omitempty"`
-	CreatedAt      string  `json:"created_at"`
+	ID              string       `json:"id"`
+	ResultID        string       `json:"result_id"`
+	CostCategory    CostCategory `json:"cost_category"`
+	GLAccountCode   string       `json:"gl_account_code"`
+	Description     string       `json:"description"`
+	PlannedAmount   float64      `json:"planned_amount"`
+	ActualAmount    float64      `json:"actual_amount"`
+	AllocatedAmount float64      `json:"allocated_amount"`
+	Coefficient     float64      `json:"coefficient,omitempty"`
+	CreatedAt       string       `json:"created_at"`
 }

@@ -10,7 +10,8 @@ import (
 	"gotax/internal/repository"
 )
 
-func setupCostingEngineTest() (*CostingEngine, *repository.MemoryCostingPeriodRepo, *repository.MemoryCostObjectRepo, *repository.MemoryCostPoolRepo, *repository.MemoryCostPoolLineRepo, *repository.MemoryCostingResultRepo, *repository.MemoryCostingResultLineRepo) {
+func setupCostingEngineTest(t *testing.T) (*CostingEngine, *repository.MemoryCostingPeriodRepo, *repository.MemoryCostObjectRepo, *repository.MemoryCostPoolRepo, *repository.MemoryCostPoolLineRepo, *repository.MemoryCostingResultRepo, *repository.MemoryCostingResultLineRepo) {
+	t.Helper()
 	periodRepo := repository.NewMemoryCostingPeriodRepo()
 	costObjectRepo := repository.NewMemoryCostObjectRepo()
 	costPoolRepo := repository.NewMemoryCostPoolRepo()
@@ -41,7 +42,7 @@ func createTestPeriod(t *testing.T, repo *repository.MemoryCostingPeriodRepo, co
 // --- Standard Costing Method Tests ---
 
 func TestStandardCosting_CalculatesVariance(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
@@ -49,15 +50,17 @@ func TestStandardCosting_CalculatesVariance(t *testing.T) {
 	// Standard cost per unit = 850,000 (500k mat + 200k lab + 150k overhead)
 	// For 1000 units: total standard = 850,000,000
 	obj := &domain.CostObject{
-		ID:            "OBJ-STD-001",
-		CompanyID:     "COMP1",
-		Code:          "SP001",
-		Name:          "Product A",
-		Type:          "PRODUCT",
-		CostingMethod: "STANDARD",
-		StandardCost:  850000,
-		PlanQuantity:  1000,
-		IsActive:      true,
+		ID:               "OBJ-STD-001",
+		CompanyID:        "COMP1",
+		Code:             "SP001",
+		Name:             "Product A",
+		Type:             "PRODUCT",
+		CostingMethod:    "STANDARD",
+		StandardMaterial: 500000,
+		StandardLabor:    200000,
+		StandardOverhead: 150000,
+		PlanQuantity:     1000,
+		IsActive:         true,
 	}
 	_ = costObjectRepo.Create(ctx, obj)
 
@@ -120,20 +123,16 @@ func TestStandardCosting_CalculatesVariance(t *testing.T) {
 }
 
 func TestStandardCosting_FavorableVariance(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
 
 	// Standard per unit = 850k, for 500 units = 425M total standard
-	// Actual = 700k total → 700k - 425M = -424.3M favorable? No...
-	// Let me fix: Standard = 850k/unit × 500 = 425M total standard
-	// Actual = 700M total → Variance = 700M - 425M = 275M unfavorable
-	// Actually, let's make it favorable: Actual < Standard
-	// Standard = 850k × 500 = 425M, Actual = 350M → Variance = -75M favorable
+	// Actual = 350M total → Variance = -75M (favorable)
 	obj := &domain.CostObject{
-		ID: "OBJ-STD-002", CompanyID: "COMP1", Code: "SP002", Name: "Product B",
-		Type: "PRODUCT", CostingMethod: "STANDARD", StandardCost: 850000, PlanQuantity: 500, IsActive: true,
+		ID:               "OBJ-STD-002", CompanyID: "COMP1", Code: "SP002", Name: "Product B",
+		Type: "PRODUCT", CostingMethod: "STANDARD", StandardMaterial: 500000, StandardLabor: 200000, StandardOverhead: 150000, PlanQuantity: 500, IsActive: true,
 	}
 	_ = costObjectRepo.Create(ctx, obj)
 
@@ -182,7 +181,7 @@ func TestStandardCosting_FavorableVariance(t *testing.T) {
 // --- Process Costing Method Tests ---
 
 func TestProcessCosting_EquivalentUnits(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
@@ -191,7 +190,7 @@ func TestProcessCosting_EquivalentUnits(t *testing.T) {
 	// Equivalent units = 400 + (100 × 0.6) = 460
 	obj := &domain.CostObject{
 		ID: "OBJ-PRC-001", CompanyID: "COMP1", Code: "PRC001", Name: "Chemical A",
-		Type: "PRODUCT", CostingMethod: "PROCESS", PlanQuantity: 460, IsActive: true,
+		Type: "PRODUCT", CostingMethod: "PROCESS", CompletedUnits: 400, WIPUnits: 100, CompletionPct: 60, IsActive: true,
 	}
 	_ = costObjectRepo.Create(ctx, obj)
 
@@ -241,7 +240,7 @@ func TestProcessCosting_EquivalentUnits(t *testing.T) {
 }
 
 func TestProcessCosting_NoWIPUnits(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
@@ -249,7 +248,7 @@ func TestProcessCosting_NoWIPUnits(t *testing.T) {
 	// All units completed, no WIP
 	obj := &domain.CostObject{
 		ID: "OBJ-PRC-002", CompanyID: "COMP1", Code: "PRC002", Name: "Chemical B",
-		Type: "PRODUCT", CostingMethod: "PROCESS", PlanQuantity: 500, IsActive: true,
+		Type: "PRODUCT", CostingMethod: "PROCESS", CompletedUnits: 500, WIPUnits: 0, CompletionPct: 0, IsActive: true,
 	}
 	_ = costObjectRepo.Create(ctx, obj)
 
@@ -273,7 +272,7 @@ func TestProcessCosting_NoWIPUnits(t *testing.T) {
 // --- WIP Valuation Tests ---
 
 func TestWIPValuation_BeginningEndingWIP(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, _, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)
@@ -305,7 +304,7 @@ func TestWIPValuation_BeginningEndingWIP(t *testing.T) {
 }
 
 func TestWIPValuation_TransferToFinishedGoods(t *testing.T) {
-	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, _ := setupCostingEngineTest()
+	engine, periodRepo, costObjectRepo, costPoolRepo, costPoolLineRepo, resultRepo, _ := setupCostingEngineTest(t)
 	ctx := context.Background()
 
 	createTestPeriod(t, periodRepo, "COMP1", 2026, 8)

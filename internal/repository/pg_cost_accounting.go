@@ -557,7 +557,7 @@ func toPGCostingResultLine(l *domain.CostingResultLine) *pgCostingResultLine {
 	return &pgCostingResultLine{
 		ID:              l.ID,
 		ResultID:        l.ResultID,
-		CostCategory:    l.CostCategory,
+		CostCategory:    string(l.CostCategory),
 		GLAccountCode:   l.GLAccountCode,
 		Description:     l.Description,
 		PlannedAmount:   l.PlannedAmount,
@@ -572,7 +572,7 @@ func toDomainCostingResultLine(m *pgCostingResultLine) *domain.CostingResultLine
 	return &domain.CostingResultLine{
 		ID:              m.ID,
 		ResultID:        m.ResultID,
-		CostCategory:    m.CostCategory,
+		CostCategory:    domain.CostCategory(m.CostCategory),
 		GLAccountCode:   m.GLAccountCode,
 		Description:     m.Description,
 		PlannedAmount:   m.PlannedAmount,
