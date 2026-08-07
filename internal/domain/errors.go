@@ -601,6 +601,33 @@ var (
 	ErrCostCenterCodeExists = errors.New("cost center code already exists")
 )
 
+// Cost Accounting errors
+var (
+	ErrCostObjectNotFound    = errors.New("cost object not found")
+	ErrCostObjectCodeExists  = errors.New("cost object code already exists")
+	ErrCostObjectCodeRequired = errors.New("cost object code is required")
+	ErrCostObjectNameRequired = errors.New("cost object name is required")
+	ErrCostObjectTypeInvalid = errors.New("invalid cost object type")
+	ErrCostObjectMethodInvalid = errors.New("invalid costing method")
+
+	ErrCostPoolNotFound      = errors.New("cost pool not found")
+	ErrCostPoolAlreadyClosed = errors.New("cost pool already closed")
+	ErrCostPoolNoLines       = errors.New("cost pool has no lines to allocate")
+	ErrCostPoolAccountRequired = errors.New("GL account code is required")
+
+	ErrCostingPeriodNotFound    = errors.New("costing period not found")
+	ErrCostingPeriodAlreadyClosed = errors.New("costing period already closed")
+	ErrCostingPeriodNotOpen     = errors.New("costing period is not open")
+	ErrCostingPeriodExists      = errors.New("costing period already exists for this month")
+
+	ErrCostingResultNotFound    = errors.New("costing result not found")
+	ErrCostingResultAlreadyFinal = errors.New("costing result already finalized")
+	ErrCostingResultNotDraft    = errors.New("costing result is not in draft status")
+	ErrCostingNoCostObjects     = errors.New("no cost objects found for costing")
+	ErrCostingNoPools           = errors.New("no cost pools found for allocation")
+	ErrCostingOutputRequired    = errors.New("output quantity is required for costing")
+)
+
 // Budget module errors
 var (
 	ErrBudgetNotFound = errors.New("budget not found")
