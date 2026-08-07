@@ -31,6 +31,9 @@ func (s *CostingPeriodService) Create(ctx context.Context, cp *domain.CostingPer
 	if err == nil && existing != nil {
 		return domain.ErrCostingPeriodExists
 	}
+	if err != nil && err != domain.ErrCostingPeriodNotFound {
+		return err
+	}
 
 	if cp.ID == "" {
 		cp.ID = fmt.Sprintf("CP-%d", time.Now().UnixNano())
@@ -56,7 +59,7 @@ func (s *CostingPeriodService) List(ctx context.Context, companyID string) ([]do
 func (s *CostingPeriodService) Close(ctx context.Context, id, closedBy string) error {
 	cp, err := s.periodRepo.GetByID(ctx, id)
 	if err != nil {
-		return domain.ErrCostingPeriodNotFound
+		return err
 	}
 	if cp.Status == "CLOSED" {
 		return domain.ErrCostingPeriodAlreadyClosed

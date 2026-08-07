@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"time"
 
@@ -60,13 +61,22 @@ func (e *CostingEngine) RunCosting(ctx context.Context, companyID, periodID stri
 		return fmt.Errorf("no cost objects found for company")
 	}
 
-	for _, obj := range objects {
-		if err := e.calculateForPeriod(ctx, companyID, periodID, &obj, pools); err != nil {
-			return fmt.Errorf("costing failed for object %s: %w", obj.Code, err)
+	for i := range objects {
+		if !objects[i].IsActive {
+			continue
+		}
+		if err := e.calculateForPeriod(ctx, companyID, periodID, &objects[i], pools); err != nil {
+			return fmt.Errorf("costing failed for object %s: %w", objects[i].Code, err)
 		}
 	}
 
 	return nil
+}
+
+func costingGenID(prefix string) string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%s-%x", prefix, b)
 }
 
 func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, periodID string, obj *domain.CostObject, pools []domain.CostPool) error {
@@ -103,7 +113,7 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 	}
 
 	result := &domain.CostingResult{
-		ID:             fmt.Sprintf("CR-%d", time.Now().UnixNano()),
+		ID:             costingGenID("CR"),
 		CompanyID:      companyID,
 		PeriodID:       periodID,
 		CostObjectID:   obj.ID,
@@ -124,7 +134,7 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 	}
 
 	line1 := &domain.CostingResultLine{
-		ID:            fmt.Sprintf("CRL-%d", time.Now().UnixNano()),
+		ID:            costingGenID("CRL"),
 		ResultID:      result.ID,
 		CostCategory:  "DIRECT_MATERIAL",
 		GLAccountCode: "621",
@@ -139,7 +149,7 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 	}
 
 	line2 := &domain.CostingResultLine{
-		ID:            fmt.Sprintf("CRL-%d", time.Now().UnixNano()+1),
+		ID:            costingGenID("CRL"),
 		ResultID:      result.ID,
 		CostCategory:  "DIRECT_LABOR",
 		GLAccountCode: "622",
@@ -154,7 +164,7 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 	}
 
 	line3 := &domain.CostingResultLine{
-		ID:            fmt.Sprintf("CRL-%d", time.Now().UnixNano()+2),
+		ID:            costingGenID("CRL"),
 		ResultID:      result.ID,
 		CostCategory:  "OVERHEAD",
 		GLAccountCode: "627",
