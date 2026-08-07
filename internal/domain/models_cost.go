@@ -120,13 +120,14 @@ type CostingResult struct {
 	TotalDirectLab float64         `json:"total_direct_labor"`
 	TotalOverhead  float64         `json:"total_overhead"`
 	TotalCost      float64         `json:"total_cost"`
+	COGSAmt        float64         `json:"cogs_amount"`
 	OutputQuantity float64         `json:"output_quantity"`
 	UnitCost       float64         `json:"unit_cost"`
 	WIPBegin       float64         `json:"wip_beginning"`
 	WIPEnd         float64         `json:"wip_ending"`
-	Status        string          `json:"status"` // DRAFT, FINAL, REVERSED
-	CreatedAt     string          `json:"created_at"`
-	UpdatedAt     string          `json:"updated_at"`
+	Status         string          `json:"status"` // DRAFT, FINAL, REVERSED
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
 }
 
 // CostCategory classifies the type of cost in a costing result line.

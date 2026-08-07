@@ -459,6 +459,7 @@ type pgCostingResult struct {
 	TotalDirectLab float64   `gorm:"column:total_direct_lab"`
 	TotalOverhead  float64   `gorm:"column:total_overhead"`
 	TotalCost      float64   `gorm:"column:total_cost"`
+	COGSAmt        float64   `gorm:"column:cogs_amount"`
 	OutputQuantity float64   `gorm:"column:output_quantity"`
 	UnitCost       float64   `gorm:"column:unit_cost"`
 	WIPBegin       float64   `gorm:"column:wip_beginning"`
@@ -498,6 +499,7 @@ func toPGCostingResult(cr *domain.CostingResult) *pgCostingResult {
 		TotalDirectLab: cr.TotalDirectLab,
 		TotalOverhead:  cr.TotalOverhead,
 		TotalCost:      cr.TotalCost,
+		COGSAmt:        cr.COGSAmt,
 		OutputQuantity: cr.OutputQuantity,
 		UnitCost:       cr.UnitCost,
 		WIPBegin:       cr.WIPBegin,
@@ -519,6 +521,7 @@ func toDomainCostingResult(m *pgCostingResult) *domain.CostingResult {
 		TotalDirectLab: m.TotalDirectLab,
 		TotalOverhead:  m.TotalOverhead,
 		TotalCost:      m.TotalCost,
+		COGSAmt:        m.COGSAmt,
 		OutputQuantity: m.OutputQuantity,
 		UnitCost:       m.UnitCost,
 		WIPBegin:       m.WIPBegin,

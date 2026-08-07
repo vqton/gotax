@@ -326,10 +326,15 @@ func TestCostingJE_COGSEntry(t *testing.T) {
 	assert.Len(t, entries, 1)
 
 	entry := entries[0]
+	// Account 632 — COGS, Account 155 — Finished goods
 	assert.Equal(t, "632", entry.Lines[0].AccountCode)
 	assert.Equal(t, 25000000.0, entry.Lines[0].DebitAmount)
 	assert.Equal(t, "155", entry.Lines[1].AccountCode)
 	assert.Equal(t, 25000000.0, entry.Lines[1].CreditAmount)
+
+	// COGS amount persisted on result
+	updated, _ := resultRepo.GetByID(ctx, "CR-001")
+	assert.Equal(t, 25000000.0, updated.COGSAmt)
 }
 
 func TestCostingJE_COGSEntry_NotFinal(t *testing.T) {
@@ -355,7 +360,7 @@ func TestCostingJE_CollectMaterialCosts(t *testing.T) {
 
 	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
 
-	lines := []CostPoolLineInput{
+	lines := []domain.CostPoolLineInput{
 		{SourceID: "WH-001", Description: "Raw material A", Amount: 30000000},
 		{SourceID: "WH-002", Description: "Raw material B", Amount: 20000000},
 	}
@@ -378,7 +383,7 @@ func TestCostingJE_CollectLaborCosts(t *testing.T) {
 
 	periodID := createTestCostingPeriod(t, periodRepo, "COMP1", 2026, 8)
 
-	lines := []CostPoolLineInput{
+	lines := []domain.CostPoolLineInput{
 		{SourceID: "PAY-001", Description: "Direct labor line 1", Amount: 40000000},
 	}
 
@@ -402,7 +407,7 @@ func TestCostingJE_ReopenPeriod(t *testing.T) {
 
 	result := &domain.CostingResult{
 		ID: "CR-001", CompanyID: "COMP1", PeriodID: periodID, CostObjectID: "OBJ-001",
-		CostingMethod: "SIMPLE", TotalCost: 50000000, Status: "FINAL",
+		CostingMethod: "SIMPLE", TotalCost: 50000000, COGSAmt: 25000000, Status: "FINAL",
 	}
 	_ = resultRepo.Create(ctx, result)
 
@@ -419,5 +424,20 @@ func TestCostingJE_ReopenPeriod(t *testing.T) {
 	assert.Equal(t, "OPEN", periodAfter.Status)
 
 	entries := svc.jeCreator.(*testJECreator).entries
-	assert.Len(t, entries, 2)
+	assert.Len(t, entries, 3)
+
+	// Verify COGS reversal exists
+	var cogsReversal bool
+	for _, e := range entries {
+		for _, l := range e.Lines {
+			if l.AccountCode == "632" && l.CreditAmount > 0 {
+				cogsReversal = true
+			}
+		}
+	}
+	assert.True(t, cogsReversal)
+
+	// Verify COGS amount cleared on result
+	updated, _ := resultRepo.GetByID(ctx, "CR-001")
+	assert.Equal(t, 0.0, updated.COGSAmt)
 }

@@ -20,6 +20,7 @@ type CostingJEService struct {
 	resultRepo       domain.CostingResultRepository
 	resultLineRepo   domain.CostingResultLineRepository
 	jeCreator        JECreator
+	collector        domain.CostDataCollector
 }
 
 func NewCostingJEService(
@@ -40,6 +41,10 @@ func NewCostingJEService(
 		resultLineRepo:   resultLineRepo,
 		jeCreator:        jeCreator,
 	}
+}
+
+func (s *CostingJEService) SetCollector(c domain.CostDataCollector) {
+	s.collector = c
 }
 
 func (s *CostingJEService) genJEID() string {
@@ -246,16 +251,14 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 		return err
 	}
 
-	var result domain.CostingResult
-	found := false
-	for _, r := range results {
+	var result *domain.CostingResult
+	for i, r := range results {
 		if r.CostObjectID == objectID {
-			result = r
-			found = true
+			result = &results[i]
 			break
 		}
 	}
-	if !found {
+	if result == nil {
 		return domain.ErrCostingResultNotFound
 	}
 
@@ -279,27 +282,47 @@ func (s *CostingJEService) GenerateCOGSEntry(ctx context.Context, companyID, per
 		amount,
 	)
 
-	return s.jeCreator.CreateEntry(ctx, entry, "system")
+	if err := s.jeCreator.CreateEntry(ctx, entry, "system"); err != nil {
+		return err
+	}
+
+	result.COGSAmt += amount
+	result.UpdatedAt = nowTimestamp()
+	return s.resultRepo.Update(ctx, result)
 }
 
 // CollectMaterialCosts: aggregate warehouse issuances into cost pool
-func (s *CostingJEService) CollectMaterialCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
+func (s *CostingJEService) CollectMaterialCosts(ctx context.Context, companyID, periodID string, lines []domain.CostPoolLineInput) error {
 	return s.collectCosts(ctx, companyID, periodID, "621", "Direct materials", "DIRECT_MATERIAL", lines)
 }
 
 // CollectLaborCosts: aggregate payroll direct labor into cost pool
-func (s *CostingJEService) CollectLaborCosts(ctx context.Context, companyID, periodID string, lines []CostPoolLineInput) error {
+func (s *CostingJEService) CollectLaborCosts(ctx context.Context, companyID, periodID string, lines []domain.CostPoolLineInput) error {
 	return s.collectCosts(ctx, companyID, periodID, "622", "Direct labor", "DIRECT_LABOR", lines)
 }
 
-type CostPoolLineInput struct {
-	SourceID     string
-	Description  string
-	Amount       float64
-	CostCenterID string
+// AutoCollectCosts uses the CostDataCollector to automatically gather costs from warehouse/payroll
+func (s *CostingJEService) AutoCollectCosts(ctx context.Context, companyID, periodID string) error {
+	if s.collector == nil {
+		return nil
+	}
+
+	matLines, err := s.collector.CollectMaterialCosts(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+	if err := s.CollectMaterialCosts(ctx, companyID, periodID, matLines); err != nil {
+		return err
+	}
+
+	labLines, err := s.collector.CollectLaborCosts(ctx, companyID, periodID)
+	if err != nil {
+		return err
+	}
+	return s.CollectLaborCosts(ctx, companyID, periodID, labLines)
 }
 
-func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName, poolType string, lines []CostPoolLineInput) error {
+func (s *CostingJEService) collectCosts(ctx context.Context, companyID, periodID, glAccountCode, poolName, poolType string, lines []domain.CostPoolLineInput) error {
 	if len(lines) == 0 {
 		return nil
 	}
@@ -393,8 +416,10 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 		return err
 	}
 
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if r.Status == "FINAL" {
+			// Reverse WIP transfer: Dr 154, Cr 155
 			reversal := buildCostEntry(
 				s.genJEID(), companyID,
 				fmt.Sprintf("REV-WIP-%s-%s", periodID, r.CostObjectID),
@@ -403,6 +428,26 @@ func (s *CostingJEService) ReopenPeriod(ctx context.Context, companyID, periodID
 				r.TotalCost,
 			)
 			if err := s.jeCreator.CreateEntry(ctx, reversal, "system"); err != nil {
+				return err
+			}
+
+			// Reverse COGS: Dr 155, Cr 632
+			if r.COGSAmt > 0 {
+				cogsReversal := buildCostEntry(
+					s.genJEID(), companyID,
+					fmt.Sprintf("REV-COGS-%s-%s", periodID, r.CostObjectID),
+					fmt.Sprintf("Reversal COGS - %s", r.CostObjectID),
+					"155", "632",
+					r.COGSAmt,
+				)
+				if err := s.jeCreator.CreateEntry(ctx, cogsReversal, "system"); err != nil {
+					return err
+				}
+			}
+
+			r.COGSAmt = 0
+			r.UpdatedAt = nowTimestamp()
+			if err := s.resultRepo.Update(ctx, r); err != nil {
 				return err
 			}
 		}

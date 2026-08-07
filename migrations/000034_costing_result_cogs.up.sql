@@ -1,0 +1,1 @@
+ALTER TABLE costing_results ADD COLUMN IF NOT EXISTS cogs_amount NUMERIC(18,2) DEFAULT 0;

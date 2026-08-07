@@ -825,3 +825,16 @@ type CostingResultLineRepository interface {
 	ListByResult(ctx context.Context, resultID string) ([]CostingResultLine, error)
 	DeleteByResult(ctx context.Context, resultID string) error
 }
+
+// CostDataCollector provides cost data from operational modules for costing period collection.
+type CostDataCollector interface {
+	CollectMaterialCosts(ctx context.Context, companyID, periodID string) ([]CostPoolLineInput, error)
+	CollectLaborCosts(ctx context.Context, companyID, periodID string) ([]CostPoolLineInput, error)
+}
+
+type CostPoolLineInput struct {
+	SourceID     string
+	Description  string
+	Amount       float64
+	CostCenterID string
+}

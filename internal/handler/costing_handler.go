@@ -119,7 +119,7 @@ func (h *CostingHandler) ReopenPeriod(c *gin.Context) {
 }
 
 type collectCostsRequest struct {
-	Lines []service.CostPoolLineInput `json:"lines"`
+	Lines []domain.CostPoolLineInput `json:"lines"`
 }
 
 func (h *CostingHandler) CollectMaterialCosts(c *gin.Context) {
