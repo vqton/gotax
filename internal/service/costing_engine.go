@@ -134,48 +134,90 @@ func (e *CostingEngine) calculateForPeriod(ctx context.Context, companyID, perio
 	}
 
 	line1 := &domain.CostingResultLine{
-		ID:            costingGenID("CRL"),
-		ResultID:      result.ID,
-		CostCategory:  "DIRECT_MATERIAL",
-		GLAccountCode: "621",
-		Description:   "Direct materials",
-		PlannedAmount: 0,
-		ActualAmount:  totalDirectMat,
+		ID:              costingGenID("CRL"),
+		ResultID:        result.ID,
+		CostCategory:    "DIRECT_MATERIAL",
+		GLAccountCode:   "621",
+		Description:     "Direct materials",
+		PlannedAmount:   0,
+		ActualAmount:    totalDirectMat,
 		AllocatedAmount: totalDirectMat,
-		CreatedAt:     time.Now().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:       time.Now().Format("2006-01-02T15:04:05Z"),
 	}
 	if err := e.resultLineRepo.Create(ctx, line1); err != nil {
 		return err
 	}
 
 	line2 := &domain.CostingResultLine{
-		ID:            costingGenID("CRL"),
-		ResultID:      result.ID,
-		CostCategory:  "DIRECT_LABOR",
-		GLAccountCode: "622",
-		Description:   "Direct labor",
-		PlannedAmount: 0,
-		ActualAmount:  totalDirectLab,
+		ID:              costingGenID("CRL"),
+		ResultID:        result.ID,
+		CostCategory:    "DIRECT_LABOR",
+		GLAccountCode:   "622",
+		Description:     "Direct labor",
+		PlannedAmount:   0,
+		ActualAmount:    totalDirectLab,
 		AllocatedAmount: totalDirectLab,
-		CreatedAt:     time.Now().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:       time.Now().Format("2006-01-02T15:04:05Z"),
 	}
 	if err := e.resultLineRepo.Create(ctx, line2); err != nil {
 		return err
 	}
 
 	line3 := &domain.CostingResultLine{
-		ID:            costingGenID("CRL"),
-		ResultID:      result.ID,
-		CostCategory:  "OVERHEAD",
-		GLAccountCode: "627",
-		Description:   "Manufacturing overhead",
-		PlannedAmount: 0,
-		ActualAmount:  totalOverhead,
+		ID:              costingGenID("CRL"),
+		ResultID:        result.ID,
+		CostCategory:    "OVERHEAD",
+		GLAccountCode:   "627",
+		Description:     "Manufacturing overhead",
+		PlannedAmount:   0,
+		ActualAmount:    totalOverhead,
 		AllocatedAmount: totalOverhead,
-		CreatedAt:     time.Now().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:       time.Now().Format("2006-01-02T15:04:05Z"),
 	}
 	if err := e.resultLineRepo.Create(ctx, line3); err != nil {
 		return err
+	}
+
+	// Standard costing: add variance line
+	if obj.CostingMethod == "STANDARD" && obj.StandardCost > 0 {
+		variance := totalCost - (obj.StandardCost * obj.PlanQuantity)
+		varianceType := "UNFAVORABLE"
+		if variance < 0 {
+			varianceType = "FAVORABLE"
+		}
+
+		varLine := &domain.CostingResultLine{
+			ID:              costingGenID("CRL"),
+			ResultID:        result.ID,
+			CostCategory:    "VARIANCE",
+			GLAccountCode:   "627",
+			Description:     varianceType,
+			PlannedAmount:   obj.StandardCost * obj.PlanQuantity,
+			ActualAmount:    variance,
+			AllocatedAmount: variance,
+			CreatedAt:       time.Now().Format("2006-01-02T15:04:05Z"),
+		}
+		if err := e.resultLineRepo.Create(ctx, varLine); err != nil {
+			return err
+		}
+	}
+
+	// Process costing: add process info line with equivalent units
+	if obj.CostingMethod == "PROCESS" {
+		processLine := &domain.CostingResultLine{
+			ID:              costingGenID("CRL"),
+			ResultID:        result.ID,
+			CostCategory:    "PROCESS_INFO",
+			GLAccountCode:   "",
+			Description:     "Equivalent units",
+			PlannedAmount:   obj.PlanQuantity,
+			ActualAmount:    totalCost,
+			AllocatedAmount: unitCost,
+			CreatedAt:       time.Now().Format("2006-01-02T15:04:05Z"),
+		}
+		if err := e.resultLineRepo.Create(ctx, processLine); err != nil {
+			return err
+		}
 	}
 
 	return nil
