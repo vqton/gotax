@@ -68,14 +68,11 @@ func (s *WarehouseKeeperService) GetActiveKeeper(ctx context.Context, companyID,
 
 func (s *WarehouseKeeperService) RecordSlips(ctx context.Context, companyID, warehouseID string, slips []RecordSlipRequest, recordedBy string) error {
 	for _, slip := range slips {
-		// Verify keeper assignment exists
-		assignment, err := s.keeperRepo.GetActiveAssignment(ctx, companyID, warehouseID, s.now())
-		if err != nil {
+		// Regulation: keeper must have active assignment to record (Art. 6, Law on Accounting 2015)
+		if _, err := s.keeperRepo.GetActiveAssignment(ctx, companyID, warehouseID, s.now()); err != nil {
 			return err
 		}
-		_ = assignment // assignment exists — keeper is authorized
 
-		// Get running balance
 		balance, err := s.keeperRepo.GetLedgerBalance(ctx, companyID, warehouseID, slip.ItemID)
 		if err != nil {
 			return err
@@ -158,7 +155,6 @@ func (s *WarehouseKeeperService) GetReconciliationReport(ctx context.Context, co
 		return nil, err
 	}
 
-	// Enrich with item and warehouse names
 	for i := range items {
 		if item, err := s.itemRepo.GetItemByID(ctx, items[i].ItemID); err == nil {
 			items[i].ItemCode = item.Code
