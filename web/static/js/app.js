@@ -124,6 +124,17 @@ const MODULE_GROUPS = [
       { href: "/app/cash-flow.html", icon: "💰", label: "Lưu chuyển tiền tệ" },
     ]
   },
+  {
+    label: "Quản trị",
+    items: [
+      { href: "/app/system-options.html", icon: "⚙️", label: "Tùy chọn hệ thống" },
+      { href: "/app/numbering-rules.html", icon: "🔢", label: "Định số chứng từ" },
+      { href: "/app/fiscal-years.html", icon: "📅", label: "Năm tài chính" },
+      { href: "/app/report-options.html", icon: "📊", label: "Tùy chỉnh báo cáo" },
+      { href: "/app/backups.html", icon: "💾", label: "Sao lưu dữ liệu" },
+      { href: "/app/contracts.html", icon: "📄", label: "Hợp đồng" },
+    ]
+  },
 ];
 
 /* ─── Sidebar HTML ─────────────────────────────────────────── */

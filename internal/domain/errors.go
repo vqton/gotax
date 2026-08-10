@@ -655,3 +655,18 @@ var (
 	ErrKeeperRoleInvalid          = errors.New("role must be keeper or manager")
 	ErrKeeperDateInvalid          = errors.New("effective_to must be after effective_from")
 )
+
+// System Option errors
+var (
+	ErrSystemOptionNotFound  = errors.New("system option not found")
+	ErrSystemOptionKeyExists = errors.New("system option key already exists")
+	ErrNumberingRuleNotFound = errors.New("numbering rule not found")
+	ErrNumberingRuleExists   = errors.New("numbering rule already exists for this voucher type")
+	ErrBackupNotFound        = errors.New("backup record not found")
+)
+
+// Contract errors
+var (
+	ErrContractNotFound = errors.New("contract not found")
+	ErrContractExists   = errors.New("contract code already exists")
+)

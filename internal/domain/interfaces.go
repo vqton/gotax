@@ -840,3 +840,47 @@ type CostPoolLineInput struct {
 	CostCenterID  string
 	CostObjectID  string
 }
+
+// ─── System Option Repository ──────────────────────────────────────
+
+type SystemOptionRepository interface {
+	Get(ctx context.Context, companyID, category, key string) (*SystemOption, error)
+	GetByCategory(ctx context.Context, companyID, category string) ([]SystemOption, error)
+	GetAll(ctx context.Context, companyID string) ([]SystemOption, error)
+	Upsert(ctx context.Context, opt *SystemOption) error
+	Delete(ctx context.Context, companyID, category, key string) error
+}
+
+type NumberingRuleRepository interface {
+	Create(ctx context.Context, rule *NumberingRule) error
+	GetByID(ctx context.Context, id string) (*NumberingRule, error)
+	GetByVoucherType(ctx context.Context, companyID, voucherType string) (*NumberingRule, error)
+	List(ctx context.Context, companyID string) ([]NumberingRule, error)
+	Update(ctx context.Context, rule *NumberingRule) error
+	Delete(ctx context.Context, id string) error
+	IncrementAndGet(ctx context.Context, companyID, voucherType string) (int, error)
+}
+
+type BackupRepository interface {
+	Create(ctx context.Context, b *BackupRecord) error
+	GetByID(ctx context.Context, id string) (*BackupRecord, error)
+	List(ctx context.Context, companyID string) ([]BackupRecord, error)
+	UpdateStatus(ctx context.Context, id, status string) error
+}
+
+// ─── Contract Repository ──────────────────────────────────────────
+
+type ContractRepository interface {
+	Create(ctx context.Context, c *Contract) error
+	GetByID(ctx context.Context, id string) (*Contract, error)
+	GetByCode(ctx context.Context, companyID, code string) (*Contract, error)
+	List(ctx context.Context, companyID string) ([]Contract, error)
+	Update(ctx context.Context, c *Contract) error
+	Delete(ctx context.Context, id string) error
+}
+
+type ContractPaymentRepository interface {
+	Create(ctx context.Context, p *ContractPayment) error
+	ListByContract(ctx context.Context, contractID string) ([]ContractPayment, error)
+	Delete(ctx context.Context, id string) error
+}

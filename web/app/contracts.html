@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hợp đồng · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Hợp đồng</h2>
+        <button @click="showCreate = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">+ Thêm hợp đồng</button>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách hợp đồng</h3>
+          <span class="text-xs text-gray-400" x-text="contracts.length + ' hợp đồng'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên hợp đồng</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Đối tác</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Giá trị</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày bắt đầu</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày kết thúc</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="c in contracts" :key="c.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-blue-700" x-text="c.code"></td>
+                  <td class="px-5 py-3 text-gray-900" x-text="c.name"></td>
+                  <td class="px-5 py-3">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-blue-100 text-blue-700': c.contract_type === 'SALES',
+                        'bg-green-100 text-green-700': c.contract_type === 'PURCHASE',
+                        'bg-purple-100 text-purple-700': c.contract_type === 'SERVICE',
+                        'bg-amber-100 text-amber-700': c.contract_type === 'CONSTRUCTION',
+                      }" x-text="c.contract_type === 'SALES' ? 'Bán hàng' : c.contract_type === 'PURCHASE' ? 'Mua hàng' : c.contract_type === 'SERVICE' ? 'Dịch vụ' : 'Xây dựng'"></span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-700" x-text="c.counterparty_name || '—'"></td>
+                  <td class="px-5 py-3 text-right font-mono text-gray-900" x-text="fmtMoney(c.value)"></td>
+                  <td class="px-5 py-3">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-gray-100 text-gray-600': c.status === 'draft',
+                        'bg-green-100 text-green-700': c.status === 'active',
+                        'bg-blue-100 text-blue-700': c.status === 'completed',
+                        'bg-red-100 text-red-700': c.status === 'cancelled',
+                      }" x-text="c.status === 'draft' ? 'Nháp' : c.status === 'active' ? 'Đang thực hiện' : c.status === 'completed' ? 'Hoàn thành' : 'Đã hủy'"></span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-500" x-text="fmtDate(c.start_date)"></td>
+                  <td class="px-5 py-3 text-gray-500" x-text="fmtDate(c.end_date)"></td>
+                  <td class="px-5 py-3 text-right space-x-2">
+                    <button @click="viewPayments(c)" class="text-blue-700 hover:underline text-xs">Thanh toán</button>
+                    <button @click="deleteContract(c)" class="text-red-600 hover:underline text-xs">Xóa</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!contracts.length && !loading">
+                <td colspan="9" class="px-5 py-8 text-center text-gray-400">Chưa có hợp đồng nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create modal -->
+  <template x-if="showCreate">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate = false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-6" @click.stop>
+        <h3 class="text-lg font-bold text-gray-900 mb-4">Thêm hợp đồng mới</h3>
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Mã hợp đồng <span class="text-red-500">*</span></label>
+              <input type="text" x-model="form.code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="HD001">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Loại hợp đồng <span class="text-red-500">*</span></label>
+              <select x-model="form.contract_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="SALES">Bán hàng</option>
+                <option value="PURCHASE">Mua hàng</option>
+                <option value="SERVICE">Dịch vụ</option>
+                <option value="CONSTRUCTION">Xây dựng</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Tên hợp đồng <span class="text-red-500">*</span></label>
+            <input type="text" x-model="form.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Hợp đồng bán hàng ABC">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Giá trị (VND)</label>
+              <input type="number" x-model.number="form.value" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Đối tác</label>
+              <input type="text" x-model="form.counterparty_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Công ty XYZ">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Ngày bắt đầu</label>
+              <input type="date" x-model="form.start_date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Ngày kết thúc</label>
+              <input type="date" x-model="form.end_date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+          <button @click="showCreate = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+          <button @click="createContract()" class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition" :disabled="saving || !form.code || !form.name">
+            <span x-show="!saving">Thêm</span>
+            <span x-show="saving">Đang thêm...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Payments modal -->
+  <template x-if="showPayments">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showPayments = false">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-6" @click.stop>
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-gray-900">Thanh toán hợp đồng <span x-text="selectedContract?.code" class="text-blue-700"></span></h3>
+          <button @click="showPayments = false" class="text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+
+        <!-- Add payment -->
+        <div class="flex gap-2 mb-4">
+          <input type="date" x-model="payForm.payment_date" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          <input type="number" x-model.number="payForm.amount" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Số tiền">
+          <button @click="addPayment()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition" :disabled="!payForm.payment_date || !payForm.amount">+</button>
+        </div>
+
+        <!-- Payment list -->
+        <div class="overflow-x-auto max-h-64 overflow-y-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 sticky top-0">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold text-gray-600">Ngày</th>
+                <th class="text-right px-3 py-2 font-semibold text-gray-600">Số tiền</th>
+                <th class="text-left px-3 py-2 font-semibold text-gray-600">Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="p in payments" :key="p.id">
+                <tr class="border-b border-gray-100">
+                  <td class="px-3 py-2 text-gray-700" x-text="fmtDate(p.payment_date)"></td>
+                  <td class="px-3 py-2 text-right font-mono" x-text="fmtMoney(p.amount)"></td>
+                  <td class="px-3 py-2 text-gray-500" x-text="p.description || '—'"></td>
+                </tr>
+              </template>
+              <tr x-show="!payments.length">
+                <td colspan="3" class="px-3 py-4 text-center text-gray-400">Chưa có thanh toán</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </template>
+
+<script>
+function comp() {
+  return {
+    contracts: [],
+    loading: true,
+    showCreate: false,
+    showPayments: false,
+    saving: false,
+    selectedContract: null,
+    payments: [],
+    form: { code: '', name: '', contract_type: 'SALES', value: 0, counterparty_name: '', start_date: '', end_date: '' },
+    payForm: { payment_date: new Date().toISOString().slice(0, 10), amount: 0, description: '' },
+
+    async init() {
+      mountAppShell("Hợp đồng", "/app/contracts.html");
+      await this.loadContracts();
+    },
+
+    async loadContracts() {
+      this.loading = true;
+      try {
+        const data = await apiGet("/contracts");
+        this.contracts = Array.isArray(data) ? data : data.items || [];
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tải được danh sách hợp đồng");
+      }
+      this.loading = false;
+    },
+
+    async createContract() {
+      if (!this.form.code || !this.form.name) {
+        $store.app.flashError("Vui lòng nhập mã và tên hợp đồng");
+        return;
+      }
+      this.saving = true;
+      try {
+        await apiPost("/contracts", this.form);
+        this.showCreate = false;
+        this.form = { code: '', name: '', contract_type: 'SALES', value: 0, counterparty_name: '', start_date: '', end_date: '' };
+        await this.loadContracts();
+        $store.app.flashSuccess("Thêm hợp đồng thành công");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không thêm được hợp đồng");
+      }
+      this.saving = false;
+    },
+
+    async deleteContract(c) {
+      if (!App.confirm(`Xóa hợp đồng "${c.name}"?`)) return;
+      try {
+        await apiDelete(`/contracts/${c.id}`);
+        await this.loadContracts();
+        $store.app.flashSuccess("Đã xóa hợp đồng");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không xóa được hợp đồng");
+      }
+    },
+
+    async viewPayments(c) {
+      this.selectedContract = c;
+      this.showPayments = true;
+      try {
+        const data = await apiGet(`/contracts/${c.id}/payments`);
+        this.payments = Array.isArray(data) ? data : data.items || [];
+      } catch (e) {
+        this.payments = [];
+      }
+    },
+
+    async addPayment() {
+      if (!this.payForm.payment_date || !this.payForm.amount) return;
+      try {
+        await apiPost(`/contracts/${this.selectedContract.id}/payments`, this.payForm);
+        const data = await apiGet(`/contracts/${this.selectedContract.id}/payments`);
+        this.payments = Array.isArray(data) ? data : data.items || [];
+        this.payForm = { payment_date: new Date().toISOString().slice(0, 10), amount: 0, description: '' };
+        $store.app.flashSuccess("Thêm thanh toán thành công");
+      } catch (e) {
+        $store.app.flashError(e.error || "Không thêm được thanh toán");
+      }
+    },
+
+    fmtMoney(v) {
+      if (!v) return '0';
+      return new Intl.NumberFormat('vi-VN').format(v);
+    },
+  };
+}
+</script>
+
+</body>
+</html>
