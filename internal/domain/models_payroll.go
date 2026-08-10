@@ -494,3 +494,36 @@ type SeveranceResult struct {
 	YearsOfService   float64 `json:"years_of_service"`
 	Reason           TerminationReason `json:"reason"`
 }
+
+// SalaryAllocationItem represents one employee's salary allocation to a department.
+type SalaryAllocationItem struct {
+	EmployeeID   string  `json:"employee_id"`
+	EmployeeName string  `json:"employee_name"`
+	Department   string  `json:"department"`
+	AccountCode  string  `json:"account_code"` // GL account for this department's expense
+	GrossSalary  float64 `json:"gross_salary"`
+	Allocation   float64 `json:"allocation"` // Percentage or amount allocated
+}
+
+// SalaryAllocationRequest is the input for salary allocation by department.
+type SalaryAllocationRequest struct {
+	CompanyID string                 `json:"company_id"`
+	PeriodID  string                 `json:"period_id"`
+	Items     []SalaryAllocationItem `json:"items"`
+}
+
+// SalaryAllocationResult is the output of salary allocation.
+type SalaryAllocationResult struct {
+	CompanyID string                 `json:"company_id"`
+	PeriodID  string                 `json:"period_id"`
+	TotalGross float64               `json:"total_gross"`
+	ByDepartment []DepartmentTotal   `json:"by_department"`
+}
+
+// DepartmentTotal aggregates salary by department.
+type DepartmentTotal struct {
+	Department    string  `json:"department"`
+	AccountCode   string  `json:"account_code"`
+	TotalSalary   float64 `json:"total_salary"`
+	EmployeeCount int     `json:"employee_count"`
+}

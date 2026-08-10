@@ -12,12 +12,13 @@ import (
 )
 
 type TaxHandler struct {
-	svc   service.TaxServiceInterface
-	audit domain.AuditLogRepository
+	svc      service.TaxServiceInterface
+	declSvc  *service.TaxDeclarationService
+	audit    domain.AuditLogRepository
 }
 
-func NewTaxHandler(svc service.TaxServiceInterface, audit domain.AuditLogRepository) *TaxHandler {
-	return &TaxHandler{svc: svc, audit: audit}
+func NewTaxHandler(svc service.TaxServiceInterface, declSvc *service.TaxDeclarationService, audit domain.AuditLogRepository) *TaxHandler {
+	return &TaxHandler{svc: svc, declSvc: declSvc, audit: audit}
 }
 
 func (h *TaxHandler) logAudit(c *gin.Context, action domain.AuditAction, entityType, entityID string) {
@@ -35,10 +36,14 @@ func RegisterTaxRoutes(r *gin.Engine, h *TaxHandler, authMW gin.HandlerFunc) {
 	v1 := r.Group("/api/v1", authMW)
 	tax := v1.Group("/tax")
 	{
+		tax.GET("/validate-tax-code", h.ValidateTaxCode)
 		declarations := tax.Group("/declarations")
 		{
 			declarations.POST("", h.CreateDeclaration)
 			declarations.POST("/generate", h.GenerateDeclaration)
+			declarations.POST("/populate/vat", h.PopulateVAT01)
+			declarations.POST("/populate/cit", h.PopulateCIT03)
+			declarations.POST("/populate/pit", h.PopulatePIT05)
 			declarations.GET("", h.ListDeclarations)
 			declarations.GET("/:id", h.GetDeclaration)
 			declarations.PUT("/:id", h.UpdateDeclaration)
@@ -824,4 +829,88 @@ func (h *TaxHandler) CalculateQuarterlyProvisional(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// ─── Tax Declaration Auto-Population ────────────────────────────────────────
+
+// PopulateVAT01 auto-fills VAT declaration lines from provided amounts.
+// POST /api/v1/tax/declarations/populate/vat
+func (h *TaxHandler) PopulateVAT01(c *gin.Context) {
+	var req struct {
+		CompanyID    string  `json:"company_id" binding:"required"`
+		PeriodYear   int     `json:"period_year" binding:"required"`
+		PeriodNumber int     `json:"period_number" binding:"required"`
+		Revenue      float64 `json:"revenue"`
+		OutputVAT    float64 `json:"output_vat"`
+		InputVAT     float64 `json:"input_vat"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	decl, err := h.declSvc.PopulateVAT01(c.Request.Context(), req.CompanyID, req.PeriodYear, req.PeriodNumber, req.Revenue, req.OutputVAT, req.InputVAT)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, decl)
+}
+
+// PopulateCIT03 auto-fills CIT finalization lines with 3-tier progressive rates.
+// POST /api/v1/tax/declarations/populate/cit
+func (h *TaxHandler) PopulateCIT03(c *gin.Context) {
+	var req struct {
+		CompanyID          string  `json:"company_id" binding:"required"`
+		Year               int     `json:"year" binding:"required"`
+		Revenue            float64 `json:"revenue"`
+		DeductibleExpenses float64 `json:"deductible_expenses"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	decl, err := h.declSvc.PopulateCIT03(c.Request.Context(), req.CompanyID, req.Year, req.Revenue, req.DeductibleExpenses)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, decl)
+}
+
+// PopulatePIT05 auto-fills PIT withholding declaration lines.
+// POST /api/v1/tax/declarations/populate/pit
+func (h *TaxHandler) PopulatePIT05(c *gin.Context) {
+	var req struct {
+		CompanyID    string  `json:"company_id" binding:"required"`
+		PeriodYear   int     `json:"period_year" binding:"required"`
+		PeriodNumber int     `json:"period_number" binding:"required"`
+		TotalIncome  float64 `json:"total_income"`
+		Deductions   float64 `json:"deductions"`
+		ExemptIncome float64 `json:"exempt_income"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	decl, err := h.declSvc.PopulatePIT05(c.Request.Context(), req.CompanyID, req.PeriodYear, req.PeriodNumber, req.TotalIncome, req.Deductions, req.ExemptIncome)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, decl)
+}
+
+// ValidateTaxCode queries GDT for a tax code's active/inactive status.
+func (h *TaxHandler) ValidateTaxCode(c *gin.Context) {
+	taxCode := c.Query("tax_code")
+	if taxCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tax_code is required"})
+		return
+	}
+	resp, err := h.svc.ValidateTaxCode(c.Request.Context(), taxCode)
+	if err != nil {
+		h.taxError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }

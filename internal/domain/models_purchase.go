@@ -210,6 +210,8 @@ type GRNItem struct {
 	QuantityRejected float64 `json:"quantity_rejected"`
 	UnitPrice        float64 `json:"unit_price"`
 	LineTotal        float64 `json:"line_total"`
+	LotNumber        string  `json:"lot_number,omitempty"`
+	ExpiryDate       string  `json:"expiry_date,omitempty"`
 }
 
 func (l *GRNItem) Validate() error {

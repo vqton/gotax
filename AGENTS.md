@@ -28,6 +28,11 @@ internal/i18n/              →  go-i18n translation bundle
 internal/logger/            →  zap logger + gin middleware
 internal/repository/        →  per-module PG + memory impls (pg_*.go, memory_*.go)
 internal/service/           →  business rules, validation, orchestration. Pure Go.
+  - tax_service.go          →  tax calculation, e-invoice lifecycle, reconciliation
+  - tax_declaration_service.go →  declaration auto-population (3-tier CIT, PIT 25.1)
+  - bank_import_service.go  →  bank CSV import (VCB, BIDV, CTG, VTB, ACB parsers)
+  - year_end_service.go     →  year-end close (Revenue/Expense → 421, carry-forward, TT200→TT99 mapping)
+  - print_service.go        →  PDF generation (Phiếu thu/chi TT99 format)
 internal/validate/          →  go-playground/validator singleton + custom validators
 internal/xmldsig/           →  XML digital signature (RSA, for e-invoice)
 ```
@@ -136,7 +141,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-31+ versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000031_warehouse_keeper`.
+31+ versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000038_invoice_books`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 

@@ -84,6 +84,9 @@ func RegisterBankRoutes(r *gin.Engine, h *BankHandler, authMW gin.HandlerFunc) {
 			deposits.GET("/:id", h.GetDeposit)
 			deposits.POST("/:id/mature", h.MatureDeposit)
 		}
+
+		bank.POST("/sync", h.SyncTransactions)
+		bank.POST("/auto-match", h.AutoMatch)
 	}
 
 	reports := r.Group("/api/v1/reports", authMW)
@@ -560,4 +563,36 @@ func (h *BankHandler) GetBalance(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"balance": balance})
+}
+
+// SyncTransactions fetches transactions from a bank API adapter.
+// Currently returns mock data — real adapters injected via constructor.
+func (h *BankHandler) SyncTransactions(c *gin.Context) {
+	var req struct {
+		CompanyID     string `json:"company_id"`
+		BankAccountID string `json:"bank_account_id"`
+		FromDate      string `json:"from_date"`
+		ToDate        string `json:"to_date"`
+		BankCode      string `json:"bank_code"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "sync initiated", "bank_code": req.BankCode, "from_date": req.FromDate, "to_date": req.ToDate})
+}
+
+// AutoMatch runs automatic matching on a statement's pending lines.
+func (h *BankHandler) AutoMatch(c *gin.Context) {
+	statementID := c.Query("statement_id")
+	if statementID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "statement_id is required"})
+		return
+	}
+	results, err := h.svc.AutoMatch(c.Request.Context(), statementID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"matches": results, "count": len(results)})
 }

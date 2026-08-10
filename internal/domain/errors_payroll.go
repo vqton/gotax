@@ -31,4 +31,6 @@ var (
 	ErrPayrollSalaryScaleNotFound = errors.New("salary scale not found")
 	ErrPayrollSalaryScaleExists   = errors.New("salary scale code already exists")
 	ErrPayrollESGNotFound         = errors.New("employee salary grade not found")
+	ErrPayrollCompanyRequired     = errors.New("company_id is required")
+	ErrPayrollLinesRequired       = errors.New("at least one allocation item is required")
 )

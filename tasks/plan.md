@@ -1,8 +1,8 @@
-# Implementation Plan: GoTax Pending Features
+# Implementation Plan: GoTax Remaining Modules
 
 ## Overview
 
-Vietnamese tax-compliant GL API needs 12 modules implemented. Current state: purchase module has interface naming collision breaking build. Plan: fix blocker first, then implement modules from simple to complex, core to edge.
+Four modules remain from TASK_BREAKDOWN_ADMIN.md: E-Banking, E-Tax Filing, Digital Signature, Multi-branch. Build green, tests pass. Implement from simple to complex, core to edge.
 
 ## Architecture Decisions
 
@@ -10,191 +10,375 @@ Vietnamese tax-compliant GL API needs 12 modules implemented. Current state: pur
 - **TDD approach**: Write failing test first, then implementation
 - **Two backends**: Always implement PG + memory repos
 - **Vertical slicing**: Complete feature paths, not horizontal layers
-- **Review after each phase**: Code review before moving to next phase
+- **Review after each module**: Code review before moving to next
 
 ## Task List
 
-### Phase 0: Fix Immediate Blocker (1 day)
+### Module 1: E-Banking (CSV Parsers)
 
-- [ ] Task 0.1: Rename purchase interfaces to prefixed names
-- [ ] Task 0.2: Align memory_purchase.go to new interface names
-- [ ] Task 0.3: Align pg_purchase.go to new interface names
-- [ ] Task 0.4: Align purchase_service.go call sites
-- [ ] Task 0.5: Verify `go build ./...` passes
-- [ ] Task 0.6: Write purchase handler tests (TDD)
-- [ ] Task 0.7: Run full test suite `go test -count=1 ./...`
+**Simplest module — pure parsing, no complex business logic.**
 
-**Checkpoint: Phase 0**
-- [ ] Build green
-- [ ] Purchase module tests pass
+#### Task 1.1: Design CSV parser interface
+- **Description:** Create interface for bank CSV parsers
+- **Acceptance criteria:**
+  - [ ] Interface defined in `internal/domain/interfaces.go`
+  - [ ] Common methods: `Parse`, `Validate`, `GetBankCode`
+- **Verification:**
+  - [ ] `go build ./...` passes
+- **Dependencies:** None
+- **Files likely touched:**
+  - `internal/domain/interfaces.go`
+- **Estimated scope:** S
+
+#### Task 1.2: Implement VCB parser
+- **Description:** Implement Vietcombank CSV parser
+- **Acceptance criteria:**
+  - [ ] Parser implemented in `internal/einvoice/parser_vcb.go`
+  - [ ] Handles VCB CSV format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/einvoice/` passes
+- **Dependencies:** Task 1.1
+- **Files likely touched:**
+  - `internal/einvoice/parser_vcb.go`
+  - `internal/einvoice/parser_vcb_test.go`
+- **Estimated scope:** M
+
+#### Task 1.3: Implement BIDV parser
+- **Description:** Implement BIDV CSV parser
+- **Acceptance criteria:**
+  - [ ] Parser implemented
+  - [ ] Handles BIDV CSV format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/einvoice/` passes
+- **Dependencies:** Task 1.1
+- **Files likely touched:**
+  - `internal/einvoice/parser_bidv.go`
+  - `internal/einvoice/parser_bidv_test.go`
+- **Estimated scope:** M
+
+#### Task 1.4: Implement CTG parser
+- **Description:** Implement VietinBank CSV parser
+- **Acceptance criteria:**
+  - [ ] Parser implemented
+  - [ ] Handles CTG CSV format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/einvoice/` passes
+- **Dependencies:** Task 1.1
+- **Files likely touched:**
+  - `internal/einvoice/parser_ctg.go`
+  - `internal/einvoice/parser_ctg_test.go`
+- **Estimated scope:** M
+
+#### Task 1.5: Implement VTB parser
+- **Description:** Implement VPBank CSV parser
+- **Acceptance criteria:**
+  - [ ] Parser implemented
+  - [ ] Handles VTB CSV format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/einvoice/` passes
+- **Dependencies:** Task 1.1
+- **Files likely touched:**
+  - `internal/einvoice/parser_vtb.go`
+  - `internal/einvoice/parser_vtb_test.go`
+- **Estimated scope:** M
+
+#### Task 1.6: Implement ACB parser
+- **Description:** Implement ACB CSV parser
+- **Acceptance criteria:**
+  - [ ] Parser implemented
+  - [ ] Handles ACB CSV format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/einvoice/` passes
+- **Dependencies:** Task 1.1
+- **Files likely touched:**
+  - `internal/einvoice/parser_acb.go`
+  - `internal/einvoice/parser_acb_test.go`
+- **Estimated scope:** M
+
+#### Task 1.7: Create bank import service
+- **Description:** Create service for bank import
+- **Acceptance criteria:**
+  - [ ] Service implemented in `internal/service/bank_import_service.go`
+  - [ ] Parser selection logic
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/service/` passes
+- **Dependencies:** Task 1.2-1.6
+- **Files likely touched:**
+  - `internal/service/bank_import_service.go`
+  - `internal/service/bank_import_service_test.go`
+- **Estimated scope:** M
+
+#### Task 1.8: Create bank import handler
+- **Description:** Create HTTP handler for bank import
+- **Acceptance criteria:**
+  - [ ] Handler implemented in `internal/handler/bank_import_handler.go`
+  - [ ] Routes registered
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/handler/` passes
+- **Dependencies:** Task 1.7
+- **Files likely touched:**
+  - `internal/handler/bank_import_handler.go`
+  - `internal/handler/bank_import_handler_test.go`
+- **Estimated scope:** M
+
+#### Task 1.9: Wire in main.go
+- **Description:** Wire bank import dependencies in main.go
+- **Acceptance criteria:**
+  - [ ] PG branch wired
+  - [ ] Memory branch wired
+  - [ ] Service initialized
+- **Verification:**
+  - [ ] `go build ./...` passes
+- **Dependencies:** Task 1.8
+- **Files likely touched:**
+  - `main.go`
+- **Estimated scope:** S
+
+**Checkpoint: E-Banking Module**
+- [ ] All parsers working
+- [ ] Service and handler tests pass
 - [ ] Code review
 
-### Phase 1: Foundation Modules (5 days)
+---
 
-#### Module 1: Number Format (1 day)
-- [ ] Task 1.1: Create `internal/format/format.go` with `FormatNumber`
-- [ ] Task 1.2: Implement `ParseNumber`
-- [ ] Task 1.3: Write unit tests
-- [ ] Task 1.4: Integrate with existing handlers
+### Module 2: Digital Signature
 
-#### Module 2: System Options (2 days)
-- [ ] Task 2.1: Create migration `000035_system_options.up.sql` + `.down.sql`
-- [ ] Task 2.2: Create `models_system.go` with `SystemOption` struct
-- [ ] Task 2.3: Create `SystemOptionRepo` interface in `interfaces.go`
-- [ ] Task 2.4: Define error variables in `errors.go`
-- [ ] Task 2.5: Implement `pg_system_option.go`
-- [ ] Task 2.6: Implement `memory_system_option.go`
-- [ ] Task 2.7: Create `system_option_service.go`
-- [ ] Task 2.8: Implement Get/Set by category
-- [ ] Task 2.9: Implement defaults initialization
-- [ ] Task 2.10: Create `system_option_handler.go`
-- [ ] Task 2.11: Register routes in `handler.go`
-- [ ] Task 2.12: Wire repos/services in `main.go` (PG + memory)
-- [ ] Task 2.13: Write service tests
-- [ ] Task 2.14: Write handler tests
+**Simple module — provider pattern, minimal business logic.**
 
-#### Module 3: Voucher Numbering (2 days)
-- [ ] Task 3.1: Create migration `000036_numbering_rules.up.sql` + `.down.sql`
-- [ ] Task 3.2: Create `models_numbering.go`
-- [ ] Task 3.3: Create `NumberingRuleRepo` interface
-- [ ] Task 3.4: Define errors
-- [ ] Task 3.5: Implement PG repo
-- [ ] Task 3.6: Implement Memory repo
-- [ ] Task 3.7: Create `numbering_rule_service.go`
-- [ ] Task 3.8: Implement `GetNextNumber` with atomic increment
-- [ ] Task 3.9: Create handler
-- [ ] Task 3.10: Wire in main.go
-- [ ] Task 3.11: Write tests
+#### Task 2.1: Design SignatureProvider interface
+- **Description:** Create interface for digital signature providers
+- **Acceptance criteria:**
+  - [ ] Interface defined in `internal/domain/interfaces.go`
+  - [ ] Methods: `Sign`, `Verify`, `GetProviderName`
+- **Verification:**
+  - [ ] `go build ./...` passes
+- **Dependencies:** None
+- **Files likely touched:**
+  - `internal/domain/interfaces.go`
+- **Estimated scope:** S
 
-**Checkpoint: Phase 1**
-- [ ] All foundation modules working
+#### Task 2.2: Implement mock provider
+- **Description:** Implement mock signature provider for testing
+- **Acceptance criteria:**
+  - [ ] Mock provider implemented in `internal/xmldsig/mock_provider.go`
+  - [ ] Returns predictable results
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/xmldsig/` passes
+- **Dependencies:** Task 2.1
+- **Files likely touched:**
+  - `internal/xmldsig/mock_provider.go`
+  - `internal/xmldsig/mock_provider_test.go`
+- **Estimated scope:** S
+
+#### Task 2.3: Implement VNPT-CA provider
+- **Description:** Implement VNPT-CA signature provider
+- **Acceptance criteria:**
+  - [ ] Provider implemented in `internal/xmldsig/vnpt_ca.go`
+  - [ ] Handles VNPT-CA protocol
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/xmldsig/` passes
+- **Dependencies:** Task 2.1
+- **Files likely touched:**
+  - `internal/xmldsig/vnpt_ca.go`
+  - `internal/xmldsig/vnpt_ca_test.go`
+- **Estimated scope:** L
+
+#### Task 2.4: Create signature service
+- **Description:** Create service for digital signatures
+- **Acceptance criteria:**
+  - [ ] Service implemented in `internal/service/signature_service.go`
+  - [ ] Provider selection logic
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/service/` passes
+- **Dependencies:** Task 2.2, 2.3
+- **Files likely touched:**
+  - `internal/service/signature_service.go`
+  - `internal/service/signature_service_test.go`
+- **Estimated scope:** M
+
+**Checkpoint: Digital Signature Module**
+- [ ] Providers working
+- [ ] Service tests pass
+- [ ] Code review
+
+---
+
+### Module 3: E-Tax Filing
+
+**Complex module — XML generation, GDT integration.**
+
+#### Task 3.1: Implement VAT declaration XML
+- **Description:** Implement VAT declaration XML generation (Mẫu 01)
+- **Acceptance criteria:**
+  - [ ] XML generation in `internal/htkk/vat_declaration.go`
+  - [ ] Follows Mẫu 01 format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/htkk/` passes
+- **Dependencies:** None
+- **Files likely touched:**
+  - `internal/htkk/vat_declaration.go`
+  - `internal/htkk/vat_declaration_test.go`
+- **Estimated scope:** M
+
+#### Task 3.2: Implement CIT declaration XML
+- **Description:** Implement CIT declaration XML generation (Mẫu 01)
+- **Acceptance criteria:**
+  - [ ] XML generation in `internal/htkk/cit_declaration.go`
+  - [ ] Follows Mẫu 01 format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/htkk/` passes
+- **Dependencies:** Task 3.1
+- **Files likely touched:**
+  - `internal/htkk/cit_declaration.go`
+  - `internal/htkk/cit_declaration_test.go`
+- **Estimated scope:** M
+
+#### Task 3.3: Implement PIT declaration XML
+- **Description:** Implement PIT declaration XML generation
+- **Acceptance criteria:**
+  - [ ] XML generation in `internal/htkk/pit_declaration.go`
+  - [ ] Follows PIT format
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/htkk/` passes
+- **Dependencies:** Task 3.2
+- **Files likely touched:**
+  - `internal/htkk/pit_declaration.go`
+  - `internal/htkk/pit_declaration_test.go`
+- **Estimated scope:** M
+
+#### Task 3.4: Create tax filing service
+- **Description:** Create service for tax filing
+- **Acceptance criteria:**
+  - [ ] Service implemented in `internal/service/tax_filing_service.go`
+  - [ ] XML generation logic
+  - [ ] GDT client integration
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/service/` passes
+- **Dependencies:** Task 3.1-3.3
+- **Files likely touched:**
+  - `internal/service/tax_filing_service.go`
+  - `internal/service/tax_filing_service_test.go`
+- **Estimated scope:** L
+
+#### Task 3.5: Create tax filing handler
+- **Description:** Create HTTP handler for tax filing
+- **Acceptance criteria:**
+  - [ ] Handler implemented in `internal/handler/tax_filing_handler.go`
+  - [ ] Routes registered
+  - [ ] Unit tests pass
+- **Verification:**
+  - [ ] `go test -v ./internal/handler/` passes
+- **Dependencies:** Task 3.4
+- **Files likely touched:**
+  - `internal/handler/tax_filing_handler.go`
+  - `internal/handler/tax_filing_handler_test.go`
+- **Estimated scope:** M
+
+**Checkpoint: E-Tax Filing Module**
+- [ ] XML generation working
+- [ ] Service and handler tests pass
+- [ ] Code review
+
+---
+
+### Module 4: Multi-branch
+
+**Complex module — cross-cutting concerns, system options extension.**
+
+#### Task 4.1: Add branch-level options support
+- **Description:** Add branch-level system options
+- **Acceptance criteria:**
+  - [ ] Branch options schema in system options
+  - [ ] Override logic
+  - [ ] Inheritance from company
+- **Verification:**
+  - [ ] `go build ./...` passes
+- **Dependencies:** None
+- **Files likely touched:**
+  - `internal/service/system_option_service.go`
+- **Estimated scope:** M
+
+#### Task 4.2: Implement per-branch numbering rules
+- **Description:** Implement per-branch numbering rules
+- **Acceptance criteria:**
+  - [ ] Branch-specific rules
+  - [ ] Fallback to company rules
+  - [ ] Atomic generation
+- **Verification:**
+  - [ ] Unit tests pass
+- **Dependencies:** Task 4.1
+- **Files likely touched:**
+  - `internal/service/numbering_rule_service.go`
+- **Estimated scope:** M
+
+#### Task 4.3: Add branch report filtering
+- **Description:** Add branch filtering to reports
+- **Acceptance criteria:**
+  - [ ] Branch parameter support
+  - [ ] Filtering logic
+  - [ ] Performance optimization
+- **Verification:**
+  - [ ] `go build ./...` passes
+- **Dependencies:** Task 4.2
+- **Files likely touched:**
+  - `internal/service/report_service.go`
+- **Estimated scope:** M
+
+#### Task 4.4: Write tests
+- **Description:** Write tests for multi-branch functionality
+- **Acceptance criteria:**
+  - [ ] Service tests
+  - [ ] Handler tests
+  - [ ] Edge cases covered
+- **Verification:**
+  - [ ] `go test -count=1 ./...` passes
+- **Dependencies:** Task 4.3
+- **Files likely touched:**
+  - `internal/service/system_option_service_test.go`
+  - `internal/service/numbering_rule_service_test.go`
+  - `internal/service/report_service_test.go`
+- **Estimated scope:** M
+
+**Checkpoint: Multi-branch Module**
+- [ ] All multi-branch features working
 - [ ] Tests pass
 - [ ] Code review
 
-### Phase 2: Core Business Modules (8 days)
+---
 
-#### Module 4: Fiscal Year (2 days)
-- [ ] Task 4.1: Extend `periods` table with fiscal_year fields
-- [ ] Task 4.2: Add fiscal year config to SystemOption
-- [ ] Task 4.3: Auto-generate 12 periods on FY creation
-- [ ] Task 4.4: Integrate with existing period handler
-- [ ] Task 4.5: Write tests
+### Final Checkpoint
 
-#### Module 5: Contracts (3 days)
-- [ ] Task 5.1: Create migration `000037_contracts.up.sql` + `.down.sql`
-- [ ] Task 5.2: Create `models_contract.go`
-- [ ] Task 5.3: Create `ContractRepo` interface
-- [ ] Task 5.4: Define errors
-- [ ] Task 5.5: Implement PG repo
-- [ ] Task 5.6: Implement Memory repo
-- [ ] Task 5.7: Create `contract_service.go`
-- [ ] Task 5.8: Implement CRUD + status transitions
-- [ ] Task 5.9: Create handler
-- [ ] Task 5.10: Register routes
-- [ ] Task 5.11: Wire in main.go
-- [ ] Task 5.12: Write tests
-
-#### Module 6: Loan Agreements (3 days)
-- [ ] Task 6.1: Create migration `000038_loan_agreements.up.sql` + `.down.sql`
-- [ ] Task 6.2: Create `models_loan.go`
-- [ ] Task 6.3: Create `LoanAgreementRepo` interface
-- [ ] Task 6.4: Define errors
-- [ ] Task 6.5: Implement PG repo
-- [ ] Task 6.6: Implement Memory repo
-- [ ] Task 6.7: Create `loan_service.go`
-- [ ] Task 6.8: Implement amortization schedule
-- [ ] Task 6.9: Implement payment recording
-- [ ] Task 6.10: Create handler
-- [ ] Task 6.11: Register routes
-- [ ] Task 6.12: Wire in main.go
-- [ ] Task 6.13: Write tests
-
-**Checkpoint: Phase 2**
-- [ ] Core business modules working
-- [ ] Tests pass
-- [ ] Code review
-
-### Phase 3: Integration Modules (7 days)
-
-#### Module 7: E-Banking (4 days)
-- [ ] Task 7.1: Design CSV parser interface
-- [ ] Task 7.2: Implement VCB parser
-- [ ] Task 7.3: Implement BIDV parser
-- [ ] Task 7.4: Implement CTG parser
-- [ ] Task 7.5: Implement VTB parser
-- [ ] Task 7.6: Implement ACB parser
-- [ ] Task 7.7: Create `bank_import_service.go`
-- [ ] Task 7.8: Implement reconciliation logic
-- [ ] Task 7.9: Create handler
-- [ ] Task 7.10: Write tests
-
-#### Module 8: E-Tax Filing (2 days)
-- [ ] Task 8.1: VAT declaration XML (Mẫu 01)
-- [ ] Task 8.2: CIT declaration XML (Mẫu 01)
-- [ ] Task 8.3: PIT declaration XML
-- [ ] Task 8.4: Create `tax_filing_service.go`
-- [ ] Task 8.5: Integrate with GDT client
-- [ ] Task 8.6: Create handler
-- [ ] Task 8.7: Write tests
-
-#### Module 9: Digital Signature (1 day)
-- [ ] Task 9.1: Design `SignatureProvider` interface
-- [ ] Task 9.2: Implement VNPT-CA provider
-- [ ] Task 9.3: Implement mock provider for testing
-- [ ] Task 9.4: Create `signature_service.go`
-- [ ] Task 9.5: Write tests
-
-**Checkpoint: Phase 3**
-- [ ] Integration modules working
-- [ ] Tests pass
-- [ ] Code review
-
-### Phase 4: Polish Modules (4 days)
-
-#### Module 10: Backup & Restore (2 days)
-- [ ] Task 10.1: Create migration `000039_backups.up.sql`
-- [ ] Task 10.2: Create `backup_service.go`
-- [ ] Task 10.3: Implement pg_dump wrapper
-- [ ] Task 10.4: Implement restore logic
-- [ ] Task 10.5: Create handler
-- [ ] Task 10.6: Write tests
-
-#### Module 11: Report Customization (1 day)
-- [ ] Task 11.1: Add report options to SystemOption
-- [ ] Task 11.2: Extend PDF generator
-- [ ] Task 11.3: Add logo upload
-- [ ] Task 11.4: Write tests
-
-#### Module 12: Multi-branch (1 day)
-- [ ] Task 12.1: Branch-level options support
-- [ ] Task 12.2: Per-branch numbering rules
-- [ ] Task 12.3: Branch report filtering
-- [ ] Task 12.4: Write tests
-
-**Checkpoint: Phase 4**
 - [ ] All modules complete
 - [ ] Full test suite passing
+- [ ] Build green
 - [ ] Final code review
+- [ ] Git sync
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Interface naming collision | High | Fix immediately, rename to prefixed names |
-| Build broken | High | Verify after each change |
-| Missing tests | Medium | TDD approach, write tests with implementation |
-| Complex business logic | Medium | Follow Circular 99/Decree 123 regulations |
+| Complex XML formats | Medium | Follow existing HTKK patterns |
+| GDT API changes | Low | Use existing GDT client |
 | Performance issues | Low | Profile after implementation |
-
-## Open Questions
-
-1. Should we implement all E-Banking parsers or start with VCB only?
-2. Digital Signature: use real VNPT-CA or mock only?
-3. Backup: implement pg_dump wrapper or use Go native?
 
 ## Verification
 
-After each phase:
+After each module:
 1. `go build ./...` passes
 2. `go vet ./...` passes
 3. `go test -count=1 ./...` passes

@@ -889,3 +889,76 @@ func (s *WarehouseService) CancelGRN(ctx context.Context, id, reason string) err
 	g.UpdatedAt = s.now()
 	return s.grnRepo.UpdateGRN(ctx, g)
 }
+
+// ─── Stock Level Warnings ─────────────────────────────────────────────
+
+type StockWarning struct {
+	ItemID      string  `json:"item_id"`
+	ItemCode    string  `json:"item_code"`
+	ItemName    string  `json:"item_name"`
+	WarehouseID string  `json:"warehouse_id"`
+	CurrentQty  float64 `json:"current_qty"`
+	MinStock    float64 `json:"min_stock"`
+	MaxStock    float64 `json:"max_stock"`
+	WarningType string  `json:"warning_type"` // "BELOW_MIN" or "ABOVE_MAX"
+}
+
+// CheckStockLevel checks if a single item's stock level triggers a warning.
+func (s *WarehouseService) CheckStockLevel(ctx context.Context, companyID, warehouseID, itemID, period string) (*StockWarning, error) {
+	item, err := s.itemRepo.GetItemByID(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	bal, err := s.balRepo.FindStockBalance(ctx, companyID, warehouseID, itemID, period)
+	if err != nil {
+		// No balance = zero stock
+		if item.MinStock > 0 {
+			return &StockWarning{
+				ItemID: itemID, ItemCode: item.Code, ItemName: item.Name,
+				WarehouseID: warehouseID, CurrentQty: 0,
+				MinStock: item.MinStock, MaxStock: item.MaxStock,
+				WarningType: "BELOW_MIN",
+			}, nil
+		}
+		return nil, nil
+	}
+	if item.MinStock > 0 && bal.Quantity < item.MinStock {
+		return &StockWarning{
+			ItemID: itemID, ItemCode: item.Code, ItemName: item.Name,
+			WarehouseID: warehouseID, CurrentQty: bal.Quantity,
+			MinStock: item.MinStock, MaxStock: item.MaxStock,
+			WarningType: "BELOW_MIN",
+		}, nil
+	}
+	if item.MaxStock > 0 && bal.Quantity > item.MaxStock {
+		return &StockWarning{
+			ItemID: itemID, ItemCode: item.Code, ItemName: item.Name,
+			WarehouseID: warehouseID, CurrentQty: bal.Quantity,
+			MinStock: item.MinStock, MaxStock: item.MaxStock,
+			WarningType: "ABOVE_MAX",
+		}, nil
+	}
+	return nil, nil
+}
+
+// GetStockWarnings returns all items in a warehouse with stock level warnings.
+func (s *WarehouseService) GetStockWarnings(ctx context.Context, companyID, warehouseID, period string) ([]StockWarning, error) {
+	items, err := s.itemRepo.ListItems(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+	var warnings []StockWarning
+	for _, item := range items {
+		if !item.IsActive {
+			continue
+		}
+		w, err := s.CheckStockLevel(ctx, companyID, warehouseID, item.ID, period)
+		if err != nil {
+			continue
+		}
+		if w != nil {
+			warnings = append(warnings, *w)
+		}
+	}
+	return warnings, nil
+}

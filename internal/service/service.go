@@ -127,6 +127,9 @@ type Service interface {
 	GetCarryForwardLogs(ctx context.Context, companyID string) ([]domain.CarryForwardLog, error)
 	GetCarryForwardLogByID(ctx context.Context, id string) (*domain.CarryForwardLog, error)
 
+	YearEndClose(ctx context.Context, companyID, fromPeriodID, toPeriodID, fromYear, toYear, userID string) (*YearEndCloseResult, error)
+	ExportYearEndBalances(ctx context.Context, companyID, periodID string) ([]domain.OpeningBalance, error)
+
 	CreateCircular99Mapping(ctx context.Context, m *domain.Circular99Mapping) error
 	ListCircular99Mappings(ctx context.Context) ([]domain.Circular99Mapping, error)
 	GetCircular99MappingByOldCode(ctx context.Context, oldCode string) (*domain.Circular99Mapping, error)
@@ -137,6 +140,7 @@ type Service interface {
 
 	ImportOpeningBalances(ctx context.Context, data []byte, companyID, periodID, createdBy string) (*OBImportResult, error)
 	GenerateOpeningBalancePDF(ctx context.Context, companyID, periodID string) ([]byte, error)
+	GeneratePrintPDF(ctx context.Context, printType, id string) ([]byte, error)
 
 	// Cash Module
 	CreateCashReceipt(ctx context.Context, r *domain.CashReceipt) error

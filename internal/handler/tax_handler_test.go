@@ -55,6 +55,15 @@ func (g *stubGDT) SubmitDeclaration(_ context.Context, xml, certID string) (*dom
 func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*domain.GDTDeclarationStatusResponse, error) {
 	return &domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
 }
+func (g *stubGDT) LookupTaxCode(_ context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error) {
+	if taxCode == "NOTFOUND" {
+		return &domain.TaxCodeLookupResponse{TaxCode: taxCode, Status: "NOT_FOUND", Message: "tax code not found"}, nil
+	}
+	if taxCode == "INACTIVE" {
+		return &domain.TaxCodeLookupResponse{TaxCode: taxCode, Name: "Inactive Corp", Status: "INACTIVE", Message: "tax code inactive"}, nil
+	}
+	return &domain.TaxCodeLookupResponse{TaxCode: taxCode, Name: "Active Corp", Status: "ACTIVE"}, nil
+}
 
 type stubSigner struct{}
 
@@ -80,7 +89,8 @@ func setupTaxTest(t *testing.T) *taxTestSetup {
 	})
 	taxSvc := service.NewTaxService(taxRepo, jeRepo, companyRepo, gdtStub, signerStub)
 	auditRepo := repository.NewMemoryAuditLogRepo()
-	th := NewTaxHandler(taxSvc, auditRepo)
+	taxDeclSvc := service.NewTaxDeclarationService(taxRepo)
+	th := NewTaxHandler(taxSvc, taxDeclSvc, auditRepo)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -928,7 +938,7 @@ func TestCalculatePIT(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &result)
 	assert.Equal(t, ts.compID, result.CompanyID)
 	assert.Equal(t, 1, result.EmployeeCount)
-	assert.Equal(t, 447500.0, result.TotalPIT)
+	assert.Equal(t, 33750.0, result.TotalPIT)
 }
 
 func TestTimeDependentOperations(t *testing.T) {
@@ -1038,4 +1048,50 @@ func TestReconcileVAT(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &res)
 	assert.True(t, res.Matched)
 	assert.Equal(t, 100000.0, res.InvoiceTotal)
+}
+
+func TestValidateTaxCode_Active(t *testing.T) {
+	ts := setupTaxTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/tax/validate-tax-code?tax_code=0100123456", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp domain.TaxCodeLookupResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "ACTIVE", resp.Status)
+	assert.Equal(t, "Active Corp", resp.Name)
+}
+
+func TestValidateTaxCode_NotFound(t *testing.T) {
+	ts := setupTaxTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/tax/validate-tax-code?tax_code=NOTFOUND", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp domain.TaxCodeLookupResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "NOT_FOUND", resp.Status)
+}
+
+func TestValidateTaxCode_Inactive(t *testing.T) {
+	ts := setupTaxTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/tax/validate-tax-code?tax_code=INACTIVE", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp domain.TaxCodeLookupResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "INACTIVE", resp.Status)
+	assert.Equal(t, "Inactive Corp", resp.Name)
+}
+
+func TestValidateTaxCode_MissingParam(t *testing.T) {
+	ts := setupTaxTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/tax/validate-tax-code", nil)
+	ts.r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

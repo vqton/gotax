@@ -101,8 +101,14 @@ func RegisterRoutes(r *gin.Engine, h *Handler, authMW gin.HandlerFunc, adminMW g
 		cf := v1.Group("/" + resCF)
 		{
 			cf.POST("", adminMW, h.CarryForward)
+			cf.POST("/year-end", adminMW, h.YearEndClose)
 			cf.GET("", h.GetCarryForwardLogs)
 			cf.GET("/:id", h.GetCarryForwardLogByID)
+		}
+
+		print := v1.Group("/print")
+		{
+			print.GET("/:type/:id", h.PrintDocument)
 		}
 
 		c99 := v1.Group("/" + resC99)

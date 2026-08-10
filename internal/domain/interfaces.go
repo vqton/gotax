@@ -510,6 +510,19 @@ type DeliveryNoteRepository interface {
 	NextDNNumber(ctx context.Context, companyID, yyyymm string) (string, error)
 }
 
+type PriceListRepository interface {
+	CreatePriceList(ctx context.Context, pl *PriceList) error
+	GetPriceList(ctx context.Context, id string) (*PriceList, error)
+	GetPriceListByCode(ctx context.Context, companyID, code string) (*PriceList, error)
+	ListPriceLists(ctx context.Context, companyID string) ([]PriceList, error)
+	UpdatePriceList(ctx context.Context, pl *PriceList) error
+	DeletePriceList(ctx context.Context, id string) error
+	CreatePriceListLines(ctx context.Context, lines []PriceListLine) error
+	GetPriceListLines(ctx context.Context, priceListID string) ([]PriceListLine, error)
+	UpdatePriceListLine(ctx context.Context, line *PriceListLine) error
+	DeletePriceListLines(ctx context.Context, priceListID string) error
+}
+
 type CustomerInvoiceRepository interface {
 	CreateInvoice(ctx context.Context, inv *CustomerInvoice) error
 	GetInvoice(ctx context.Context, id string) (*CustomerInvoice, error)
@@ -884,3 +897,98 @@ type ContractPaymentRepository interface {
 	ListByContract(ctx context.Context, contractID string) ([]ContractPayment, error)
 	Delete(ctx context.Context, id string) error
 }
+
+// ─── E-Banking Repository ──────────────────────────────────────────
+
+type BankCSVParser interface {
+	Parse(data []byte) ([]BankTransaction, error)
+	Validate(data []byte) error
+	GetBankCode() string
+}
+
+type BankTransaction struct {
+	TransactionDate string  `json:"transaction_date"`
+	TransactionID   string  `json:"transaction_id"`
+	Description     string  `json:"description"`
+	Debit           float64 `json:"debit"`
+	Credit          float64 `json:"credit"`
+	Balance         float64 `json:"balance"`
+	Reference       string  `json:"reference"`
+}
+
+type BankImportRepository interface {
+	CreateImport(ctx context.Context, imp *BankImport) error
+	GetImport(ctx context.Context, id string) (*BankImport, error)
+	ListImports(ctx context.Context, companyID string) ([]BankImport, error)
+	UpdateImportStatus(ctx context.Context, id string, status string) error
+	CreateTransactions(ctx context.Context, txns []BankTransaction) error
+	GetTransactionsByImport(ctx context.Context, importID string) ([]BankTransaction, error)
+}
+
+type BankImport struct {
+	ID               string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID        string    `gorm:"column:company_id;not null;size:36;index:idx_bi_company" json:"company_id"`
+	BankCode         string    `gorm:"column:bank_code;not null;size:10" json:"bank_code"`
+	FileName         string    `gorm:"column:file_name;size:255" json:"file_name"`
+	Status           string    `gorm:"column:status;not null;size:20;default:'pending'" json:"status"`
+	TransactionCount int       `gorm:"column:transaction_count;default:0" json:"transaction_count"`
+	ImportedAt       time.Time `gorm:"column:imported_at;autoCreateTime" json:"imported_at"`
+	CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+}
+
+func (BankImport) TableName() string { return "bank_imports" }
+
+// ─── Invoice Book Management ──────────────────────────────────────
+
+type InvoiceBookRepository interface {
+	CreateBook(ctx context.Context, book *InvoiceBook) error
+	GetBook(ctx context.Context, id string) (*InvoiceBook, error)
+	ListBooks(ctx context.Context, companyID string) ([]InvoiceBook, error)
+	UpdateBook(ctx context.Context, book *InvoiceBook) error
+	DeleteBook(ctx context.Context, id string) error
+	AllocateNumber(ctx context.Context, bookID string) (*InvoiceNumber, error)
+	ReleaseNumber(ctx context.Context, numberID string) error
+	GetNumbersByBook(ctx context.Context, bookID string) ([]InvoiceNumber, error)
+	GetNumberByID(ctx context.Context, id string) (*InvoiceNumber, error)
+	MarkMissing(ctx context.Context, numberID string, reason string) error
+}
+
+type InvoiceBook struct {
+	ID          string    `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID   string    `gorm:"column:company_id;not null;size:36;index:idx_ib_company" json:"company_id"`
+	Name        string    `gorm:"column:name;not null;size:100" json:"name"`
+	Pattern     string    `gorm:"column:pattern;not null;size:50" json:"pattern"`
+	Serial      string    `gorm:"column:serial;size:20" json:"serial"`
+	FromNumber  int       `gorm:"column:from_number;not null" json:"from_number"`
+	ToNumber    int       `gorm:"column:to_number;not null" json:"to_number"`
+	NextNumber  int       `gorm:"column:next_number;not null" json:"next_number"`
+	UsedCount   int       `gorm:"column:used_count;default:0" json:"used_count"`
+	Status      string    `gorm:"column:status;not null;size:20;default:'active'" json:"status"`
+	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (InvoiceBook) TableName() string { return "invoice_books" }
+
+type InvoiceNumberStatus string
+
+const (
+	InvNumAvailable InvoiceNumberStatus = "AVAILABLE"
+	InvNumIssued    InvoiceNumberStatus = "ISSUED"
+	InvNumMissing   InvoiceNumberStatus = "MISSING"
+	InvNumDamaged   InvoiceNumberStatus = "DAMAGED"
+)
+
+type InvoiceNumber struct {
+	ID          string              `gorm:"column:id;primaryKey;size:36" json:"id"`
+	BookID      string              `gorm:"column:book_id;not null;size:36;index:idx_in_book" json:"book_id"`
+	Number      int                 `gorm:"column:number;not null" json:"number"`
+	Status      InvoiceNumberStatus `gorm:"column:status;not null;size:20;default:'AVAILABLE'" json:"status"`
+	InvoiceID   string              `gorm:"column:invoice_id;size:36" json:"invoice_id,omitempty"`
+	IssuedAt    *time.Time          `gorm:"column:issued_at" json:"issued_at,omitempty"`
+	MissingReason string            `gorm:"column:missing_reason;size:255" json:"missing_reason,omitempty"`
+	CreatedAt   time.Time           `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time           `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (InvoiceNumber) TableName() string { return "invoice_numbers" }

@@ -79,6 +79,21 @@ func newMockServer(t *testing.T) *mockServer {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", Code: "00", AckRef: "ACK-REF-1"})
 	})
+	mux.HandleFunc("/api/taxcode/lookup", func(w http.ResponseWriter, r *http.Request) {
+		taxCode := r.URL.Query().Get("tax_code")
+		if taxCode == "NOTFOUND" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(domain.TaxCodeLookupResponse{TaxCode: taxCode, Status: "NOT_FOUND", Message: "tax code not found"})
+			return
+		}
+		if taxCode == "INACTIVE" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(domain.TaxCodeLookupResponse{TaxCode: taxCode, Name: "Inactive Corp", Status: "INACTIVE"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(domain.TaxCodeLookupResponse{TaxCode: taxCode, Name: "Active Corp", Status: "ACTIVE"})
+	})
 	m.server = httptest.NewServer(mux)
 	return m
 }
@@ -288,4 +303,36 @@ func TestQueryDeclarationStatus(t *testing.T) {
 func TestNewInvalidURL(t *testing.T) {
 	_, err := New("://bad", WithRetry(time.Millisecond))
 	assert.Error(t, err)
+}
+
+func TestLookupTaxCode(t *testing.T) {
+	m := newMockServer(t)
+	defer m.Close()
+	c := testClient(t, m.URL())
+
+	resp, err := c.LookupTaxCode(context.Background(), "0100123456")
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", resp.Status)
+	assert.Equal(t, "Active Corp", resp.Name)
+}
+
+func TestLookupTaxCode_NotFound(t *testing.T) {
+	m := newMockServer(t)
+	defer m.Close()
+	c := testClient(t, m.URL())
+
+	resp, err := c.LookupTaxCode(context.Background(), "NOTFOUND")
+	require.NoError(t, err)
+	assert.Equal(t, "NOT_FOUND", resp.Status)
+}
+
+func TestLookupTaxCode_Inactive(t *testing.T) {
+	m := newMockServer(t)
+	defer m.Close()
+	c := testClient(t, m.URL())
+
+	resp, err := c.LookupTaxCode(context.Background(), "INACTIVE")
+	require.NoError(t, err)
+	assert.Equal(t, "INACTIVE", resp.Status)
+	assert.Equal(t, "Inactive Corp", resp.Name)
 }

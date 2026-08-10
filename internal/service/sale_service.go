@@ -1313,3 +1313,52 @@ func (s *SaleService) NextDNNumber(ctx context.Context, companyID, yyyymm string
 func (s *SaleService) NextInvNumber(ctx context.Context, companyID, yyyymm string) (string, error) {
 	return s.invRepo.NextInvNumber(ctx, companyID, yyyymm)
 }
+
+// RevalueAR performs FX revaluation on customer invoices (foreign currency receivables).
+func (s *SaleService) RevalueAR(ctx context.Context, companyID string, asOfDate time.Time) (*domain.FXRevaluation, error) {
+	if s.gl == nil {
+		return nil, domain.ErrFXRevaluationRateMissing
+	}
+	filter := domain.CustomerInvoiceFilter{CompanyID: companyID, Status: domain.SInvPosted}
+	invoices, _, err := s.invRepo.ListInvoices(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	reval := &domain.FXRevaluation{CompanyID: companyID, RevaluationDate: asOfDate, CreatedAt: s.now()}
+	for _, inv := range invoices {
+		if inv.Currency == "" || inv.Currency == "VND" || inv.BalanceDue <= 0.001 || inv.ExchangeRate <= 0 {
+			continue
+		}
+		rate, err := s.gl.GetExchangeRate(ctx, inv.Currency, asOfDate)
+		if err != nil {
+			return nil, domain.ErrFXRevaluationRateMissing
+		}
+		balanceVNDOld := inv.BalanceDue * inv.ExchangeRate
+		balanceVNDNow := inv.BalanceDue * rate.AverageRate
+		diff := balanceVNDNow - balanceVNDOld
+		line := domain.FXRevaluationLine{
+			InvoiceID:       inv.ID,
+			InvoiceNumber:   inv.InvoiceNumber,
+			SupplierID:      inv.CustomerID,
+			SupplierName:    inv.CustomerName,
+			Currency:        inv.Currency,
+			BalanceDue:      inv.BalanceDue,
+			OriginalRate:    inv.ExchangeRate,
+			RevaluationRate: rate.AverageRate,
+		}
+		if diff > 0 {
+			line.FxGain = diff
+			reval.TotalGain += diff
+		} else if diff < 0 {
+			line.FxLoss = -diff
+			reval.TotalLoss += -diff
+		} else {
+			continue
+		}
+		reval.Lines = append(reval.Lines, line)
+	}
+	if len(reval.Lines) == 0 {
+		return nil, domain.ErrFXRevaluationEmpty
+	}
+	return reval, nil
+}

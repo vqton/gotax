@@ -129,3 +129,76 @@ func (s *ExportService) ExportTrialBalance(ctx context.Context, companyID string
 	}
 	return buf.Bytes(), nil
 }
+
+// ExportFinancialStatements exports balance sheet + income statement to .xlsx
+func (s *ExportService) ExportFinancialStatements(ctx context.Context, companyID string, year, month int) ([]byte, error) {
+	balances, err := s.journalRepo.GetTrialBalance(ctx, fmt.Sprintf("%s-%d-%02d", companyID, year, month))
+	if err != nil {
+		return nil, err
+	}
+	for i := range balances {
+		balances[i].Calculate()
+	}
+
+	f := excelize.NewFile()
+	style, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#E8F0FE"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// Balance Sheet
+	bsSheet := "Bảng cân đối kế toán"
+	f.SetSheetName("Sheet1", bsSheet)
+	bsHeaders := []string{"Mã TK", "Diễn giải", "Nợ", "Có"}
+	for i, h := range bsHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(bsSheet, cell, h)
+	}
+	f.SetCellStyle(bsSheet, "A1", "D1", style)
+	bsRow := 2
+	for _, b := range balances {
+		if b.AccountType != domain.AccountTypeAsset && b.AccountType != domain.AccountTypeLiability && b.AccountType != domain.AccountTypeEquity {
+			continue
+		}
+		f.SetCellValue(bsSheet, fmt.Sprintf("A%d", bsRow), b.AccountCode)
+		f.SetCellValue(bsSheet, fmt.Sprintf("B%d", bsRow), string(b.AccountType))
+		f.SetCellValue(bsSheet, fmt.Sprintf("C%d", bsRow), b.TotalDebit)
+		f.SetCellValue(bsSheet, fmt.Sprintf("D%d", bsRow), b.TotalCredit)
+		bsRow++
+	}
+
+	// Income Statement
+	isSheet := "Kết quả kinh doanh"
+	f.NewSheet(isSheet)
+	isHeaders := []string{"Mã TK", "Diễn giải", "Doanh thu", "Chi phí"}
+	for i, h := range isHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(isSheet, cell, h)
+	}
+	f.SetCellStyle(isSheet, "A1", "D1", style)
+	isRow := 2
+	for _, b := range balances {
+		if b.AccountType != domain.AccountTypeRevenue && b.AccountType != domain.AccountTypeExpense {
+			continue
+		}
+		f.SetCellValue(isSheet, fmt.Sprintf("A%d", isRow), b.AccountCode)
+		f.SetCellValue(isSheet, fmt.Sprintf("B%d", isRow), string(b.AccountType))
+		f.SetCellValue(isSheet, fmt.Sprintf("C%d", isRow), b.TotalCredit)
+		f.SetCellValue(isSheet, fmt.Sprintf("D%d", isRow), b.TotalDebit)
+		isRow++
+	}
+
+	for _, sheet := range []string{bsSheet, isSheet} {
+		for i := 1; i <= 4; i++ {
+			col, _ := excelize.ColumnNumberToName(i)
+			f.SetColWidth(sheet, col, col, 20)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}

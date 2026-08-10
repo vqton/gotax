@@ -168,6 +168,9 @@ type TaxServiceInterface interface {
 
 	// Deadline alerts: create alerts for calendars due within daysAhead
 	GenerateDeadlineAlerts(ctx context.Context, companyID string, daysAhead int) (int, error)
+
+	// Tax Code Validation
+	ValidateTaxCode(ctx context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error)
 }
 
 // GDTClient is the GDT API surface used by the service (invoice + declaration).
@@ -177,6 +180,7 @@ type GDTClient interface {
 	CancelInvoice(ctx context.Context, transactionID, reason string) error
 	SubmitDeclaration(ctx context.Context, declarationXML, certID string) (*domain.GDTDeclarationSubmitResponse, error)
 	QueryDeclarationStatus(ctx context.Context, submissionID string) (*domain.GDTDeclarationStatusResponse, error)
+	LookupTaxCode(ctx context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error)
 }
 
 // TXMLSigner signs canonicalized GDT TXML (BK:ChuKySo/DuLieuKy).
@@ -1391,38 +1395,26 @@ func (s *taxService) CalculateCIT(ctx context.Context, companyID string, year in
 
 // PIT progressive brackets per PIT Law Art. 7 (monthly taxable income, VND).
 // tax = taxableIncome * rate% - reduction.
-var pitBrackets = []struct {
-	upper     float64
-	rate      float64
-	reduction float64
-}{
-	{5e6, 5, 0},
-	{10e6, 10, 250000},
-	{18e6, 15, 750000},
-	{32e6, 20, 1650000},
-	{52e6, 25, 3250000},
-	{80e6, 30, 5850000},
-	{math.Inf(1), 35, 9850000},
-}
-
 const (
-	pitPersonalDeduction  = 11e6  // PIT-03: 11M/month resident
-	pitDependantDeduction = 4.4e6 // PIT-04: 4.4M/month per dependant
-	pitSocialRate         = 0.08  // PIT-05
-	pitHealthRate         = 0.015 // PIT-06
-	pitUnemploymentRate   = 0.01  // PIT-07
+	pitPersonalDeduction  = 15_500_000.0 // Resolution 110/2025/UBTVQH15, effective 01/01/2026
+	pitDependantDeduction = 6_200_000.0  // Resolution 110/2025/UBTVQH15, effective 01/01/2026
+	pitSocialRate         = 0.08         // PIT-05
+	pitHealthRate         = 0.015        // PIT-06
+	pitUnemploymentRate   = 0.01         // PIT-07
 )
 
 func progressivePIT(monthlyTaxable float64) float64 {
 	if monthlyTaxable <= 0 {
 		return 0
 	}
-	for _, b := range pitBrackets {
-		if monthlyTaxable < b.upper {
-			return round2(monthlyTaxable*b.rate/100 - b.reduction)
+	// Use domain brackets which handle Law 109/2025 5-bracket schedule (effective Jul 2026)
+	brackets := domain.GetPITBrackets(int(time.Now().Month()), time.Now().Year())
+	for _, b := range brackets {
+		if monthlyTaxable <= b.UpperLimit {
+			return round2(monthlyTaxable*b.Rate - b.QuickDed)
 		}
 	}
-	return round2(monthlyTaxable*35/100 - 9850000)
+	return round2(monthlyTaxable*0.35 - 14_500_000)
 }
 
 func (s *taxService) CalculateQuarterlyProvisional(ctx context.Context, companyID string, year, quarter int, ytdEntries []domain.JournalEntry) (*domain.QuarterlyProvisionalResult, error) {
@@ -1887,4 +1879,16 @@ func paymentDueDate(d *domain.TaxDeclaration) string {
 	default: // monthly
 		return time.Date(y, time.Month(n)+1, 20, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 	}
+}
+
+// ValidateTaxCode queries GDT for a tax code's active/inactive status.
+func (s *taxService) ValidateTaxCode(ctx context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error) {
+	if s.gdt == nil {
+		return nil, domain.ErrGDTUnavailable
+	}
+	resp, err := s.gdt.LookupTaxCode(ctx, taxCode)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }

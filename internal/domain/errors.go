@@ -177,6 +177,7 @@ var (
 
 // Bank module errors
 var (
+	ErrImportNotFound            = errors.New("bank import not found")
 	ErrBankStatementNotFound     = errors.New("bank statement not found")
 	ErrStatementLineNotFound     = errors.New("bank statement line not found")
 	ErrStatementAlreadyReconciled = errors.New("bank statement already reconciled")
@@ -421,6 +422,12 @@ var (
 	ErrDNItemNameRequired   = errors.New("item name is required")
 	ErrDNItemSOLineRequired = errors.New("SO line reference is required")
 	ErrDNItemQtyRequired    = errors.New("quantity delivered must be positive")
+
+	ErrPriceListCodeRequired   = errors.New("price list code is required")
+	ErrPriceListNameRequired   = errors.New("price list name is required")
+	ErrPriceListItemCodeRequired = errors.New("item code is required")
+	ErrPriceListInvalidPrice   = errors.New("unit price must be non-negative")
+	ErrPriceListNotFound       = errors.New("price list not found")
 
 	ErrInvNumberRequired       = errors.New("invoice number is required")
 	ErrInvNumberExists         = errors.New("invoice number already exists")
@@ -669,4 +676,17 @@ var (
 var (
 	ErrContractNotFound = errors.New("contract not found")
 	ErrContractExists   = errors.New("contract code already exists")
+)
+
+// Invoice Book errors
+var (
+	ErrInvoiceBookNotFound      = errors.New("invoice book not found")
+	ErrInvoiceBookExists        = errors.New("invoice book already exists for this pattern and serial")
+	ErrInvoiceBookRangeInvalid  = errors.New("from_number must be less than to_number")
+	ErrInvoiceBookFull          = errors.New("invoice book has no available numbers")
+	ErrInvoiceBookNotActive     = errors.New("invoice book is not active")
+	ErrInvoiceNumberNotFound    = errors.New("invoice number not found")
+	ErrInvoiceNumberNotAvailable = errors.New("invoice number is not available")
+	ErrInvoiceNumberAlreadyIssued = errors.New("invoice number is already issued")
+	ErrInvoiceNumberOutOfRange  = errors.New("invoice number is out of book range")
 )

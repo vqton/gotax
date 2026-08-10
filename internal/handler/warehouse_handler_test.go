@@ -465,3 +465,67 @@ func TestListInventoryTransactions(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, 3, resp.Total)
 }
+
+func TestGetStockWarnings(t *testing.T) {
+	r, svc, ctx := setupWarehouseTest(t)
+
+	// Create warehouse
+	svc.CreateWarehouse(ctx, &domain.Warehouse{ID: "WH-1", CompanyID: "CMP001", Code: "WH1", Name: "Warehouse 1"})
+
+	// Create item with min/max stock
+	svc.CreateItem(ctx, &domain.Item{
+		ID: "ITEM-1", CompanyID: "CMP001", Code: "ITM001", Name: "Test Item",
+		Unit: "pcs", MinStock: 10, MaxStock: 100, IsActive: true,
+	})
+
+	// Create stock balance below min
+	svc.UpsertStockBalance(ctx, &domain.StockBalance{
+		CompanyID: "CMP001", WarehouseID: "WH-1", ItemID: "ITEM-1",
+		Period: "202608", Quantity: 5, UnitCost: 5000, TotalCost: 25000,
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/stock-warnings?company_id=CMP001&warehouse_id=WH-1&period=202608", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	var warnings []service.StockWarning
+	json.Unmarshal(w.Body.Bytes(), &warnings)
+	require.Len(t, warnings, 1)
+	assert.Equal(t, "BELOW_MIN", warnings[0].WarningType)
+	assert.Equal(t, 5.0, warnings[0].CurrentQty)
+}
+
+func TestGetStockWarnings_AboveMax(t *testing.T) {
+	r, svc, ctx := setupWarehouseTest(t)
+
+	svc.CreateWarehouse(ctx, &domain.Warehouse{ID: "WH-1", CompanyID: "CMP001", Code: "WH1", Name: "Warehouse 1"})
+	svc.CreateItem(ctx, &domain.Item{
+		ID: "ITEM-1", CompanyID: "CMP001", Code: "ITM001", Name: "Test Item",
+		Unit: "pcs", MinStock: 10, MaxStock: 100, IsActive: true,
+	})
+	svc.UpsertStockBalance(ctx, &domain.StockBalance{
+		CompanyID: "CMP001", WarehouseID: "WH-1", ItemID: "ITEM-1",
+		Period: "202608", Quantity: 150, UnitCost: 5000, TotalCost: 750000,
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/stock-warnings?company_id=CMP001&warehouse_id=WH-1&period=202608", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	var warnings []service.StockWarning
+	json.Unmarshal(w.Body.Bytes(), &warnings)
+	require.Len(t, warnings, 1)
+	assert.Equal(t, "ABOVE_MAX", warnings[0].WarningType)
+	assert.Equal(t, 150.0, warnings[0].CurrentQty)
+}
+
+func TestGetStockWarnings_MissingParams(t *testing.T) {
+	r, _, _ := setupWarehouseTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/warehouse/stock-warnings?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, 400, w.Code)
+}

@@ -1050,3 +1050,37 @@ func TestCalcRetroactive_SalaryDecrease(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	assert.Equal(t, -1_000_000.0, result.RetroAmount)
 }
+
+func TestAllocateSalaryByDepartment(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{
+		"company_id": "CMP001",
+		"period_id": "PER-1",
+		"items": [
+			{"employee_id": "E1", "employee_name": "Nguyen Van A", "department": "Sales", "account_code": "6421", "gross_salary": 15000000},
+			{"employee_id": "E2", "employee_name": "Tran Thi B", "department": "Sales", "account_code": "6421", "gross_salary": 12000000},
+			{"employee_id": "E3", "employee_name": "Le Van C", "department": "Admin", "account_code": "6422", "gross_salary": 10000000}
+		]
+	}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/salary-allocation", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result domain.SalaryAllocationResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 37000000.0, result.TotalGross)
+	require.Len(t, result.ByDepartment, 2)
+}
+
+func TestAllocateSalaryByDepartment_EmptyItems(t *testing.T) {
+	r, _ := setupPayrollHandlerTest(t)
+	body := `{"company_id": "CMP001", "period_id": "PER-1", "items": []}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/payroll/salary-allocation", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

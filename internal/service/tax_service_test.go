@@ -425,12 +425,13 @@ func TestCalculatePIT_ResidentProgressive(t *testing.T) {
 		{GrossMonthly: 25000000, Dependants: 1, Months: 1},
 	})
 	require.NoError(t, err)
-	// insurance 10.5% = 2.625M; taxable = 25 - 2.625 - 11 - 4.4 = 6.975M
-	// bracket 5-10M: 6.975 * 10% - 0.25M = 447,500
+	// New 5-bracket (Law 109/2025, effective Jul 2026):
+	// insurance 10.5% = 2.625M; taxable = 25 - 2.625 - 15.5 - 6.2 = 0.675M
+	// bracket ≤10M: 0.675 * 5% = 33,750
 	assert.Equal(t, 1, res.EmployeeCount)
-	assert.Equal(t, 447500.0, res.TotalPIT)
+	assert.Equal(t, 33750.0, res.TotalPIT)
 	assert.Equal(t, 25000000.0, res.TotalGross)
-	assert.Equal(t, 18025000.0, res.TotalDeductions) // (2.625 + 11 + 4.4)M
+	assert.Equal(t, 24325000.0, res.TotalDeductions) // (2.625 + 15.5 + 6.2)M
 }
 
 func TestCalculatePIT_NonResidentFlat(t *testing.T) {
@@ -451,7 +452,7 @@ func TestCalculatePIT_NoTaxableIncome(t *testing.T) {
 		{GrossMonthly: 10000000, Dependants: 1, Months: 1},
 	})
 	require.NoError(t, err)
-	// taxable = 10 - 1.05 - 11 - 4.4 < 0
+	// taxable = 10 - 1.05 - 15.5 - 6.2 < 0
 	assert.Equal(t, 0.0, res.TotalPIT)
 }
 
@@ -462,8 +463,8 @@ func TestCalculatePIT_BracketBoundary(t *testing.T) {
 		{GrossMonthly: 35000000, Dependants: 0, Months: 1},
 	})
 	require.NoError(t, err)
-	// taxable = 35 - 3.675 - 11 = 20.325M → bracket 18-32M: 20.325*20% - 1.65M = 2.415M
-	assert.Equal(t, 2415000.0, res.TotalPIT)
+	// New brackets: taxable = 35 - 3.675 - 15.5 = 15.825M → bracket ≤30M: 15.825*10% - 0.5M = 1,082,500
+	assert.Equal(t, 1082500.0, res.TotalPIT)
 }
 
 func TestCalculatePIT_MultipleMonths(t *testing.T) {
@@ -473,7 +474,7 @@ func TestCalculatePIT_MultipleMonths(t *testing.T) {
 		{GrossMonthly: 25000000, Dependants: 1, Months: 12},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 5370000.0, res.TotalPIT) // 12 * 447,500
+	assert.Equal(t, 405000.0, res.TotalPIT) // 12 * 33,750
 	assert.Equal(t, 300000000.0, res.TotalGross)
 }
 
@@ -486,8 +487,8 @@ func TestCalculatePIT_MultipleEmployees(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 2, res.EmployeeCount)
-	// e1: 447,500; e2: insurance 2.1M, taxable = 20-2.1-11 = 6.9M → 6.9*10%-0.25 = 440,000
-	assert.Equal(t, 887500.0, res.TotalPIT)
+	// e1: 33,750; e2: insurance 2.1M, taxable = 20-2.1-15.5 = 2.4M → 2.4*5% = 120,000
+	assert.Equal(t, 153750.0, res.TotalPIT)
 	assert.Equal(t, 45000000.0, res.TotalGross)
 }
 
@@ -803,6 +804,10 @@ func (g *stubGDT) QueryDeclarationStatus(_ context.Context, _ string) (*domain.G
 		return &domain.GDTDeclarationStatusResponse{Status: "ACKNOWLEDGED", AckRef: "ACK-REF-1"}, nil
 	}
 	return &domain.GDTDeclarationStatusResponse{Status: g.statusResp.Status, AckRef: "ACK-REF-1"}, nil
+}
+
+func (g *stubGDT) LookupTaxCode(_ context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error) {
+	return &domain.TaxCodeLookupResponse{TaxCode: taxCode, Name: "Test Corp", Status: "ACTIVE"}, nil
 }
 
 type stubSigner struct{ err error }

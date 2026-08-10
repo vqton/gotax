@@ -124,3 +124,33 @@ type DNLineGORM struct {
 }
 
 func (DNLineGORM) TableName() string { return "dn_lines" }
+
+type PriceListGORM struct {
+	ID          string           `gorm:"column:id;primaryKey;size:36" json:"id"`
+	CompanyID   string           `gorm:"column:company_id;not null;size:36;index:idx_pl_company_code,unique" json:"companyId"`
+	Code        string           `gorm:"column:code;not null;size:20;index:idx_pl_company_code,unique" json:"code"`
+	Name        string           `gorm:"column:name;not null;size:255" json:"name"`
+	Description string           `gorm:"column:description;type:text" json:"description"`
+	Currency    string           `gorm:"column:currency;size:3;default:VND" json:"currency"`
+	IsActive    bool             `gorm:"column:is_active;not null;default:true" json:"isActive"`
+	CreatedAt   time.Time        `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt   time.Time        `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	Lines       []PriceListLineGORM `gorm:"foreignKey:PriceListID;constraint:OnDelete:CASCADE" json:"lines,omitempty"`
+}
+
+func (PriceListGORM) TableName() string { return "price_lists" }
+
+type PriceListLineGORM struct {
+	ID            string  `gorm:"column:id;primaryKey;size:36" json:"id"`
+	PriceListID   string  `gorm:"column:price_list_id;not null;size:36;index:idx_pll_pl" json:"priceListId"`
+	ItemCode      string  `gorm:"column:item_code;not null;size:50" json:"itemCode"`
+	ItemName      string  `gorm:"column:item_name;size:255" json:"itemName"`
+	Unit          string  `gorm:"column:unit;size:20" json:"unit"`
+	UnitPrice     float64 `gorm:"column:unit_price;not null" json:"unitPrice"`
+	VATRate       float64 `gorm:"column:vat_rate;not null;default:0" json:"vatRate"`
+	MinQuantity   float64 `gorm:"column:min_quantity;not null;default:0" json:"minQuantity"`
+	EffectiveFrom string  `gorm:"column:effective_from;size:10" json:"effectiveFrom"`
+	EffectiveTo   string  `gorm:"column:effective_to;size:10" json:"effectiveTo"`
+}
+
+func (PriceListLineGORM) TableName() string { return "price_list_lines" }

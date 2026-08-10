@@ -192,6 +192,16 @@ func (c *Client) QueryDeclarationStatus(ctx context.Context, submissionID string
 	return &out, nil
 }
 
+// LookupTaxCode queries GDT for a tax code's active/inactive status.
+func (c *Client) LookupTaxCode(ctx context.Context, taxCode string) (*domain.TaxCodeLookupResponse, error) {
+	var out domain.TaxCodeLookupResponse
+	if err := c.do(ctx, http.MethodGet,
+		"/api/taxcode/lookup?tax_code="+url.QueryEscape(taxCode), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // do performs a request with retry on 5xx/network errors.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, out any) error {
 	var lastErr error

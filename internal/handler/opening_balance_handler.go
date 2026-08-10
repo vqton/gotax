@@ -178,6 +178,29 @@ func (h *Handler) CarryForward(c *gin.Context) {
 	c.JSON(http.StatusCreated, log)
 }
 
+// YearEndClose performs complete year-end close with income/expense closure and balance carry-forward.
+// POST /api/v1/carry-forward/year-end
+func (h *Handler) YearEndClose(c *gin.Context) {
+	var req struct {
+		CompanyID    string `json:"company_id" binding:"required"`
+		FromPeriodID string `json:"from_period_id" binding:"required"`
+		ToPeriodID   string `json:"to_period_id" binding:"required"`
+		FromYear     string `json:"from_year" binding:"required"`
+		ToYear       string `json:"to_year" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	userID := c.GetString("user_id")
+	result, err := h.svc.YearEndClose(c.Request.Context(), req.CompanyID, req.FromPeriodID, req.ToPeriodID, req.FromYear, req.ToYear, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *Handler) GetCarryForwardLogs(c *gin.Context) {
 	logs, err := h.svc.GetCarryForwardLogs(c.Request.Context(), c.Query("company_id"))
 	if err != nil {
@@ -302,5 +325,24 @@ func (h *Handler) DownloadOpeningBalancePDF(c *gin.Context) {
 	}
 	c.Header("Content-Type", "application/pdf")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="opening_balance_%s_%s.pdf"`, companyID, periodID))
+	c.Data(http.StatusOK, "application/pdf", data)
+}
+
+// PrintDocument generates PDF for receipt/payment voucher.
+// GET /api/v1/print/:type/:id
+func (h *Handler) PrintDocument(c *gin.Context) {
+	printType := c.Param("type")
+	id := c.Param("id")
+	if printType == "" || id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type and id required"})
+		return
+	}
+	data, err := h.svc.GeneratePrintPDF(c.Request.Context(), printType, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s_%s.pdf"`, printType, id))
 	c.Data(http.StatusOK, "application/pdf", data)
 }

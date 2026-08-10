@@ -1251,3 +1251,124 @@ func (r *MemorySaleRepo) loadCN(cn *domain.CreditNote) (*domain.CreditNote, erro
 	}
 	return &cp, nil
 }
+
+// ─── Price List ─────────────────────────────────────────────────────
+
+type MemoryPriceListRepo struct {
+	mu      sync.RWMutex
+	data    map[string]*domain.PriceList
+	lines   map[string][]domain.PriceListLine // priceListID → lines
+	byCode  map[string]map[string]string      // companyID → code → id
+}
+
+func NewMemoryPriceListRepo() *MemoryPriceListRepo {
+	return &MemoryPriceListRepo{
+		data:   make(map[string]*domain.PriceList),
+		lines:  make(map[string][]domain.PriceListLine),
+		byCode: make(map[string]map[string]string),
+	}
+}
+
+func (r *MemoryPriceListRepo) CreatePriceList(_ context.Context, pl *domain.PriceList) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := *pl
+	if cp.ID == "" { cp.ID = saleID("PL-") }
+	now := time.Now()
+	cp.CreatedAt, cp.UpdatedAt = now, now
+	r.data[cp.ID] = &cp
+	if r.byCode[cp.CompanyID] == nil { r.byCode[cp.CompanyID] = make(map[string]string) }
+	r.byCode[cp.CompanyID][cp.Code] = cp.ID
+	pl.ID = cp.ID
+	return nil
+}
+
+func (r *MemoryPriceListRepo) GetPriceList(_ context.Context, id string) (*domain.PriceList, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pl, ok := r.data[id]
+	if !ok { return nil, domain.ErrPriceListNotFound }
+	cp := *pl
+	if lines, ok := r.lines[id]; ok {
+		cp.Lines = make([]domain.PriceListLine, len(lines))
+		copy(cp.Lines, lines)
+	}
+	return &cp, nil
+}
+
+func (r *MemoryPriceListRepo) GetPriceListByCode(_ context.Context, companyID, code string) (*domain.PriceList, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.byCode[companyID] == nil { return nil, domain.ErrPriceListNotFound }
+	id, ok := r.byCode[companyID][code]
+	if !ok { return nil, domain.ErrPriceListNotFound }
+	return r.GetPriceList(context.Background(), id)
+}
+
+func (r *MemoryPriceListRepo) ListPriceLists(_ context.Context, companyID string) ([]domain.PriceList, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []domain.PriceList
+	for _, pl := range r.data {
+		if pl.CompanyID == companyID {
+			out = append(out, *pl)
+		}
+	}
+	return out, nil
+}
+
+func (r *MemoryPriceListRepo) UpdatePriceList(_ context.Context, pl *domain.PriceList) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.data[pl.ID]; !ok { return domain.ErrPriceListNotFound }
+	cp := *pl
+	cp.UpdatedAt = time.Now()
+	r.data[pl.ID] = &cp
+	return nil
+}
+
+func (r *MemoryPriceListRepo) DeletePriceList(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.data, id)
+	delete(r.lines, id)
+	return nil
+}
+
+func (r *MemoryPriceListRepo) CreatePriceListLines(_ context.Context, lines []domain.PriceListLine) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, l := range lines {
+		r.lines[l.PriceListID] = append(r.lines[l.PriceListID], l)
+	}
+	return nil
+}
+
+func (r *MemoryPriceListRepo) GetPriceListLines(_ context.Context, priceListID string) ([]domain.PriceListLine, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	lines := r.lines[priceListID]
+	out := make([]domain.PriceListLine, len(lines))
+	copy(out, lines)
+	return out, nil
+}
+
+func (r *MemoryPriceListRepo) UpdatePriceListLine(_ context.Context, line *domain.PriceListLine) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lines := r.lines[line.PriceListID]
+	for i := range lines {
+		if lines[i].ID == line.ID {
+			lines[i] = *line
+			return nil
+		}
+	}
+	return nil
+}
+
+func (r *MemoryPriceListRepo) DeletePriceListLines(_ context.Context, priceListID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.lines, priceListID)
+	return nil
+}

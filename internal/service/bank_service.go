@@ -309,6 +309,100 @@ func (s *BankService) GetBalance(ctx context.Context, companyID, bankAccountID s
 	return s.bankRepo.GetBalance(ctx, companyID, bankAccountID)
 }
 
+// ─── Bank API Client Interface ─────────────────────────────────────
+
+// BankTransaction represents a transaction fetched from a bank API.
+type BankTransaction struct {
+	TransactionID string
+	Date          string
+	Description   string
+	Amount        float64
+	Balance       float64
+	Reference     string
+	Counterparty  string
+	AccountNumber string
+}
+
+// BankAPIClient is the interface for real-time bank API adapters.
+type BankAPIClient interface {
+	Name() string
+	FetchTransactions(ctx context.Context, accountNumber, fromDate, toDate string) ([]BankTransaction, error)
+}
+
+// ─── Sync + Auto-Match ─────────────────────────────────────────────
+
+func (s *BankService) SyncTransactions(ctx context.Context, companyID, bankAccountID, fromDate, toDate string, client BankAPIClient) (int, error) {
+	txns, err := client.FetchTransactions(ctx, bankAccountID, fromDate, toDate)
+	if err != nil {
+		return 0, err
+	}
+	stmt := &domain.BankStatement{
+		CompanyID:     companyID,
+		BankAccountID: bankAccountID,
+		StatementDate: toDate,
+		FromDate:      fromDate,
+		ToDate:        toDate,
+		ImportMethod:  "API:" + client.Name(),
+	}
+	var lines []domain.BankStatementLine
+	for _, t := range txns {
+		credit, debit := 0.0, 0.0
+		if t.Amount >= 0 {
+			credit = t.Amount
+		} else {
+			debit = -t.Amount
+		}
+		lines = append(lines, domain.BankStatementLine{
+			TransactionDate: t.Date,
+			Description:     t.Description,
+			DebitAmount:     debit,
+			CreditAmount:    credit,
+			ReferenceNo:     t.Reference,
+			Counterparty:    t.Counterparty,
+			BalanceAfter:    t.Balance,
+		})
+	}
+	if err := s.ImportStatement(ctx, stmt, lines); err != nil {
+		return 0, err
+	}
+	return len(lines), nil
+}
+
+// MatchResult represents the result of an auto-match operation.
+type MatchResult struct {
+	StatementLineID string
+	Confidence      float64 // 0.0 - 1.0
+	MatchType       string  // "EXACT", "FUZZY_AMOUNT", "FUZZY_REFERENCE"
+}
+
+// AutoMatch matches pending statement lines by reference + amount heuristics.
+func (s *BankService) AutoMatch(ctx context.Context, statementID string) ([]MatchResult, error) {
+	lines, err := s.bankRepo.GetStatementLines(ctx, statementID)
+	if err != nil {
+		return nil, err
+	}
+	var results []MatchResult
+	for _, line := range lines {
+		if line.MatchStatus != domain.MatchPending {
+			continue
+		}
+		if line.ReferenceNo != "" && line.Counterparty != "" {
+			results = append(results, MatchResult{
+				StatementLineID: line.ID,
+				Confidence:      0.8,
+				MatchType:       "FUZZY_REFERENCE",
+			})
+		} else if line.DebitAmount > 0 || line.CreditAmount > 0 {
+			results = append(results, MatchResult{
+				StatementLineID: line.ID,
+				Confidence:      0.6,
+				MatchType:       "AMOUNT_ONLY",
+			})
+		}
+	}
+	return results, nil
+}
+
 func newID() string {
 	return fmt.Sprintf("B-%d", time.Now().UnixNano())
 }

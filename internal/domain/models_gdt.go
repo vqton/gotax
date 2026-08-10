@@ -38,3 +38,13 @@ type GDTDeclarationStatusResponse struct {
 	AckRef  string `json:"ack_ref,omitempty"`
 	Message string `json:"message,omitempty"`
 }
+
+// TaxCodeLookupResponse is the GDT tax code validation result.
+// Per GDT spec: status 00=active, 01=not found, 02=inactive.
+type TaxCodeLookupResponse struct {
+	TaxCode     string `json:"tax_code"`
+	Name        string `json:"name,omitempty"`
+	Status      string `json:"status"`      // "ACTIVE", "INACTIVE", "NOT_FOUND"
+	Message     string `json:"message,omitempty"`
+	LastUpdated string `json:"last_updated,omitempty"`
+}

@@ -994,3 +994,41 @@ func randomHex(n int) string {
 	}
 	return string(b)
 }
+
+// ─── Salary Allocation by Department ───────────────────────────────
+
+// AllocateSalaryByDepartment aggregates salary by department for GL posting.
+func (s *PayrollService) AllocateSalaryByDepartment(ctx context.Context, req domain.SalaryAllocationRequest) (*domain.SalaryAllocationResult, error) {
+	if req.CompanyID == "" {
+		return nil, domain.ErrPayrollCompanyRequired
+	}
+	if len(req.Items) == 0 {
+		return nil, domain.ErrPayrollLinesRequired
+	}
+
+	result := &domain.SalaryAllocationResult{
+		CompanyID: req.CompanyID,
+		PeriodID:  req.PeriodID,
+	}
+
+	deptMap := make(map[string]*domain.DepartmentTotal)
+	for _, item := range req.Items {
+		result.TotalGross += item.GrossSalary
+		dt, ok := deptMap[item.Department]
+		if !ok {
+			dt = &domain.DepartmentTotal{
+				Department:  item.Department,
+				AccountCode: item.AccountCode,
+			}
+			deptMap[item.Department] = dt
+		}
+		dt.TotalSalary += item.GrossSalary
+		dt.EmployeeCount++
+	}
+
+	result.ByDepartment = make([]domain.DepartmentTotal, 0, len(deptMap))
+	for _, dt := range deptMap {
+		result.ByDepartment = append(result.ByDepartment, *dt)
+	}
+	return result, nil
+}

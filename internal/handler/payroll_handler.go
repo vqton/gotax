@@ -128,6 +128,9 @@ func RegisterPayrollRoutes(r *gin.Engine, h *PayrollHandler, authMW gin.HandlerF
 		pw.POST("/employee-salary-grades", h.AssignEmployeeSalaryGrade)
 		pw.GET("/employee-salary-grades/:employee_id", h.GetEmployeeSalaryGrade)
 		pw.GET("/employee-salary-grades", h.ListEmployeeSalaryGrades)
+
+		// Salary allocation by department
+		pw.POST("/salary-allocation", h.AllocateSalaryByDepartment)
 	}
 }
 
@@ -157,7 +160,9 @@ func (h *PayrollHandler) payrollError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrPayrollSalaryScaleExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrPayrollPeriodNotDraft),
-		errors.Is(err, domain.ErrPayrollLeaveAlreadyProcessed):
+		errors.Is(err, domain.ErrPayrollLeaveAlreadyProcessed),
+		errors.Is(err, domain.ErrPayrollCompanyRequired),
+		errors.Is(err, domain.ErrPayrollLinesRequired):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -993,4 +998,18 @@ func (h *PayrollHandler) ListEmployeeSalaryGrades(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, grades)
+}
+
+func (h *PayrollHandler) AllocateSalaryByDepartment(c *gin.Context) {
+	var req domain.SalaryAllocationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.svc.AllocateSalaryByDepartment(c.Request.Context(), req)
+	if err != nil {
+		h.payrollError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }

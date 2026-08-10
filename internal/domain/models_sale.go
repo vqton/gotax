@@ -226,6 +226,8 @@ type DNLine struct {
 	UnitPrice         float64 `json:"unit_price"`
 	LineTotal         float64 `json:"line_total"`
 	CostPrice         float64 `json:"cost_price,omitempty"`
+	LotNumber         string  `json:"lot_number,omitempty"`
+	ExpiryDate        string  `json:"expiry_date,omitempty"`
 }
 
 func (l *DNLine) Validate() error {
@@ -703,4 +705,45 @@ type UnbilledDeliveryRow struct {
 type UnbilledDeliveryReport struct {
 	CompanyID string                `json:"company_id"`
 	Rows      []UnbilledDeliveryRow `json:"rows"`
+}
+
+// ─── Price Lists ─────────────────────────────────────────────────────
+
+type PriceList struct {
+	ID          string    `json:"id"`
+	CompanyID   string    `json:"company_id"`
+	Code        string    `json:"code"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Currency    string    `json:"currency"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+	Lines       []PriceListLine `json:"lines,omitempty"`
+}
+
+func (p *PriceList) Validate() error {
+	if p.Code == "" { return ErrPriceListCodeRequired }
+	if p.Name == "" { return ErrPriceListNameRequired }
+	if p.Currency == "" { p.Currency = "VND" }
+	return nil
+}
+
+type PriceListLine struct {
+	ID           string  `json:"id"`
+	PriceListID  string  `json:"price_list_id"`
+	ItemCode     string  `json:"item_code"`
+	ItemName     string  `json:"item_name"`
+	Unit         string  `json:"unit"`
+	UnitPrice    float64 `json:"unit_price"`
+	VATRate      float64 `json:"vat_rate"`
+	MinQuantity  float64 `json:"min_quantity,omitempty"`
+	EffectiveFrom string `json:"effective_from,omitempty"`
+	EffectiveTo   string `json:"effective_to,omitempty"`
+}
+
+func (l *PriceListLine) Validate() error {
+	if l.ItemCode == "" { return ErrPriceListItemCodeRequired }
+	if l.UnitPrice < 0 { return ErrPriceListInvalidPrice }
+	return nil
 }

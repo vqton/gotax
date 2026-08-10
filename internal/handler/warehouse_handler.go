@@ -96,6 +96,7 @@ func RegisterWarehouseRoutes(r *gin.Engine, h *WarehouseHandler, authMW gin.Hand
 			valuations.GET("/:id", h.GetValuationRun)
 			valuations.POST("/:id/run", h.RunValuation)
 		}
+		wh.GET("/stock-warnings", h.GetStockWarnings)
 	}
 }
 
@@ -726,4 +727,24 @@ func (h *WarehouseHandler) RunValuation(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "valuation completed"})
+}
+
+func (h *WarehouseHandler) GetStockWarnings(c *gin.Context) {
+	companyID := c.Query("company_id")
+	warehouseID := c.Query("warehouse_id")
+	period := c.Query("period")
+	if companyID == "" || warehouseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id and warehouse_id are required"})
+		return
+	}
+	if period == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "period is required"})
+		return
+	}
+	warnings, err := h.svc.GetStockWarnings(c.Request.Context(), companyID, warehouseID, period)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, warnings)
 }

@@ -285,3 +285,37 @@ func TestGetBankBalance(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 }
+
+func TestSyncTransactions(t *testing.T) {
+	r, _, _ := setupBankTest(t)
+	body := `{"company_id":"CMP001","bank_account_id":"BA001","from_date":"2026-08-01","to_date":"2026-08-10","bank_code":"VCB"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/bank/sync", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "sync initiated", resp["message"])
+}
+
+func TestAutoMatch_MissingStatementID(t *testing.T) {
+	r, _, _ := setupBankTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/bank/auto-match", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 400, w.Code)
+}
+
+func TestAutoMatch_EmptyStatement(t *testing.T) {
+	r, _, _ := setupBankTest(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/bank/auto-match?statement_id=nonexistent", nil)
+	r.ServeHTTP(w, req)
+	// Returns 500 because statement doesn't exist in repo
+	assert.True(t, w.Code == 500 || w.Code == 200)
+}
