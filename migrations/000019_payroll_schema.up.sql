@@ -6,7 +6,7 @@
 -- Employee payroll info (extends employees table)
 CREATE TABLE IF NOT EXISTS employee_payroll_info (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    employee_id UUID NOT NULL REFERENCES employees(id),
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
     contract_type VARCHAR(20) NOT NULL DEFAULT 'INDEFINITE',
     contract_start_date DATE,
     contract_end_date DATE,
@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_payroll_info_region ON employee_payroll_info(regi
 -- Dependants
 CREATE TABLE IF NOT EXISTS dependants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    employee_id UUID NOT NULL REFERENCES employees(id),
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
     full_name VARCHAR(200) NOT NULL,
     relationship VARCHAR(20) NOT NULL,
     date_of_birth DATE,
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_dependants_employee ON dependants(employee_id);
 -- Salary components
 CREATE TABLE IF NOT EXISTS salary_components (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     code VARCHAR(20) NOT NULL,
     name VARCHAR(200) NOT NULL,
     type VARCHAR(20) NOT NULL,
@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_salary_components_company ON salary_components(co
 -- Payroll periods
 CREATE TABLE IF NOT EXISTS payroll_periods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     year INT NOT NULL,
     month INT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
@@ -93,8 +93,8 @@ CREATE INDEX IF NOT EXISTS idx_payroll_periods_company ON payroll_periods(compan
 CREATE TABLE IF NOT EXISTS payroll_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     period_id UUID NOT NULL REFERENCES payroll_periods(id),
-    employee_id UUID NOT NULL REFERENCES employees(id),
-    company_id UUID NOT NULL,
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
+    company_id VARCHAR(20) NOT NULL,
 
     -- Input
     working_days INT DEFAULT 0,
@@ -156,8 +156,8 @@ CREATE INDEX IF NOT EXISTS idx_payroll_runs_company ON payroll_runs(company_id);
 -- Timekeeping records
 CREATE TABLE IF NOT EXISTS timekeeping_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    employee_id UUID NOT NULL REFERENCES employees(id),
-    company_id UUID NOT NULL,
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
+    company_id VARCHAR(20) NOT NULL,
     date DATE NOT NULL,
     clock_in TIME,
     clock_out TIME,
@@ -178,8 +178,8 @@ CREATE INDEX IF NOT EXISTS idx_timekeeping_date ON timekeeping_records(date);
 -- Leave requests
 CREATE TABLE IF NOT EXISTS leave_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    employee_id UUID NOT NULL REFERENCES employees(id),
-    company_id UUID NOT NULL,
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
+    company_id VARCHAR(20) NOT NULL,
     leave_type VARCHAR(20) NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
@@ -198,7 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests(status);
 -- Leave balances
 CREATE TABLE IF NOT EXISTS leave_balances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    employee_id UUID NOT NULL REFERENCES employees(id),
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
     year INT NOT NULL,
     leave_type VARCHAR(20) NOT NULL,
     entitled NUMERIC(5,2) DEFAULT 0,
@@ -214,7 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_leave_balances_employee ON leave_balances(employe
 CREATE TABLE IF NOT EXISTS payslips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id UUID NOT NULL REFERENCES payroll_runs(id),
-    employee_id UUID NOT NULL REFERENCES employees(id),
+    employee_id VARCHAR(20) NOT NULL REFERENCES employees(id),
     period_id UUID NOT NULL REFERENCES payroll_periods(id),
     payslip_no VARCHAR(50) NOT NULL,
     pdf_path TEXT,
@@ -230,7 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_payslips_period ON payslips(period_id);
 -- Payroll config
 CREATE TABLE IF NOT EXISTS payroll_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     config_key VARCHAR(100) NOT NULL,
     config_value TEXT NOT NULL,
     effective_from DATE NOT NULL,

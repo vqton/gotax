@@ -4,7 +4,7 @@
 DROP TABLE IF EXISTS ar_transactions;
 DROP TABLE IF EXISTS cn_lines;
 DROP TABLE IF EXISTS credit_notes;
-DROP TABLE IF EXISTS rcp_allocations;
+DROP TABLE IF EXISTS receipt_allocations;
 DROP TABLE IF EXISTS customer_receipts;
 DROP TABLE IF EXISTS inv_lines;
 DROP TABLE IF EXISTS customer_invoices;

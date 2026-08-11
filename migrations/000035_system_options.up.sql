@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS system_options (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     category VARCHAR(50) NOT NULL,
     key VARCHAR(100) NOT NULL,
     value JSONB NOT NULL DEFAULT '"{}"',
@@ -13,7 +13,7 @@ CREATE INDEX IF NOT EXISTS idx_system_options_company ON system_options(company_
 
 CREATE TABLE IF NOT EXISTS numbering_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     voucher_type VARCHAR(50) NOT NULL,
     prefix VARCHAR(20) DEFAULT '',
     suffix VARCHAR(20) DEFAULT '',
@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_numbering_rules_company ON numbering_rules(compan
 
 CREATE TABLE IF NOT EXISTS backup_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     filename VARCHAR(255) NOT NULL,
     file_size BIGINT DEFAULT 0,
     backup_type VARCHAR(20) NOT NULL DEFAULT 'manual',

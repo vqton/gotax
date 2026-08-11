@@ -67,7 +67,7 @@ type InvLineGORM struct {
 	VATAccountID   string  `gorm:"column:vat_account_id;not null;size:20" json:"vatAccount"`
 }
 
-func (InvLineGORM) TableName() string { return "invoice_lines" }
+func (InvLineGORM) TableName() string { return "inv_lines" }
 
 type CustomerReceiptGORM struct {
 	ID                string              `gorm:"column:id;primaryKey;size:36" json:"id"`

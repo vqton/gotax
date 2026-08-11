@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS salary_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
+    company_id VARCHAR(20) NOT NULL,
     name VARCHAR(200) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, name)

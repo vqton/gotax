@@ -239,14 +239,14 @@ CREATE INDEX IF NOT EXISTS idx_rcpt_customer ON customer_receipts (customer_id);
 
 -- ─── Receipt Allocations ───────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS rcp_allocations (
+CREATE TABLE IF NOT EXISTS receipt_allocations (
     id               VARCHAR(36) PRIMARY KEY,
     receipt_id       VARCHAR(36) NOT NULL REFERENCES customer_receipts(id) ON DELETE CASCADE,
     invoice_id       VARCHAR(36) NOT NULL,
     allocated_amount NUMERIC NOT NULL,
     discount_amount  NUMERIC NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_rcp_alloc_rcpt ON rcp_allocations (receipt_id);
+CREATE INDEX IF NOT EXISTS idx_rcp_alloc_rcpt ON receipt_allocations (receipt_id);
 
 -- ─── Credit Note ───────────────────────────────────────────────────────
 
