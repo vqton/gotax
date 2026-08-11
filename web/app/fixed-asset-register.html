@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sổ tài sản cố định · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900">Sổ tài sản cố định</h2>
+        <button @click="window.print()" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+          In báo cáo
+        </button>
+      </div>
+
+      <!-- Filters -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Trạng thái</label>
+            <select x-model="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tất cả</option>
+              <option value="ACTIVE">Đang sử dụng</option>
+              <option value="DISPOSEED">Đã thanh lý</option>
+              <option value="SUSPENDED">Đang tạm ngừng</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Từ khóa</label>
+            <input x-model="keyword" type="text" placeholder="Mã/Tên tài sản" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48">
+          </div>
+          <button @click="loadReport()" :disabled="loading" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition disabled:opacity-50">
+            <span x-show="!loading">Xem sổ</span>
+            <span x-show="loading">Đang tải...</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div x-show="assets.length" class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <div class="text-xs text-gray-500 mb-1">Tổng tài sản</div>
+          <div class="text-lg font-bold text-gray-900" x-text="totalAssets"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <div class="text-xs text-gray-500 mb-1">Nguyên giá</div>
+          <div class="text-lg font-bold text-blue-700 tabular-nums" x-text="fmtVND(totalCost)"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <div class="text-xs text-gray-500 mb-1">Hao mòn lũy kế</div>
+          <div class="text-lg font-bold text-orange-700 tabular-nums" x-text="fmtVND(totalAccumDepr)"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-4">
+          <div class="text-xs text-gray-500 mb-1">Giá trị còn lại</div>
+          <div class="text-lg font-bold text-green-700 tabular-nums" x-text="fmtVND(totalCarrying)"></div>
+        </div>
+      </div>
+
+      <!-- Report table -->
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">Danh sách tài sản cố định</h3>
+          <span class="text-xs text-gray-400" x-text="totalAssets + ' tài sản'"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-center px-3 py-2.5 font-semibold text-gray-600 w-10">STT</th>
+                <th class="text-left px-3 py-2.5 font-semibold text-gray-600">Mã TS</th>
+                <th class="text-left px-3 py-2.5 font-semibold text-gray-600">Tên tài sản</th>
+                <th class="text-left px-3 py-2.5 font-semibold text-gray-600">Ngày mua</th>
+                <th class="text-right px-3 py-2.5 font-semibold text-gray-600">Nguyên giá</th>
+                <th class="text-right px-3 py-2.5 font-semibold text-gray-600">Hao mòn LK</th>
+                <th class="text-right px-3 py-2.5 font-semibold text-gray-600">Giá trị còn lại</th>
+                <th class="text-right px-3 py-2.5 font-semibold text-gray-600">Thời gian SD (tháng)</th>
+                <th class="text-center px-3 py-2.5 font-semibold text-gray-600">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(a, idx) in assets" :key="a.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                  <td class="px-3 py-3 text-center text-gray-500" x-text="idx + 1"></td>
+                  <td class="px-3 py-3 font-medium text-blue-700" x-text="a.code"></td>
+                  <td class="px-3 py-3 text-gray-700" x-text="a.name"></td>
+                  <td class="px-3 py-3 text-gray-700" x-text="a.acquisition_date"></td>
+                  <td class="px-3 py-3 text-right tabular-nums text-gray-900" x-text="fmtVND(a.original_cost)"></td>
+                  <td class="px-3 py-3 text-right tabular-nums text-orange-700" x-text="fmtVND(a.accumulated_depreciation)"></td>
+                  <td class="px-3 py-3 text-right font-medium tabular-nums text-green-700" x-text="fmtVND(a.carrying_amount)"></td>
+                  <td class="px-3 py-3 text-right tabular-nums text-gray-700" x-text="a.useful_life_months"></td>
+                  <td class="px-3 py-3 text-center">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-green-100 text-green-800': a.status === 'ACTIVE',
+                        'bg-red-100 text-red-800': a.status === 'DISPOSED',
+                        'bg-yellow-100 text-yellow-800': a.status === 'SUSPENDED',
+                        'bg-gray-100 text-gray-800': !['ACTIVE','DISPOSED','SUSPENDED'].includes(a.status)
+                      }" x-text="statusLabel(a.status)"></span>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!assets.length && !loading">
+                <td colspan="9" class="px-5 py-8 text-center text-gray-400">Chưa có tài sản cố định nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    assets: [],
+    loading: false,
+    status: '',
+    keyword: '',
+    total: 0,
+
+    get totalAssets() { return this.assets.length; },
+    get totalCost() { return this.assets.reduce((s, a) => s + (a.original_cost || 0), 0); },
+    get totalAccumDepr() { return this.assets.reduce((s, a) => s + (a.accumulated_depreciation || 0), 0); },
+    get totalCarrying() { return this.assets.reduce((s, a) => s + (a.carrying_amount || 0), 0); },
+
+    statusLabel(s) {
+      const m = { ACTIVE: 'Đang SD', DISPOSED: 'Đã thanh lý', SUSPENDED: 'Tạm ngừng' };
+      return m[s] || s || '-';
+    },
+
+    async init() {
+      mountAppShell("Sổ tài sản cố định", "/app/fixed-asset-register.html");
+      await this.loadReport();
+    },
+
+    async loadReport() {
+      this.loading = true;
+      this.assets = [];
+      try {
+        const params = new URLSearchParams({ company_id: $store.app.companyId(), limit: '200', offset: '0' });
+        if (this.status) params.set('status', this.status);
+        if (this.keyword) params.set('keyword', this.keyword);
+        const data = await apiGet(`/fixed-assets/assets?${params}`);
+        this.assets = Array.isArray(data) ? data : (data.items || data.assets || []);
+        this.total = data.total || this.assets.length;
+      } catch (e) {
+        $store.app.flashError(e.error || "Không tải được danh sách tài sản");
+      }
+      this.loading = false;
+    },
+  };
+}
+</script>
+
+</body>
+</html>

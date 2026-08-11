@@ -124,6 +124,10 @@ const MODULE_GROUPS = [
       { href: "/app/balance-sheet.html", icon: "📑", label: "Bảng cân đối kế toán" },
       { href: "/app/income-statement.html", icon: "📈", label: "Kết quả kinh doanh" },
       { href: "/app/cash-flow.html", icon: "💰", label: "Lưu chuyển tiền tệ" },
+      { href: "/app/cash-book.html", icon: "📒", label: "Sổ quỹ tiền mặt" },
+      { href: "/app/journal-export.html", icon: "📥", label: "Nhật ký chung" },
+      { href: "/app/fixed-asset-register.html", icon: "🏗️", label: "Sổ tài sản cố định" },
+      { href: "/app/depreciation-schedule.html", icon: "📉", label: "Lịch khấu hao" },
     ]
   },
   {
