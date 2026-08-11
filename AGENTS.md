@@ -85,32 +85,50 @@ Same pattern across all module handlers. **Not** `c.GetString("company_id")`.
 
 ## Routes
 
-Route registration entry: `RegisterRoutesWithCompany(r, h, ch, th, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, budH, ccdcH, ccH, keeperH, authMW, adminMW)` at `handler/handler.go:208`.
+**Two registration patterns:**
 
-Adding a new handler requires:
-1. Create `internal/handler/<module>_handler.go` with `Register<R>Routes(r, h, authMW)`
-2. Add handler param to `RegisterRoutesWithCompany` signature
-3. Wire in both PG and memory branches of `main.go`
+**Pattern A — `RegisterRoutesWithCompany`** (handler.go:214): Core modules that share company-scope wiring go through this umbrella function. Signature includes all handlers as params.
 
-| Group | Prefix | Handler |
-|-------|--------|---------|
-| Auth | `/api/v1/auth/{login,refresh,forgot,reset,totp/verify}` | `Handler` |
-| GL | `/api/v1/accounts`, `journal-entries`, `periods`, `exchange-rates`, `reports`, `coa/*`, `audit` | `Handler` |
-| User | `/api/v1/users`, `/me`, `/auth/{change-password,logout,totp/*}` | `Handler` |
-| Company | `/api/v1/companies/**` | `CompanyHandler` |
-| Tax | `/api/v1/tax/**` | `TaxHandler` |
-| Cash | `/api/v1/cash/**` | `CashHandler` |
-| Bank | `/api/v1/bank/**` | `BankHandler` |
-| Purchase | `/api/v1/purchase/**` | `PurchaseHandler` |
-| Sale | `/api/v1/sale/**` | `SaleHandler` |
-| Warehouse | `/api/v1/warehouse/**` | `WarehouseHandler` |
-| Warehouse Keeper | `/api/v1/warehouse/keeper/**` | `WarehouseKeeperHandler` |
-| Fixed Asset | `/api/v1/fixed-assets/**` | `FAHandler` |
-| Payroll | `/api/v1/payroll/**` | `PayrollHandler` |
-| Recurring | `/api/v1/recurring-entries/**` | `RecurringHandler` |
-| Budget | `/api/v1/budgets/**` | `BudgetHandler` |
-| CCDC | `/api/v1/ccdc/**` | `CCDCHandler` |
-| Cost Centers | `/api/v1/cost-centers/**` | `CostCenterHandler` |
+**Pattern B — Direct registration** (main.go): Newer modules call `handler.Register*Routes(r, h, authMW)` directly in main.go. Used for modules added after the initial architecture.
+
+**When adding a new module:**
+1. Create `internal/handler/<module>_handler.go` with `New*Handler` + `Register*Routes`
+2. Wire in **both** PG and memory branches of `main.go` (new repos + new service + new handler)
+3. Call `handler.Register*Routes(r, handler, authMW)` directly in main.go (Pattern B)
+4. **Do NOT** add params to `RegisterRoutesWithCompany` unless the module truly belongs in the core company-scope umbrella
+
+| Handler | Pattern | Prefix |
+|---------|---------|--------|
+| `Handler` | A | `/api/v1/{auth,accounts,journal-entries,periods,exchange-rates,reports,coa/*,audit,users,me,print,...}` |
+| `CompanyHandler` | A | `/api/v1/companies/**` |
+| `TaxHandler` | A | `/api/v1/tax/**` |
+| `CashHandler` | A | `/api/v1/cash/**` |
+| `BankHandler` | A | `/api/v1/bank/**` |
+| `PurchaseHandler` | A | `/api/v1/purchase/**` |
+| `SaleHandler` | A | `/api/v1/sale/**` |
+| `WarehouseHandler` | A | `/api/v1/warehouse/**` |
+| `FAHandler` | A | `/api/v1/fixed-assets/**` |
+| `PayrollHandler` | A | `/api/v1/payroll/**` |
+| `RecurringHandler` | A | `/api/v1/recurring-entries/**` |
+| `BudgetHandler` | A | `/api/v1/budgets/**` |
+| `CCDCHandler` | A | `/api/v1/ccdc/**` |
+| `CostCenterHandler` | A | `/api/v1/cost-centers/**` |
+| `WarehouseKeeperHandler` | A | `/api/v1/warehouse/keeper/**` |
+| `CostObjectHandler` | A | `/api/v1/cost-objects/**` |
+| `CostPoolHandler` | A | `/api/v1/cost-pools/**` |
+| `CostingHandler` | A | `/api/v1/costing/**` |
+| `CostReportHandler` | B | `/api/v1/cost-reports/**` |
+| `SystemOptionHandler` | B | `/api/v1/system-options/**` |
+| `NumberingRuleHandler` | B | `/api/v1/numbering-rules/**` |
+| `FiscalYearHandler` | B | `/api/v1/fiscal-years/**` |
+| `ReportOptionHandler` | B | `/api/v1/report-options/**` |
+| `BackupHandler` | B | `/api/v1/backups/**` |
+| `ContractHandler` | B | `/api/v1/contracts/**` |
+| `BankImportHandler` | B | `/api/v1/bank-imports/**` |
+| `InvoiceBookHandler` | B | `/api/v1/invoice-books/**` |
+| `NotificationHandler` | B | `/api/v1/notifications/**` |
+| `PriceListHandler` | B | `/api/v1/price-lists/**` |
+| `FinancialAnalysisHandler` | B | `/api/v1/financial-analysis/**` |
 
 Auth middleware on all groups except auth endpoints.
 
@@ -141,7 +159,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-31+ versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000038_invoice_books`.
+31+ versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000039_price_lists`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -191,11 +209,9 @@ When adding a new module that uses the validator: register custom validators in 
 3. Repository impl in `internal/repository/pg_*.go` + `memory_*.go`
 4. Service method in `internal/service/<module>_service.go`
 5. Handler method in `internal/handler/<module>_handler.go` + `Register*Routes`
-6. Add handler param to `RegisterRoutesWithCompany` in `handler.go`
-7. Add handler param to `RegisterRoutesWithCompanyOpt` in `casbin_register.go`
-8. Wire in `main.go` (PG branch + memory branch)
-9. Tests in `internal/handler/<module>_handler_test.go`
-10. `go vet ./... && go test -count=1 ./...`
+6. Wire in `main.go` (both PG + memory branches: new repo, new service, new handler, register route)
+7. Tests in `internal/handler/<module>_handler_test.go`
+8. `go vet ./... && go test -count=1 ./...`
 
 ## Gotchas
 
