@@ -1,329 +1,162 @@
-"use strict";
+// GoTax shared frontend — plain JS, no Alpine. Exposes window.GoTax.
+(function () {
+  "use strict";
 
-/* ─── API base ─────────────────────────────────────────────── */
-const API_BASE = "/api/v1";
+  var SESSION_KEY = "gotax_session"; // { access_token, refresh_token, user, expires_at }
 
-/* ─── Sidebar navigation (MISA SME layout) ─────────────────── */
+  var GoTax = (window.GoTax = window.GoTax || {});
 
-const MODULE_GROUPS = [
-  {
-    label: "Tổng quan",
-    items: [
-      { href: "/app/dashboard.html", icon: "📊", label: "Dashboard" },
-      { href: "/app/notifications.html", icon: "🔔", label: "Thông báo" },
-    ]
-  },
-  {
-    label: "Hệ thống",
-    items: [
-      { href: "/app/company.html", icon: "🏢", label: "Công ty" },
-      { href: "/app/users.html", icon: "👥", label: "Người dùng" },
-      { href: "/app/audit.html", icon: "📜", label: "Nhật ký" },
-    ]
-  },
-  {
-    label: "Danh mục",
-    items: [
-      { href: "/app/coa.html", icon: "📋", label: "Hệ thống tài khoản" },
-      { href: "/app/customers.html", icon: "🧑", label: "Khách hàng" },
-      { href: "/app/suppliers.html", icon: "🏭", label: "Nhà cung cấp" },
-      { href: "/app/items.html", icon: "📦", label: "Hàng hóa" },
-      { href: "/app/warehouses.html", icon: "🏬", label: "Kho" },
-    ]
-  },
-  {
-    label: "Kế toán",
-    items: [
-      { href: "/app/journal-entries.html", icon: "📝", label: "Chứng từ" },
-      { href: "/app/recurring-entries.html", icon: "🔁", label: "Chứng từ định kỳ" },
-      { href: "/app/periods.html", icon: "📅", label: "Kỳ kế toán" },
-      { href: "/app/exchange-rates.html", icon: "💱", label: "Tỷ giá" },
-      { href: "/app/opening-balances.html", icon: "⚖️", label: "Số dư đầu kỳ" },
-      { href: "/app/budget.html", icon: "💰", label: "Ngân sách" },
-      { href: "/app/cost-centers.html", icon: "🏗️", label: "Trung tâm chi phí" },
-    ]
-  },
-  {
-    label: "Mua hàng",
-    items: [
-      { href: "/app/purchase-orders.html", icon: "🛒", label: "Đơn đặt hàng" },
-      { href: "/app/grn.html", icon: "📥", label: "Nhập kho" },
-      { href: "/app/purchase-invoices.html", icon: "🧾", label: "Hóa đơn mua" },
-      { href: "/app/ap-aging.html", icon: "📊", label: "Công nợ phải trả" },
-    ]
-  },
-  {
-    label: "Bán hàng",
-    items: [
-      { href: "/app/sales-quotations.html", icon: "💼", label: "Báo giá" },
-      { href: "/app/sales-orders.html", icon: "📋", label: "Đơn hàng" },
-      { href: "/app/delivery-notes.html", icon: "🚚", label: "Xuất kho" },
-      { href: "/app/sales-invoices.html", icon: "🧾", label: "Hóa đơn bán" },
-      { href: "/app/ar-aging.html", icon: "📊", label: "Công nợ phải thu" },
-    ]
-  },
-  {
-    label: "Quỹ / Ngân hàng",
-    items: [
-      { href: "/app/cash-receipts.html", icon: "💵", label: "Phiếu thu" },
-      { href: "/app/cash-payments.html", icon: "💸", label: "Phiếu chi" },
-      { href: "/app/cash-transfers.html", icon: "🔄", label: "Chuyển quỹ" },
-      { href: "/app/bank-statements.html", icon: "🏦", label: "Sổ ngân hàng" },
-      { href: "/app/payment-orders.html", icon: "📄", label: "Uy nhiệm chi" },
-    ]
-  },
-  {
-    label: "Kho",
-    items: [
-      { href: "/app/warehouses.html", icon: "🏬", label: "Danh sách kho" },
-      { href: "/app/warehouse-categories.html", icon: "📁", label: "Loại hàng hóa" },
-      { href: "/app/warehouse-items.html", icon: "📦", label: "Hàng hóa" },
-      { href: "/app/warehouse-balances.html", icon: "📊", label: "Tồn kho" },
-      { href: "/app/warehouse-transfers.html", icon: "🔄", label: "Chuyển kho" },
-      { href: "/app/warehouse-adjustments.html", icon: "📝", label: "Điều chỉnh" },
-      { href: "/app/warehouse-takes.html", icon: "🔍", label: "Kiểm kê" },
-      { href: "/app/warehouse-valuations.html", icon: "💰", label: "Định giá" },
-      { href: "/app/warehouse-transactions.html", icon: "📜", label: "Lịch sử giao dịch" },
-    ]
-  },
-  {
-    label: "Tài sản / CCDC",
-    items: [
-      { href: "/app/fixed-assets.html", icon: "🏗️", label: "Tài sản cố định" },
-      { href: "/app/fa-categories.html", icon: "📁", label: "Nhóm tài sản" },
-      { href: "/app/depreciation.html", icon: "📉", label: "Khấu hao" },
-      { href: "/app/ccdc.html", icon: "🔧", label: "CCDC / Công cụ" },
-    ]
-  },
-  {
-    label: "Tiền lương",
-    items: [
-      { href: "/payroll/periods.html", icon: "📅", label: "Kỳ lương" },
-      { href: "/payroll/timekeeping.html", icon: "⏰", label: "Chấm công" },
-      { href: "/payroll/payslips.html", icon: "💰", label: "Phiếu lương" },
-      { href: "/payroll/declarations.html", icon: "📋", label: "Tuyên thuế" },
-      { href: "/payroll/config.html", icon: "⚙️", label: "Cấu hình" },
-    ]
-  },
-  {
-    label: "Thuế",
-    items: [
-      { href: "/app/tax-einvoices.html", icon: "🧾", label: "Hóa đơn điện tử" },
-      { href: "/app/tax-declarations.html", icon: "📋", label: "Tờ khai" },
-      { href: "/app/tax-payments.html", icon: "💳", label: "Thanh toán" },
-      { href: "/app/tax-reconciliation.html", icon: "🔍", label: "Đối chiếu" },
-      { href: "/app/tax-calendar.html", icon: "📅", label: "Lịch thuế" },
-      { href: "/app/vat-report.html", icon: "📊", label: "Báo cáo GTGT" },
-    ]
-  },
-  {
-    label: "Báo cáo",
-    items: [
-      { href: "/app/financial-analysis.html", icon: "📊", label: "Phân tích tài chính" },
-      { href: "/app/trial-balance.html", icon: "📊", label: "Bảng cân đối phát sinh" },
-      { href: "/app/balance-sheet.html", icon: "📑", label: "Bảng cân đối kế toán" },
-      { href: "/app/income-statement.html", icon: "📈", label: "Kết quả kinh doanh" },
-      { href: "/app/cash-flow.html", icon: "💰", label: "Lưu chuyển tiền tệ" },
-      { href: "/app/cash-book.html", icon: "📒", label: "Sổ quỹ tiền mặt" },
-      { href: "/app/journal-export.html", icon: "📥", label: "Nhật ký chung" },
-      { href: "/app/fixed-asset-register.html", icon: "🏗️", label: "Sổ tài sản cố định" },
-      { href: "/app/depreciation-schedule.html", icon: "📉", label: "Lịch khấu hao" },
-    ]
-  },
-  {
-    label: "Quản trị",
-    items: [
-      { href: "/app/system-options.html", icon: "⚙️", label: "Tùy chọn hệ thống" },
-      { href: "/app/numbering-rules.html", icon: "🔢", label: "Định số chứng từ" },
-      { href: "/app/fiscal-years.html", icon: "📅", label: "Năm tài chính" },
-      { href: "/app/report-options.html", icon: "📊", label: "Tùy chỉnh báo cáo" },
-      { href: "/app/backups.html", icon: "💾", label: "Sao lưu dữ liệu" },
-      { href: "/app/contracts.html", icon: "📄", label: "Hợp đồng" },
-    ]
-  },
-];
+  /* ─── Auth: JWT session in localStorage + cookie for page loads ─── */
 
-/* ─── Sidebar HTML ─────────────────────────────────────────── */
-
-function sidebarHTML(activePath) {
-  const groups = MODULE_GROUPS.map(g => {
-    const items = g.items.map(item => {
-      const active = location.pathname === item.href || activePath === item.href;
-      return `<a href="${item.href}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
-        ${active ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}">
-        <span class="text-base">${item.icon}</span>
-        <span>${item.label}</span>
-      </a>`;
-    }).join("");
-    return `<div class="mb-1">
-      <p class="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">${g.label}</p>
-      <div class="space-y-0.5">${items}</div>
-    </div>`;
-  }).join("");
-
-  return `
-  <div class="flex flex-col h-full">
-    <div class="px-4 py-4 border-b border-gray-200">
-      <a href="/app/dashboard.html" class="flex items-center gap-2">
-        <span class="text-xl">📊</span>
-        <span class="text-lg font-bold text-blue-700">GoTax</span>
-      </a>
-      <p class="text-xs text-gray-400 mt-1">Circular 99/2025</p>
-    </div>
-    <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-      ${groups}
-    </nav>
-    <div class="px-4 py-3 border-t border-gray-200">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-semibold text-blue-700" id="user-avatar">U</div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-900 truncate" id="user-name">User</p>
-          <p class="text-xs text-gray-500" id="user-role">—</p>
-        </div>
-        <button onclick="App.logout()" class="text-gray-400 hover:text-gray-600" title="Đăng xuất">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-        </button>
-      </div>
-    </div>
-  </div>`;
-}
-
-/* ─── Top bar HTML ─────────────────────────────────────────── */
-
-function topbarHTML(title) {
-  return `
-  <div class="flex items-center justify-between h-14 px-6 bg-white border-b border-gray-200">
-    <div class="flex items-center gap-3">
-      <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" class="lg:hidden text-gray-500 hover:text-gray-700">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-      </button>
-      <h1 class="text-lg font-semibold text-gray-900">${title}</h1>
-    </div>
-    <div class="flex items-center gap-4">
-      <div class="relative">
-        <input type="text" placeholder="Tìm kiếm..." class="w-64 pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-        <svg class="absolute left-2.5 top-2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      </div>
-      <span class="text-sm text-gray-500" id="company-name"></span>
-    </div>
-  </div>`;
-}
-
-/* ─── App shell mount ──────────────────────────────────────── */
-
-function mountAppShell(title, activePath) {
-  const sidebar = document.getElementById("sidebar");
-  const topbar = document.getElementById("topbar");
-  if (sidebar) sidebar.innerHTML = sidebarHTML(activePath);
-  if (topbar) topbar.innerHTML = topbarHTML(title);
-
-  // Load user info
-  try {
-    const store = Alpine.store("auth");
-    if (store?.user) {
-      const nameEl = document.getElementById("user-name");
-      const roleEl = document.getElementById("user-role");
-      const avatarEl = document.getElementById("user-avatar");
-      if (nameEl) nameEl.textContent = store.user.username || "User";
-      if (roleEl) roleEl.textContent = store.user.role || "—";
-      if (avatarEl) avatarEl.textContent = (store.user.username || "U")[0].toUpperCase();
+  function readSession() {
+    try {
+      return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    } catch (_) {
+      return null;
     }
-  } catch(e) {}
-}
-
-/* ─── API client (with JWT refresh) ────────────────────────── */
-
-async function apiFetch(path, opts = {}) {
-  const store = Alpine.store("auth");
-  const headers = { "Content-Type": "application/json", ...opts.headers };
-  if (store?.accessToken) headers["Authorization"] = `Bearer ${store.accessToken}`;
-  const r = await fetch(`${API_BASE}${path}`, { ...opts, headers });
-  if (r.status === 401) {
-    const ok = await store.refresh();
-    if (!ok) { window.location = "/login"; throw new Error("unauthorized"); }
-    headers["Authorization"] = store.authHeader;
-    return fetch(`${API_BASE}${path}`, { ...opts, headers });
   }
-  return r;
-}
 
-async function apiGet(path) {
-  const r = await apiFetch(path);
-  if (!r.ok) throw await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  return r.json();
-}
-
-async function apiPost(path, body) {
-  const r = await apiFetch(path, { method: "POST", body: JSON.stringify(body) });
-  if (!r.ok) throw await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  return r.json();
-}
-
-async function apiPut(path, body) {
-  const r = await apiFetch(path, { method: "PUT", body: JSON.stringify(body) });
-  if (!r.ok) throw await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  return r.json();
-}
-
-async function apiDelete(path) {
-  const r = await apiFetch(path, { method: "DELETE" });
-  if (!r.ok) throw await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  return r.ok;
-}
-
-/* ─── Formatters ───────────────────────────────────────────── */
-
-function fmtVND(v) {
-  if (v == null || isNaN(v)) return "0";
-  return new Intl.NumberFormat("vi-VN").format(Math.round(v));
-}
-
-function fmtDate(s) {
-  if (!s) return "—";
-  return new Date(s).toLocaleDateString("vi-VN");
-}
-
-function fmtDateTime(s) {
-  if (!s) return "—";
-  return new Date(s).toLocaleString("vi-VN");
-}
-
-/* ─── Status helpers, empty state, loading skeleton ─────────── */
-/* Moved to components.js (HyperUI library). Backward-compatible wrappers there. */
-
-/* ─── Alpine store ─────────────────────────────────────────── */
-
-document.addEventListener("alpine:init", () => {
-  Alpine.store("app", {
-    loading: false,
-    error: "",
-    success: "",
-
-    flashSuccess(msg) {
-      this.success = msg;
-      setTimeout(() => (this.success = ""), 4000);
+  GoTax.Auth = {
+    getSession: readSession,
+    getAccessToken: function () {
+      var s = readSession();
+      return s ? s.access_token : null;
     },
-
-    flashError(msg) {
-      this.error = msg;
-      setTimeout(() => (this.error = ""), 5000);
+    getRefreshToken: function () {
+      var s = readSession();
+      return s ? s.refresh_token : null;
     },
+    getUser: function () {
+      var s = readSession();
+      return s && s.user ? s.user : null;
+    },
+    isAuthenticated: function () {
+      var s = readSession();
+      return !!(s && s.access_token && Date.now() < (s.expires_at || 0));
+    },
+    saveLogin: function (p) {
+      var s = {
+        access_token: p.access_token,
+        refresh_token: p.refresh_token,
+        user: p.user,
+        expires_at: (p.expires_in || 900) * 1000 + Date.now(),
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      this.setCookie(s.access_token);
+      this.scheduleRefresh();
+    },
+    clear: function () {
+      localStorage.removeItem(SESSION_KEY);
+      document.cookie = "gotax_token=; path=/; max-age=0; SameSite=Lax";
+    },
+    setCookie: function (token) {
+      document.cookie = "gotax_token=" + encodeURIComponent(token) + "; path=/; max-age=900; SameSite=Lax";
+    },
+    refresh: function () {
+      var rt = this.getRefreshToken();
+      if (!rt) return Promise.resolve(false);
+      return fetch("/api/v1/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: rt }),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error("refresh_failed");
+          return r.json();
+        })
+        .then(function (d) {
+          this.saveLogin(d);
+          return true;
+        }.bind(this))
+        .catch(function () {
+          this.clear();
+          return false;
+        }.bind(this));
+    },
+    scheduleRefresh: function () {
+      var self = this;
+      if (self._timer) clearTimeout(self._timer);
+      var s = readSession();
+      if (!s) return;
+      var left = (s.expires_at || 0) - Date.now() - 60000;
+      self._timer = setTimeout(function () { self.refresh(); }, Math.max(left, 0));
+    },
+    logout: function () {
+      this.clear();
+      window.location = "/login";
+    },
+  };
+
+  /* ─── Toast ─── */
+
+  GoTax.Toast = {
+    show: function (text, type) {
+      var host = document.getElementById("toast-host");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "toast-host";
+        host.className = "fixed top-4 right-4 z-50 space-y-2 w-80";
+        document.body.appendChild(host);
+      }
+      var el = document.createElement("div");
+      var styles = {
+        success: "bg-green-50 border-green-200 text-green-800",
+        error: "bg-red-50 border-red-200 text-red-800",
+        info: "bg-blue-50 border-blue-200 text-blue-800",
+        warning: "bg-amber-50 border-amber-200 text-amber-800",
+      };
+      el.className = "rounded-md border px-4 py-3 text-sm font-medium shadow-sm cursor-pointer " + (styles[type] || styles.info);
+      el.textContent = text;
+      el.onclick = function () { el.remove(); };
+      host.appendChild(el);
+      setTimeout(function () { el.remove(); }, 5000);
+    },
+  };
+
+  /* ─── htmx hooks ─── */
+
+  document.addEventListener("htmx:configRequest", function (e) {
+    var t = GoTax.Auth.getAccessToken();
+    if (t) e.detail.headers["Authorization"] = "Bearer " + t;
   });
-});
 
-/* ─── App utilities ────────────────────────────────────────── */
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    if (e.detail.xhr.status === 401) {
+      e.detail.shouldSwap = false;
+      GoTax.Auth.clear();
+      window.location = "/login";
+    }
+  });
 
-const App = {
-  logout() {
-    try { Alpine.store("auth").clear(); } catch(e) {}
-    window.location = "/login";
-  },
+  // HX-Trigger JSON from server: {"toast": {"type": "success", "text": "..."}}
+  document.addEventListener("toast", function (e) {
+    var t = e.detail;
+    if (t && t.text) GoTax.Toast.show(t.text, t.type);
+  });
 
-  companyId() {
-    try { return Alpine.store("auth")?.user?.company_id || "CMP001"; } catch(e) { return "CMP001"; }
-  },
+  /* ─── Formatters ─── */
 
-  confirm(msg) {
-    return window.confirm(msg);
-  },
-};
+  GoTax.fmtVND = function (v) {
+    if (v == null || isNaN(v)) return "0";
+    return new Intl.NumberFormat("vi-VN").format(Math.round(v));
+  };
+  GoTax.fmtDate = function (s) {
+    if (!s) return "—";
+    return new Date(s).toLocaleDateString("vi-VN");
+  };
+  GoTax.fmtDateTime = function (s) {
+    if (!s) return "—";
+    return new Date(s).toLocaleString("vi-VN");
+  };
+
+  /* ─── App helpers ─── */
+
+  GoTax.App = {
+    logout: function () { GoTax.Auth.logout(); },
+    companyId: function () {
+      var u = GoTax.Auth.getUser();
+      return (u && u.company_id) || "CMP001";
+    },
+    confirm: function (msg) { return window.confirm(msg); },
+  };
+})();

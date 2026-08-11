@@ -5,14 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Xác thực 2FA · GoTax</title>
   <link rel="stylesheet" href="/assets/css/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script defer src="/assets/js/auth.js"></script>
 </head>
 <body class="auth-page">
 
-<div class="w-full max-w-[520px] bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,.1),0_8px_24px_rgba(0,0,0,.06)] p-8 pb-7 border border-gray-200"
-     x-data="twoFAStore()" aria-labelledby="page-title">
+<div class="w-full max-w-[520px] bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,.1),0_8px_24px_rgba(0,0,0,.06)] p-8 pb-7 border border-gray-200" aria-labelledby="page-title">
 
   <div class="text-center mb-6">
     <div class="inline-flex items-center gap-2 mb-3">
@@ -23,161 +19,107 @@
     <p class="text-sm text-gray-500">Nhập mã 6 số từ ứng dụng Google Authenticator</p>
   </div>
 
-  <div id="alert-slot"
-    x-data
-    x-init="mountAlerts"
-    @2fa:success.window="successAlert($event.detail.msg)"
-    @2fa:error.window="errorAlert($event.detail.msg)"
-  ></div>
+  <div id="login-error" class="hidden mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-800" role="alert"></div>
 
-  <form @submit.prevent="submit" novalidate>
+  <form id="2fa-form" novalidate>
 
     <div class="mb-4">
       <label class="block text-sm font-semibold text-gray-900 mb-1.5">Mã xác thực</label>
       <div class="flex gap-2 items-center justify-center">
-        <template x-for="(d, i) in digits" :key="i">
-          <input
-            type="text"
-            inputmode="numeric"
-            pattern="[0-1]"
-            maxlength="1"
-            x-model="digits[i]"
-            class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 appearance-none transition-colors duration-150 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40"
-            :class="{
-              'border-green-600 bg-green-50':  digits[i] && /[0-9]/.test(digits[i]),
-              'border-error bg-red-50': digits[i] && !/[0-9]/.test(digits[i])
-            }"
-            @input.debounce.100ms="onInput(i)"
-            @keydown.backspace.prevent="onBackspace(i)"
-            @keydown.arrow-right.prevent="focusNext(i)"
-            @keydown.arrow-left.prevent="focusPrev(i)"
-            :id="'code' + i"
-            :aria-label="'Chữ số ' + (i + 1)"
-            autocomplete="one-time-code"
-            inputmode="numeric"
-          >
-        </template>
+        <input type="text" id="code0" data-i="0" maxlength="1" inputmode="numeric" autocomplete="one-time-code" aria-label="Chữ số 1"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+        <input type="text" id="code1" data-i="1" maxlength="1" inputmode="numeric" aria-label="Chữ số 2"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+        <input type="text" id="code2" data-i="2" maxlength="1" inputmode="numeric" aria-label="Chữ số 3"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+        <input type="text" id="code3" data-i="3" maxlength="1" inputmode="numeric" aria-label="Chữ số 4"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+        <input type="text" id="code4" data-i="4" maxlength="1" inputmode="numeric" aria-label="Chữ số 5"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+        <input type="text" id="code5" data-i="5" maxlength="1" inputmode="numeric" aria-label="Chữ số 6"
+          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
       </div>
       <p class="text-xs text-gray-500 mt-1">Mã đổi mỗi 30 giây · Mở Google Authenticator để xem.</p>
     </div>
-
-    <template x-if="alertMsg">
-      <div class="rounded-md px-3.5 py-3 text-sm font-medium mb-4 transition-all"
-           :class="{
-             'bg-red-50 text-red-900 border border-red-200': alertType === 'error',
-             'bg-green-50 text-green-900 border border-green-200': alertType === 'success',
-             'bg-blue-50 text-blue-900 border border-blue-200': alertType === 'info',
-           }"
-           x-text="alertMsg" x-transition></div>
-    </template>
 
     <button
       type="submit"
       id="submit-btn"
       class="w-full h-10 inline-flex items-center justify-center gap-2 bg-accent text-white font-semibold text-[0.925rem] leading-none rounded-md cursor-pointer transition-all duration-150 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap"
-      :disabled="isSubmitting"
     >
-      <template x-if="isSubmitting">
-        <span class="btn-spinner" aria-hidden="true"></span>
-      </template>
-      <span x-text="isSubmitting ? 'Đang xác thực…' : 'XÁC THỰC'"></span>
+      <span id="submit-label">XÁC THỰC</span>
     </button>
 
   </form>
 
   <div class="mt-6 pt-4 border-t border-gray-200 flex justify-between items-center text-sm">
     <a href="/login" class="text-accent hover:underline">← Quay lại đăng nhập</a>
-    <button
-      type="button"
-      class="bg-transparent border-none p-0 font-[inherit] text-accent cursor-pointer hover:underline disabled:text-gray-500 disabled:cursor-not-allowed"
-      @click="resend()"
-      :disabled="cooldown > 0"
-      x-data="{ cooldown: 0 }"
-      x-init="setTimeout(() => $root.querySelector('.link-text, button[\\:disabled]')?.remove(), 0)"
-    >Gửi lại mã SMS?</button>
+    <button type="button" id="resend-btn" class="bg-transparent border-none p-0 font-[inherit] text-accent cursor-pointer hover:underline">Gửi lại mã SMS?</button>
   </div>
 
 </div>
 
+<script src="/assets/js/app.js"></script>
+<script src="/assets/js/auth.js"></script>
 <script>
-document.addEventListener("alpine:init", () => {
-  Alpine.data("twoFAStore", () => ({
-    digits: ["", "", "", "", "", ""],
-    isSubmitting: false,
-    alertMsg: "",
-    alertType: "error",
+(function () {
+  var inputs = Array.prototype.slice.call(document.querySelectorAll(".code-input"));
+  var errEl = document.getElementById("login-error");
+  var btn = document.getElementById("submit-btn");
+  var label = document.getElementById("submit-label");
 
-    get code() { return this.digits.join(""); },
+  function code() { return inputs.map(function (i) { return i.value; }).join(""); }
+  function showErr(msg) { if (errEl) { errEl.textContent = msg; errEl.classList.remove("hidden"); } else GoTax.Toast.show(msg, "error"); }
 
-    onInput(i) {
-      this.alertMsg = "";
-      const v = this.digits[i].replace(/\D/g, "");
-      this.digits[i] = v.slice(0, 1);
-      if (v && i < 5) {
-        const el = document.getElementById("code" + (i + 1));
-        if (el) el.focus();
-      }
-    },
+  inputs.forEach(function (inp) {
+    inp.addEventListener("input", function () {
+      inp.value = inp.value.replace(/\D/g, "").slice(0, 1);
+      if (inp.value && Number(inp.dataset.i) < 5) inputs[Number(inp.dataset.i) + 1].focus();
+      if (errEl) errEl.classList.add("hidden");
+    });
+    inp.addEventListener("keydown", function (e) {
+      var i = Number(inp.dataset.i);
+      if (e.key === "Backspace" && !inp.value && i > 0) { inputs[i - 1].value = ""; inputs[i - 1].focus(); e.preventDefault(); }
+      if (e.key === "ArrowRight" && i < 5) { inputs[i + 1].focus(); e.preventDefault(); }
+      if (e.key === "ArrowLeft" && i > 0) { inputs[i - 1].focus(); e.preventDefault(); }
+    });
+  });
 
-    onBackspace(i) {
-      if (this.digits[i] === "" && i > 0) {
-        this.digits[i - 1] = "";
-        const el = document.getElementById("code" + (i - 1));
-        if (el) el.focus();
-      }
-    },
-
-    focusNext(i) { if (i < 5) document.getElementById("code" + (i + 1))?.focus(); },
-    focusPrev(i) { if (i > 0) document.getElementById("code" + (i - 1))?.focus(); },
-
-    submit() {
-      if (this.isSubmitting) return;
-      if (this.code.length < 6) {
-        this.showAlert("Nhập đủ 6 chữ số.", "error");
-        return;
-      }
-      this.isSubmitting = true;
-      const auth = Alpine.store("auth");
-      const tempToken = localStorage.getItem("gotax_temp_token") || "";
-
-      fetch("/api/v1/auth/totp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ temp_token: tempToken, code: this.code }),
-      })
-      .then(async (r) => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          this.showAlert(data.error || "Mã không hợp lệ.", "error");
-          dispatchEvent(new CustomEvent("2fa:error", {
-            detail: { msg: data.error || "Lỗi" }, bubbles: true,
-          }));
-          return;
+  document.getElementById("2fa-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (code().length < 6) { showErr("Nhập đủ 6 chữ số."); return; }
+    btn.disabled = true;
+    label.textContent = "Đang xác thực…";
+    fetch("/api/v1/auth/totp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        temp_token: localStorage.getItem("gotax_temp_token") || "",
+        code: code(),
+      }),
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (d.access_token) {
+          GoTax.Auth.saveLogin(d);
+          window.location.href = "/app/dashboard.html";
+        } else {
+          btn.disabled = false;
+          label.textContent = "XÁC THỰC";
+          showErr(d.error || "Mã không hợp lệ.");
         }
-        auth.set(data);
-        dispatchEvent(new CustomEvent("2fa:success", {
-          detail: { msg: "Xác thực thành công." }, bubbles: true,
-        }));
-        setTimeout(() => window.location.href = "/", 300);
       })
-      .catch(() => {
-        this.showAlert("Lỗi kết nối.", "error");
-      })
-      .finally(() => { this.isSubmitting = false; });
-    },
+      .catch(function () {
+        btn.disabled = false;
+        label.textContent = "XÁC THỰC";
+        showErr("Lỗi kết nối.");
+      });
+  });
 
-    resend() {
-      this.showAlert("Mã đã gửi lại (giả lập).", "info");
-    },
-
-    showAlert(text, type) {
-      this.alertMsg = text;
-      this.alertType = type;
-      setTimeout(() => { this.alertMsg = ""; }, 4000);
-    },
-  }));
-});
+  document.getElementById("resend-btn").addEventListener("click", function () {
+    GoTax.Toast.show("Mã đã gửi lại (giả lập).", "info");
+  });
+})();
 </script>
-
 </body>
 </html>

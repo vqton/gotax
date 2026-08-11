@@ -1,41 +1,22 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard · GoTax</title>
-  <link rel="stylesheet" href="/assets/css/app.css">
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth.js"></script>
-  <script src="/assets/js/components.js"></script>
-  <script src="/assets/js/app.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="init()">
-
-  <!-- Sidebar -->
-  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
-
-  <!-- Main -->
-  <div class="lg:ml-60">
-    <!-- Top bar -->
-    <header id="topbar" class="sticky top-0 z-20"></header>
-
-    <!-- Content -->
-    <main class="p-6">
-      <!-- Flash -->
-      <template x-if="$store.app.success">
-        <div class="mb-4" x-html="HyperUI.alert('success', $store.app.success, true)"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4" x-html="HyperUI.alert('error', $store.app.error, true)"></div>
-      </template>
-
+{{define "content"}}
       <!-- Summary cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div x-html="HyperUI.statCard('Tài khoản', summary.accounts || 0, { icon: '📋', color: 'blue' })"></div>
-        <div x-html="HyperUI.statCard('Chứng từ kỳ này', summary.entries || 0, { icon: '📝', color: 'blue' })"></div>
-        <div x-html="HyperUI.statCard('Doanh thu', fmtVND(summary.revenue) + ' ₫', { icon: '📈', color: 'green' })"></div>
-        <div x-html="HyperUI.statCard('Phải thu', fmtVND(summary.ar_balance) + ' ₫', { icon: '💰', color: 'amber' })"></div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-xs font-medium text-gray-500 mb-1">📋 Tài khoản</p>
+          <p class="text-2xl font-bold text-gray-900">{{.Data.Accounts}}</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-xs font-medium text-gray-500 mb-1">📝 Chứng từ đã ghi sổ</p>
+          <p class="text-2xl font-bold text-gray-900">{{.Data.Entries}}</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-xs font-medium text-gray-500 mb-1">📈 Doanh thu</p>
+          <p class="text-2xl font-bold text-gray-900">0 ₫</p>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <p class="text-xs font-medium text-gray-500 mb-1">💰 Phải thu</p>
+          <p class="text-2xl font-bold text-gray-900">0 ₫</p>
+        </div>
       </div>
 
       <!-- Quick actions -->
@@ -64,7 +45,7 @@
           </a>
           <a href="/payroll/periods.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
             <span class="text-2xl">💰</span>
-            <div><p class="font-medium text-gray-900 text-sm">Tiền lương</p><p class="text-xs text-gray-500">Lương &社保</p></div>
+            <div><p class="font-medium text-gray-900 text-sm">Tiền lương</p><p class="text-xs text-gray-500">Lương & bảo hiểm</p></div>
           </a>
         </div>
       </div>
@@ -87,49 +68,21 @@
             </tr>
           </thead>
           <tbody>
-            <template x-for="e in recentEntries" :key="e.id">
-              <tr class="border-b border-gray-100 hover:bg-gray-50">
-                <td class="px-5 py-3 font-medium" x-text="e.entry_number"></td>
-                <td class="px-5 py-3 text-gray-500" x-text="fmtDate(e.entry_date)"></td>
-                <td class="px-5 py-3 text-gray-700 max-w-xs truncate" x-text="e.description"></td>
-                <td class="px-5 py-3" x-html="statusBadge(e.status)"></td>
-                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(e.total_debit)"></td>
-                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(e.total_credit)"></td>
-              </tr>
-            </template>
-            <tr x-show="!recentEntries.length">
+            {{range .Data.Recent}}
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-5 py-3 font-medium">{{.EntryNumber}}</td>
+              <td class="px-5 py-3 text-gray-500">{{fmtDate .EntryDate}}</td>
+              <td class="px-5 py-3 text-gray-700 max-w-xs truncate">{{.Description}}</td>
+              <td class="px-5 py-3">{{statusBadge (string .Status)}}</td>
+              <td class="px-5 py-3 text-right font-medium">{{fmtVND .TotalDebit}}</td>
+              <td class="px-5 py-3 text-right font-medium">{{fmtVND .TotalCredit}}</td>
+            </tr>
+            {{else}}
+            <tr>
               <td colspan="6" class="px-5 py-8 text-center text-gray-400">Chưa có chứng từ nào</td>
             </tr>
+            {{end}}
           </tbody>
         </table>
       </div>
-    </main>
-  </div>
-
-<script>
-function dashboard() {
-  return {
-    summary: {},
-    recentEntries: [],
-
-    async init() {
-      mountAppShell("Tổng quan", "/app/dashboard.html");
-      try {
-        const cid = App.companyId();
-        const [accounts, entries] = await Promise.all([
-          apiGet("/accounts?active_only=true").catch(() => []),
-          apiGet("/journal-entries?limit=10").catch(() => []),
-        ]);
-        this.summary.accounts = Array.isArray(accounts) ? accounts.length : 0;
-        this.summary.entries = Array.isArray(entries) ? entries.length : 0;
-        this.recentEntries = Array.isArray(entries) ? entries.slice(0, 10) : [];
-      } catch (e) {
-        console.error("dashboard init:", e);
-      }
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+{{end}}

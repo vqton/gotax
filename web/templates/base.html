@@ -1,0 +1,23 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Shell.Title}} · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script src="/assets/js/htmx.min.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform">
+    {{template "sidebar" .}}
+  </aside>
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20">{{template "topbar" .}}</header>
+    <main class="p-6">
+      {{template "content" .}}
+    </main>
+  </div>
+  <div id="toast-host" class="fixed top-4 right-4 z-50 space-y-2 w-80"></div>
+</body>
+</html>{{end}}

@@ -1,152 +1,178 @@
-"use strict";
+// GoTax auth pages — plain JS + fetch. No Alpine, no framework init race.
+(function () {
+  "use strict";
 
-window._alerts = window._alerts || [];
+  var GoTax = window.GoTax = window.GoTax || {};
 
-const API_BASE = "";
-
-/* ---------- Alert sink (shared) ---------- */
-function mountAlerts(containerId) {
-  const host = document.getElementById(containerId);
-  if (!host || host._mounted) return;
-  host._mounted = true;
-  host.innerHTML = Alpine.raw(`
-    <template x-for="a in alerts" :key="a.text + a.type">
-      <div class="rounded-md px-3.5 py-3 text-sm font-medium mb-4 cursor-pointer transition-opacity"
-           :class="{
-             'bg-red-50 text-red-900 border border-red-200': a.type === 'error',
-             'bg-green-50 text-green-900 border border-green-200': a.type === 'success',
-             'bg-blue-50 text-blue-900 border border-blue-200': a.type === 'info',
-             'bg-amber-50 text-amber-900 border border-amber-200': a.type === 'warning',
-           }"
-           x-text="a.text" x-transition @click="alerts.shift()" role="alert"></div>
-    </template>
-  `);
-}
-
-/* ---------- Root store: JWT + session ---------- */
-function authStore() {
-  return {
-    accessToken: null,
-    refreshToken: null,
-    user: null,
-    expiresAt: 0,
-    init() {
-      try {
-        const raw = localStorage.getItem("gotax_session");
-        if (raw) {
-          const s = JSON.parse(raw);
-          this.accessToken = s.access_token;
-          this.refreshToken = s.refresh_token;
-          this.user = s.user;
-          this.expiresAt = s.expires_at || 0;
-        }
-      } catch (_) { this.clear(); }
-      this.scheduleRefresh();
-      setTimeout(() => scheduleReauth());
-    },
-    set(payload) {
-      this.accessToken = payload.access_token;
-      this.refreshToken = payload.refresh_token;
-      this.user = payload.user;
-      this.expiresAt = (payload.expires_in || 900) * 1000 + Date.now();
-      this.persist();
-      this.scheduleRefresh();
-    },
-    persist() {
-      localStorage.setItem("gotax_session", JSON.stringify({
-        access_token: this.accessToken,
-        refresh_token: this.refreshToken,
-        user: this.user,
-        expires_at: this.expiresAt,
-      }));
-    },
-    clear() {
-      this.accessToken = null;
-      this.refreshToken = null;
-      this.user = null;
-      this.expiresAt = 0;
-      localStorage.removeItem("gotax_session");
-    },
-    get isAuthenticated() {
-      return !!this.accessToken && Date.now() < this.expiresAt;
-    },
-    get authHeader() {
-      return this.accessToken ? `Bearer ${this.accessToken}` : "";
-    },
-    async refresh() {
-      if (!this.refreshToken) return false;
-      try {
-        const r = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: this.refreshToken }),
-        });
-        if (!r.ok) throw new Error("refresh_failed");
-        const data = await r.json();
-        this.set(data);
-        return true;
-      } catch {
-        this.clear();
-        return false;
-      }
-    },
-    scheduleRefresh() {
-      if (this._timer) clearTimeout(this._timer);
-      const left = this.expiresAt - Date.now() - 60_000;
-      this._timer = setTimeout(() => this.refresh(), Math.max(left, 0));
-    },
-  };
-}
-
-/* ---------- Toast / notification (global) ---------- */
-function notificationStore() {
-  return {
-    alerts: window._alerts,
-    init() { mountAlerts("global-alert-host"); },
-    push(type, text) {
-      this.alerts.push({ type, text });
-      setTimeout(() => this.alerts.shift(), 5000);
-    },
-    success(msg) { this.push("success", msg); },
-    error(msg)   { this.push("error",   msg); },
-    info(msg)    { this.push("info",    msg); },
-    warning(msg) { this.push("warning", msg); },
-  };
-}
-
-/* ---------- Field validation ---------- */
-function validateEmail(v) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-}
-function validateConfirm(pw, pw2) {
-  return pw === pw2 && pw.length >= 8;
-}
-
-/* ---------- Reauth gate (idle detector) ---------- */
-let inactiveTimer = null;
-function scheduleReauth() {
-  clearTimeout(inactiveTimer);
-  inactiveTimer = setTimeout(() => {
-    const store = Alpine.store("auth");
-    if (store && store.isAuthenticated) {
-      store.refresh().then(ok => { if (!ok) window.location = "/login"; });
-    }
-  }, 1000 * 60 * 30);
-}
-["mousemove", "keydown", "click", "scroll", "touchstart"].forEach(evt =>
-  document.addEventListener(evt, scheduleReauth, { passive: true })
-);
-
-/* ---------- htmx: populate auth header ---------- */
-document.addEventListener("htmx:configRequest", (e) => {
-  const store = window.__alpine_store;
-  if (store?.accessToken) {
-    e.detail.headers["Authorization"] = `Bearer ${store.accessToken}`;
+  function errText(d, status) {
+    return (d && d.error) || (d && d.message) || "Server trả lỗi " + status;
   }
-});
 
-/* ---------- Boot ---------- */
-document.addEventListener("alpine:init", () => {
-  Alpine.store("auth", authStore());
-  Alpine.store("alert", notificationStore());
-});
+  /* ─── Login ─── */
+
+  GoTax.loginPage = function () {
+    var form = document.getElementById("login-form");
+    if (!form) return;
+    var btn = document.getElementById("submit-btn");
+    var errEl = document.getElementById("login-error");
+    var btnText = btn ? document.getElementById("submit-label") : null;
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var username = document.getElementById("username").value.trim();
+      var password = document.getElementById("password").value;
+      if (!username || !password) {
+        showErr("Nhập đầy đủ tên đăng nhập và mật khẩu.");
+        return;
+      }
+      var body = { username: username, password: password };
+      var mst = document.getElementById("mst");
+      if (mst && mst.value.trim()) body.tenant_id = mst.value.trim();
+
+      setBusy(true);
+      fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; });
+        })
+        .then(function (res) {
+          setBusy(false);
+          if (res.ok && res.d.access_token) {
+            GoTax.Auth.saveLogin(res.d);
+            window.location.href = "/app/dashboard.html";
+            return;
+          }
+          if (res.status === 401 && res.d.requires_2fa) {
+            localStorage.setItem("gotax_temp_token", res.d.temp_token || "");
+            window.location.href = "/2fa";
+            return;
+          }
+          showErr(errText(res.d, res.status));
+        })
+        .catch(function () {
+          setBusy(false);
+          showErr("Không kết nối được server. Kiểm tra server đang chạy.");
+        });
+    });
+
+    function showErr(msg) {
+      if (errEl) { errEl.textContent = msg; errEl.classList.remove("hidden"); }
+      else { GoTax.Toast.show(msg, "error"); }
+    }
+    function setBusy(b) {
+      if (btn) {
+        btn.disabled = b;
+        if (btnText) btnText.textContent = b ? "Đang đăng nhập…" : "ĐĂNG NHẬP";
+      }
+    }
+  };
+
+  /* ─── Forgot password ─── */
+
+  GoTax.forgotPage = function () {
+    var form = document.getElementById("forgot-form");
+    if (!form) return;
+    var email = document.getElementById("email");
+    var msgEl = document.getElementById("form-msg");
+    var btn = document.getElementById("submit-btn");
+    var btnText = btn ? document.getElementById("submit-label") : null;
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var v = email ? email.value.trim() : "";
+      if (!v) { setMsg("Nhập email.", "error"); return; }
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.textContent = "Đang gửi…";
+      fetch("/api/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: v }),
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (d) {
+          if (btn) btn.disabled = false;
+          if (btnText) btnText.textContent = "GỬI YÊU CẦU";
+          if (d.ok || d.message || !d.error) setMsg("Nếu email tồn tại, bạn sẽ nhận được liên kết đặt lại mật khẩu.", "success");
+          else setMsg(errText(d, 400), "error");
+        })
+        .catch(function () {
+          if (btn) btn.disabled = false;
+          if (btnText) btnText.textContent = "GỬI YÊU CẦU";
+          setMsg("Không kết nối được server.", "error");
+        });
+    });
+
+    function setMsg(text, type) {
+      if (!msgEl) { GoTax.Toast.show(text, type); return; }
+      msgEl.textContent = text;
+      msgEl.className = "text-sm rounded-md border px-3 py-2 " +
+        (type === "success" ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800");
+      msgEl.classList.remove("hidden");
+    }
+  };
+
+  /* ─── Reset password ─── */
+
+  GoTax.resetPage = function () {
+    var form = document.getElementById("reset-form");
+    if (!form) return;
+    var pw = document.getElementById("password");
+    var pw2 = document.getElementById("password2");
+    var errEl = document.getElementById("login-error");
+    var btn = document.getElementById("submit-btn");
+    var btnText = btn ? document.getElementById("submit-label") : null;
+    var token = new URLSearchParams(window.location.search).get("token") || "";
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var p = pw ? pw.value : "";
+      var p2 = pw2 ? pw2.value : "";
+      if (p.length < 8) { showErr("Mật khẩu tối thiểu 8 ký tự."); return; }
+      if (p !== p2) { showErr("Mật khẩu không khớp."); return; }
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.textContent = "Đang lưu…";
+      fetch("/api/v1/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: token, new_password: p }),
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (d) {
+          if (d.ok || d.message || !d.error) {
+            window.location.href = "/login?reset=1";
+          } else {
+            if (btn) btn.disabled = false;
+            if (btnText) btnText.textContent = "ĐẶT LẠI MẬT KHẨU";
+            showErr(errText(d, 400));
+          }
+        })
+        .catch(function () {
+          if (btn) btn.disabled = false;
+          if (btnText) btnText.textContent = "ĐẶT LẠI MẬT KHẨU";
+          showErr("Không kết nối được server.");
+        });
+    });
+
+    function showErr(msg) {
+      if (errEl) { errEl.textContent = msg; errEl.classList.remove("hidden"); }
+      else GoTax.Toast.show(msg, "error");
+    }
+  };
+
+  /* ─── Password visibility toggles ─── */
+
+  GoTax.togglePw = function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.type = el.type === "password" ? "text" : "password";
+  };
+
+  document.addEventListener("DOMContentLoaded", function () {
+    GoTax.loginPage();
+    GoTax.forgotPage();
+    GoTax.resetPage();
+  });
+})();

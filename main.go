@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -47,6 +48,7 @@ import (
 	"gotax/internal/logger"
 	"gotax/internal/repository"
 	"gotax/internal/service"
+	"gotax/internal/web"
 	"gotax/internal/xmldsig"
 )
 
@@ -104,13 +106,17 @@ func main() {
 r.LoadHTMLGlob("web/auth/*.html")
 r.Static("/assets", "./web/static")
 r.Static("/payroll", "./web/payroll")
-r.Static("/app", "./web/app")
+// /app served by internal/web catch-all: converted pages render templates,
+// unconverted pages fall back to static files.
 
 r.GET("/ping", func(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "GoTax GL Server"})
 })
 r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+r.GET("/", func(c *gin.Context) {
+	c.Redirect(http.StatusFound, "/app/dashboard.html")
+})
 r.GET("/login", func(c *gin.Context) {
 	c.HTML(200, "login.html", nil)
 })
@@ -299,6 +305,12 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisH := handler.NewFinancialAnalysisHandler(finAnalysisSvc)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisH, authMW)
 	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
+		webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries"})
+		if err != nil {
+			zap.L().Fatal("init web templates", zap.Error(err))
+		}
+		webDeps := web.Deps{Svc: svc}
+		webSrv.RegisterPages(r, web.NewPages(webDeps), webSrv.NewActions(webDeps))
 		r.Run(cfg.ServerPort)
 		return
 	}
@@ -323,6 +335,23 @@ r.GET("/reset-password", func(c *gin.Context) {
 	obRepo := repository.NewMemoryOpeningBalanceRepo()
 	cashRepo := repository.NewMemoryCashRepo()
 	svc := service.NewService(accRepo, jeRepo, perRepo, userRepo, auditRepo, rateRepo, templateRepo, approvalRepo, versionRepo, mappingRepo, analysisRepo, ifrsRepo, refreshRepo, resetRepo, obRepo, cashRepo)
+
+	// Seed admin user (password: Admin@123456!)
+	if existing, _ := userRepo.GetByUsername(ctx, "admin"); existing == nil {
+		admin := &domain.User{
+			Username: "admin",
+			FullName: "System Admin",
+			Email:    "admin@gotax.vn",
+			Role:     domain.UserRoleAdmin,
+			IsActive: true,
+		}
+		if err := svc.CreateUser(ctx, admin, "Admin@123456!"); err != nil {
+			zap.L().Warn("seed admin user", zap.Error(err))
+		} else {
+			zap.L().Info("admin user seeded", zap.String("username", "admin"))
+		}
+	}
+
 	exportSvc := service.NewExportService(jeRepo, accRepo, perRepo)
 	h := handler.NewHandlerWithExport(svc, exportSvc)
 
@@ -444,6 +473,12 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisHMem := handler.NewFinancialAnalysisHandler(finAnalysisSvcMem)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisHMem, authMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
+	webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries"})
+	if err != nil {
+		zap.L().Fatal("init web templates", zap.Error(err))
+	}
+	webDeps := web.Deps{Svc: svc}
+	webSrv.RegisterPages(r, web.NewPages(webDeps), webSrv.NewActions(webDeps))
 	r.Run(cfg.ServerPort)
 }
 

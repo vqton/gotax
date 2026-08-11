@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,7 +122,7 @@ func formatInt(n int) string {
 	if n < 100 {
 		return "0" + string(rune('0'+n/10)) + string(rune('0'+n%10))
 	}
-	return string(rune('0' + n/100)) + string(rune('0'+(n/10)%10)) + string(rune('0'+n%10))
+	return string(rune('0'+n/100)) + string(rune('0'+(n/10)%10)) + string(rune('0'+n%10))
 }
 
 func (r *MemoryJournalRepo) Create(_ context.Context, e *domain.JournalEntry) error {
@@ -179,6 +181,26 @@ func (r *MemoryJournalRepo) GetByStatus(_ context.Context, status domain.Journal
 			out = append(out, *e)
 		}
 	}
+	return out, nil
+}
+
+func (r *MemoryJournalRepo) GetAll(_ context.Context) ([]domain.JournalEntry, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]domain.JournalEntry, 0, len(r.data))
+	for _, e := range r.data {
+		out = append(out, *e)
+	}
+	// Match PG impl (entry_date DESC); map iteration is unordered.
+	slices.SortFunc(out, func(a, b domain.JournalEntry) int {
+		if !a.EntryDate.Equal(b.EntryDate) {
+			if a.EntryDate.Before(b.EntryDate) {
+				return 1
+			}
+			return -1
+		}
+		return strings.Compare(b.ID, a.ID)
+	})
 	return out, nil
 }
 
@@ -1150,27 +1172,27 @@ func (r *MemoryIFRSMappingRepo) Update(_ context.Context, m *domain.IFRSMapping)
 // ─── Tax ──────────────────────────────────────────────────────────────────
 
 type MemoryTaxRepo struct {
-	mu          sync.RWMutex
+	mu           sync.RWMutex
 	declarations map[string]*domain.TaxDeclaration
-	rates       map[string]*domain.TaxRate
-	payments    map[string]*domain.TaxPayment
-	invoices    map[string]*domain.EInvoice
-	calendars   map[string]*domain.TaxCalendar
-	alerts      map[string]*domain.TaxAlert
-	auditCases  map[string]*domain.TaxAuditCase
-	citLossMap  map[string]*domain.CITLossCarryForward
+	rates        map[string]*domain.TaxRate
+	payments     map[string]*domain.TaxPayment
+	invoices     map[string]*domain.EInvoice
+	calendars    map[string]*domain.TaxCalendar
+	alerts       map[string]*domain.TaxAlert
+	auditCases   map[string]*domain.TaxAuditCase
+	citLossMap   map[string]*domain.CITLossCarryForward
 }
 
 func NewMemoryTaxRepo() *MemoryTaxRepo {
 	return &MemoryTaxRepo{
 		declarations: make(map[string]*domain.TaxDeclaration),
-		rates:       make(map[string]*domain.TaxRate),
-		payments:    make(map[string]*domain.TaxPayment),
-		invoices:    make(map[string]*domain.EInvoice),
-		calendars:   make(map[string]*domain.TaxCalendar),
-		alerts:      make(map[string]*domain.TaxAlert),
-		auditCases:  make(map[string]*domain.TaxAuditCase),
-		citLossMap:  make(map[string]*domain.CITLossCarryForward),
+		rates:        make(map[string]*domain.TaxRate),
+		payments:     make(map[string]*domain.TaxPayment),
+		invoices:     make(map[string]*domain.EInvoice),
+		calendars:    make(map[string]*domain.TaxCalendar),
+		alerts:       make(map[string]*domain.TaxAlert),
+		auditCases:   make(map[string]*domain.TaxAuditCase),
+		citLossMap:   make(map[string]*domain.CITLossCarryForward),
 	}
 }
 
@@ -1212,11 +1234,21 @@ func (r *MemoryTaxRepo) GetDeclarations(_ context.Context, filter domain.TaxDecl
 	defer r.mu.RUnlock()
 	var out []domain.TaxDeclaration
 	for _, d := range r.declarations {
-		if filter.CompanyID != "" && d.CompanyID != filter.CompanyID { continue }
-		if filter.DeclarationType != "" && d.DeclarationType != filter.DeclarationType { continue }
-		if filter.Status != "" && d.Status != filter.Status { continue }
-		if filter.PeriodYear != 0 && d.TaxPeriod.PeriodYear != filter.PeriodYear { continue }
-		if filter.PeriodNumber != 0 && d.TaxPeriod.PeriodNumber != filter.PeriodNumber { continue }
+		if filter.CompanyID != "" && d.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.DeclarationType != "" && d.DeclarationType != filter.DeclarationType {
+			continue
+		}
+		if filter.Status != "" && d.Status != filter.Status {
+			continue
+		}
+		if filter.PeriodYear != 0 && d.TaxPeriod.PeriodYear != filter.PeriodYear {
+			continue
+		}
+		if filter.PeriodNumber != 0 && d.TaxPeriod.PeriodNumber != filter.PeriodNumber {
+			continue
+		}
 		out = append(out, *d)
 	}
 	return out, nil
@@ -1279,8 +1311,12 @@ func (r *MemoryTaxRepo) GetRates(_ context.Context, filter domain.TaxRateFilter)
 	defer r.mu.RUnlock()
 	var out []domain.TaxRate
 	for _, rate := range r.rates {
-		if filter.TaxType != "" && rate.TaxType != filter.TaxType { continue }
-		if filter.IsActive != nil && rate.IsActive != *filter.IsActive { continue }
+		if filter.TaxType != "" && rate.TaxType != filter.TaxType {
+			continue
+		}
+		if filter.IsActive != nil && rate.IsActive != *filter.IsActive {
+			continue
+		}
 		out = append(out, *rate)
 	}
 	return out, nil
@@ -1327,11 +1363,21 @@ func (r *MemoryTaxRepo) GetPayments(_ context.Context, filter domain.PaymentFilt
 	defer r.mu.RUnlock()
 	var out []domain.TaxPayment
 	for _, p := range r.payments {
-		if filter.CompanyID != "" && p.CompanyID != filter.CompanyID { continue }
-		if filter.TaxType != "" && p.TaxType != filter.TaxType { continue }
-		if filter.Status != "" && p.Status != filter.Status { continue }
-		if filter.PeriodYear != 0 && p.PeriodYear != filter.PeriodYear { continue }
-		if filter.PeriodNumber != 0 && p.PeriodNumber != filter.PeriodNumber { continue }
+		if filter.CompanyID != "" && p.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.TaxType != "" && p.TaxType != filter.TaxType {
+			continue
+		}
+		if filter.Status != "" && p.Status != filter.Status {
+			continue
+		}
+		if filter.PeriodYear != 0 && p.PeriodYear != filter.PeriodYear {
+			continue
+		}
+		if filter.PeriodNumber != 0 && p.PeriodNumber != filter.PeriodNumber {
+			continue
+		}
 		out = append(out, *p)
 	}
 	return out, nil
@@ -1382,8 +1428,12 @@ func (r *MemoryTaxRepo) GetEInvoices(_ context.Context, filter domain.EInvoiceFi
 	defer r.mu.RUnlock()
 	var out []domain.EInvoice
 	for _, inv := range r.invoices {
-		if filter.CompanyID != "" && inv.CompanyID != filter.CompanyID { continue }
-		if filter.Status != "" && inv.Status != filter.Status { continue }
+		if filter.CompanyID != "" && inv.CompanyID != filter.CompanyID {
+			continue
+		}
+		if filter.Status != "" && inv.Status != filter.Status {
+			continue
+		}
 		out = append(out, *inv)
 	}
 	return out, nil
@@ -1501,7 +1551,9 @@ func (r *MemoryTaxRepo) GetAlerts(_ context.Context, companyID string, limit int
 	defer r.mu.RUnlock()
 	var out []domain.TaxAlert
 	for _, a := range r.alerts {
-		if companyID != "" && a.CompanyID != companyID { continue }
+		if companyID != "" && a.CompanyID != companyID {
+			continue
+		}
 		out = append(out, *a)
 	}
 	if limit > 0 && len(out) > limit {
@@ -1540,7 +1592,9 @@ func (r *MemoryTaxRepo) GetAuditCases(_ context.Context, companyID string) ([]do
 	defer r.mu.RUnlock()
 	var out []domain.TaxAuditCase
 	for _, a := range r.auditCases {
-		if companyID != "" && a.CompanyID != companyID { continue }
+		if companyID != "" && a.CompanyID != companyID {
+			continue
+		}
 		out = append(out, *a)
 	}
 	return out, nil

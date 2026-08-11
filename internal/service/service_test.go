@@ -147,6 +147,56 @@ func TestCreateEntry_Success(t *testing.T) {
 	assert.Equal(t, domain.JournalEntryDraft, je.Status)
 }
 
+func TestCreateEntry_AttachesOpenPeriodAndNumbers(t *testing.T) {
+	svc, ctx := setupService(t)
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true}))
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Expense", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true}))
+	require.NoError(t, svc.CreatePeriod(ctx, &domain.Period{
+		ID: "P-2026-08", Year: 2026, Month: 8,
+		StartDate: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	}))
+
+	newEntry := func() *domain.JournalEntry {
+		return &domain.JournalEntry{
+			EntryDate:   time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC),
+			Description: "Test",
+			Lines: []domain.JournalLine{
+				{LineNumber: 1, AccountCode: "1111", DebitAmount: 100, CreditAmount: 0},
+				{LineNumber: 2, AccountCode: "5111", DebitAmount: 0, CreditAmount: 100},
+			},
+		}
+	}
+
+	first := newEntry()
+	require.NoError(t, svc.CreateEntry(ctx, first, "user1"))
+	assert.Equal(t, "P-2026-08", first.PeriodID)
+	assert.Equal(t, "202608-001", first.EntryNumber)
+
+	second := newEntry()
+	require.NoError(t, svc.CreateEntry(ctx, second, "user1"))
+	assert.Equal(t, "202608-002", second.EntryNumber)
+}
+
+func TestCreateEntry_NoOpenPeriodStaysUnnumbered(t *testing.T) {
+	svc, ctx := setupService(t)
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusActive, IsActive: true}))
+	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "5111", Name: "Expense", Type: domain.AccountTypeExpense, Status: domain.AccountStatusActive, IsActive: true}))
+
+	je := &domain.JournalEntry{
+		EntryDate:   time.Now(),
+		Description: "Test",
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "1111", DebitAmount: 100, CreditAmount: 0},
+			{LineNumber: 2, AccountCode: "5111", DebitAmount: 0, CreditAmount: 100},
+		},
+	}
+	assert.NoError(t, svc.CreateEntry(ctx, je, "user1"))
+	assert.Empty(t, je.PeriodID)
+	assert.Empty(t, je.EntryNumber)
+}
+
 func TestCreateEntry_FrozenAccount(t *testing.T) {
 	svc, ctx := setupService(t)
 	require.NoError(t, svc.CreateAccount(ctx, &domain.Account{Code: "1111", Name: "Cash", Type: domain.AccountTypeAsset, Status: domain.AccountStatusFrozen, IsActive: true, FreezeReason: "audit"}))

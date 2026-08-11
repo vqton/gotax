@@ -32,6 +32,7 @@ type Service interface {
 	GetEntryByID(ctx context.Context, id string) (*domain.JournalEntry, error)
 	GetEntriesByDateRange(ctx context.Context, from, to time.Time) ([]domain.JournalEntry, error)
 	GetEntriesByStatus(ctx context.Context, status domain.JournalEntryStatus) ([]domain.JournalEntry, error)
+	GetAllEntries(ctx context.Context) ([]domain.JournalEntry, error)
 
 	TrialBalance(ctx context.Context, year, month int) ([]domain.AccountBalance, error)
 	BalanceSheet(ctx context.Context, year, month int) ([]domain.AccountBalance, error)
@@ -326,6 +327,20 @@ func (s *service) CreateEntry(ctx context.Context, entry *domain.JournalEntry, u
 	if entry.AccountingDate.IsZero() {
 		entry.AccountingDate = entry.EntryDate
 	}
+	// Attach the open period and assign a sequential number when creating
+	// manually (API/UI drafts). Entries without an open period stay unnumbered.
+	if entry.PeriodID == "" {
+		if p, err := s.periods.GetOpenPeriod(ctx); err == nil && p != nil {
+			entry.PeriodID = p.ID
+		}
+	}
+	if entry.EntryNumber == "" && entry.PeriodID != "" {
+		if p, err := s.periods.GetByID(ctx, entry.PeriodID); err == nil && p != nil {
+			if es, err := s.journals.GetByPeriod(ctx, p.ID); err == nil {
+				entry.EntryNumber = fmt.Sprintf("%d%02d-%03d", p.Year, p.Month, len(es)+1)
+			}
+		}
+	}
 	return s.journals.Create(ctx, entry)
 }
 
@@ -456,6 +471,10 @@ func (s *service) GetEntriesByDateRange(ctx context.Context, from, to time.Time)
 
 func (s *service) GetEntriesByStatus(ctx context.Context, status domain.JournalEntryStatus) ([]domain.JournalEntry, error) {
 	return s.journals.GetByStatus(ctx, status)
+}
+
+func (s *service) GetAllEntries(ctx context.Context) ([]domain.JournalEntry, error) {
+	return s.journals.GetAll(ctx)
 }
 
 // ─── Reports ───────────────────────────────────────────────────────
@@ -852,12 +871,12 @@ func (s *service) ForgotPassword(ctx context.Context, email string) error {
 			if err != nil {
 				return err
 			}
-		token := &domain.PasswordResetToken{
-			ID:        raw,
-			UserID:    u.ID,
-			TokenHash: auth.HashRefreshToken(raw),
-			ExpiresAt: s.now().Add(1 * time.Hour),
-		}
+			token := &domain.PasswordResetToken{
+				ID:        raw,
+				UserID:    u.ID,
+				TokenHash: auth.HashRefreshToken(raw),
+				ExpiresAt: s.now().Add(1 * time.Hour),
+			}
 			return s.reset.Create(ctx, token)
 		}
 	}
@@ -1758,21 +1777,21 @@ func (s *service) GetCashBalance(ctx context.Context, companyID, accountID strin
 }
 
 type CashFlowStatement struct {
-	CompanyID       string  `json:"company_id"`
-	FromDate        string  `json:"from_date"`
-	ToDate          string  `json:"to_date"`
-	OpeningBalance  float64 `json:"opening_balance"`
-	OperatingInflow float64 `json:"operating_inflow"`
+	CompanyID        string  `json:"company_id"`
+	FromDate         string  `json:"from_date"`
+	ToDate           string  `json:"to_date"`
+	OpeningBalance   float64 `json:"opening_balance"`
+	OperatingInflow  float64 `json:"operating_inflow"`
 	OperatingOutflow float64 `json:"operating_outflow"`
-	OperatingNet    float64 `json:"operating_net"`
-	InvestingInflow float64 `json:"investing_inflow"`
+	OperatingNet     float64 `json:"operating_net"`
+	InvestingInflow  float64 `json:"investing_inflow"`
 	InvestingOutflow float64 `json:"investing_outflow"`
-	InvestingNet    float64 `json:"investing_net"`
-	FinancingInflow float64 `json:"financing_inflow"`
+	InvestingNet     float64 `json:"investing_net"`
+	FinancingInflow  float64 `json:"financing_inflow"`
 	FinancingOutflow float64 `json:"financing_outflow"`
-	FinancingNet    float64 `json:"financing_net"`
-	NetCashFlow     float64 `json:"net_cash_flow"`
-	ClosingBalance  float64 `json:"closing_balance"`
+	FinancingNet     float64 `json:"financing_net"`
+	NetCashFlow      float64 `json:"net_cash_flow"`
+	ClosingBalance   float64 `json:"closing_balance"`
 }
 
 func (s *service) GetCashFlowStatement(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*CashFlowStatement, error) {

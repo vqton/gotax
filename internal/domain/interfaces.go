@@ -18,6 +18,7 @@ type JournalRepository interface {
 	Create(ctx context.Context, entry *JournalEntry) error
 	GetByID(ctx context.Context, id string) (*JournalEntry, error)
 	GetByPeriod(ctx context.Context, periodID string) ([]JournalEntry, error)
+	GetAll(ctx context.Context) ([]JournalEntry, error)
 	GetByDateRange(ctx context.Context, from, to time.Time) ([]JournalEntry, error)
 	GetByStatus(ctx context.Context, status JournalEntryStatus) ([]JournalEntry, error)
 	GetByVoucherType(ctx context.Context, voucherType VoucherType) ([]JournalEntry, error)

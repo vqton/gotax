@@ -42,6 +42,7 @@ func Load() (*Config, error) {
 	defaults(v)
 
 	v.AutomaticEnv()
+	v.AllowEmptyEnv(true) // DATABASE_URL= (empty) overrides config.yaml → in-memory backend
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

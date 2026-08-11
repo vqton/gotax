@@ -170,6 +170,14 @@ func (r *PGJournalRepo) GetByVoucherType(ctx context.Context, vt domain.VoucherT
 	return gormJournalEntriesToDomain(models), nil
 }
 
+func (r *PGJournalRepo) GetAll(ctx context.Context) ([]domain.JournalEntry, error) {
+	var models []domain.JournalEntryGORM
+	if err := r.db.WithContext(ctx).Order("entry_date DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return gormJournalEntriesToDomain(models), nil
+}
+
 func (r *PGJournalRepo) UpdateStatus(ctx context.Context, id string, status domain.JournalEntryStatus) error {
 	return r.db.WithContext(ctx).Model(&domain.JournalEntryGORM{}).Where("CAST(id AS TEXT) = ?", id).Or("entry_number = ?", id).Update("status", string(status)).Error
 }
@@ -413,6 +421,9 @@ func gormUserToDomain(m *domain.UserGORM) *domain.User {
 // ─── Refresh Token ───────────────────────────────────────────────────────────
 
 func (r *PGRefreshTokenRepo) Create(ctx context.Context, t *domain.RefreshToken) error {
+	if t.ID == "" {
+		t.ID = "RT" + time.Now().Format("20060102150405.000000000")
+	}
 	return r.db.WithContext(ctx).Create(&domain.RefreshTokenGORM{
 		ID: t.ID, UserID: t.UserID, TokenHash: t.TokenHash,
 		DeviceInfo: nullStrG(t.DeviceInfo), IPAddress: nullStrG(t.IPAddress),
@@ -479,6 +490,9 @@ func gormRefreshTokensToDomain(models []domain.RefreshTokenGORM) []domain.Refres
 // ─── Password Reset Token ───────────────────────────────────────────────────
 
 func (r *PGPasswordResetTokenRepo) Create(ctx context.Context, t *domain.PasswordResetToken) error {
+	if t.ID == "" {
+		t.ID = "PRT" + time.Now().Format("20060102150405.000000000")
+	}
 	return r.db.WithContext(ctx).Create(&domain.PasswordResetTokenGORM{
 		ID: t.ID, UserID: t.UserID, TokenHash: t.TokenHash,
 		ExpiresAt: t.ExpiresAt, UsedAt: t.UsedAt,
