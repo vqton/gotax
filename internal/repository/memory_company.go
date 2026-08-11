@@ -393,6 +393,18 @@ func (r *MemoryCompanyRepo) UpdateDepartment(_ context.Context, d *domain.Depart
 	return nil
 }
 
+func (r *MemoryCompanyRepo) DeactivateDepartment(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.depts[id]
+	if !ok {
+		return domain.ErrDepartmentNotFound
+	}
+	d.Status = "INACTIVE"
+	d.UpdatedAt = time.Now()
+	return nil
+}
+
 // ─── Employee ───────────────────────────────────────────────────────
 
 func (r *MemoryCompanyRepo) CreateEmployee(_ context.Context, e *domain.Employee) error {

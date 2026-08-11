@@ -366,6 +366,61 @@ func TestCreateDepartment(t *testing.T) {
 	assert.NotEmpty(t, d.ID)
 }
 
+func TestUpdateDepartment(t *testing.T) {
+	svc, ctx := newCompanySvc(t)
+	c := seedCompany(t, svc, ctx)
+
+	d := &domain.Department{CompanyID: c.ID, Code: "ACC", Name: "Accounting"}
+	require.NoError(t, svc.CreateDepartment(ctx, d))
+
+	d.Name = "Accounting Updated"
+	require.NoError(t, svc.UpdateDepartment(ctx, d))
+
+	got, err := svc.GetDepartment(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Accounting Updated", got.Name)
+}
+
+func TestUpdateDepartment_EmptyCode(t *testing.T) {
+	svc, ctx := newCompanySvc(t)
+	c := seedCompany(t, svc, ctx)
+
+	d := &domain.Department{CompanyID: c.ID, Code: "ACC", Name: "Accounting"}
+	require.NoError(t, svc.CreateDepartment(ctx, d))
+
+	d.Code = ""
+	err := svc.UpdateDepartment(ctx, d)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "code is required")
+}
+
+func TestUpdateDepartment_EmptyName(t *testing.T) {
+	svc, ctx := newCompanySvc(t)
+	c := seedCompany(t, svc, ctx)
+
+	d := &domain.Department{CompanyID: c.ID, Code: "ACC", Name: "Accounting"}
+	require.NoError(t, svc.CreateDepartment(ctx, d))
+
+	d.Name = ""
+	err := svc.UpdateDepartment(ctx, d)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "name is required")
+}
+
+func TestDeactivateDepartment(t *testing.T) {
+	svc, ctx := newCompanySvc(t)
+	c := seedCompany(t, svc, ctx)
+
+	d := &domain.Department{CompanyID: c.ID, Code: "ACC", Name: "Accounting"}
+	require.NoError(t, svc.CreateDepartment(ctx, d))
+
+	require.NoError(t, svc.DeactivateDepartment(ctx, d.ID))
+
+	got, err := svc.GetDepartment(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "INACTIVE", got.Status)
+}
+
 // ─── Employee ─────────────────────────────────────────────────────────────
 
 func TestCreateEmployee(t *testing.T) {

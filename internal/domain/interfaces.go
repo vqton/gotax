@@ -158,6 +158,7 @@ type CompanyRepository interface {
 	GetDepartmentByID(ctx context.Context, id string) (*Department, error)
 	GetDepartmentsByCompany(ctx context.Context, companyID string) ([]Department, error)
 	UpdateDepartment(ctx context.Context, dept *Department) error
+	DeactivateDepartment(ctx context.Context, id string) error
 
 	CreateEmployee(ctx context.Context, emp *Employee) error
 	GetEmployeeByID(ctx context.Context, id string) (*Employee, error)

@@ -221,29 +221,6 @@ func TestGetCurrentPeriod_NotFound(t *testing.T) {
 	assert.Equal(t, 404, w.Code)
 }
 
-// ─── Department ─────────────────────────────────────────────────────
-
-func TestCreateDepartment(t *testing.T) {
-	ts := setupCompanyWithTestData(t)
-	body := `{"code":"D001","name":"Engineering"}`
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/companies/"+ts.comp.ID+"/departments", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	ts.r.ServeHTTP(w, req)
-	assert.Equal(t, 201, w.Code)
-}
-
-func TestListDepartments(t *testing.T) {
-	ts := setupCompanyWithTestData(t)
-	ts.svc.CreateDepartment(nil, &domain.Department{CompanyID: ts.comp.ID, Code: "D001", Name: "Eng"})
-	ts.svc.CreateDepartment(nil, &domain.Department{CompanyID: ts.comp.ID, Code: "D002", Name: "HR"})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/companies/"+ts.comp.ID+"/departments", nil)
-	ts.r.ServeHTTP(w, req)
-	assert.Equal(t, 200, w.Code)
-}
-
 // ─── Employee ───────────────────────────────────────────────────────
 
 func TestCreateEmployee(t *testing.T) {

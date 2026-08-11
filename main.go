@@ -170,6 +170,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 		companyRepo := repository.NewPGCompanyRepo(gormDB)
 		companySvc := service.NewCompanyService(companyRepo)
 		companyH := handler.NewCompanyHandler(companySvc)
+		deptH := handler.NewDepartmentHandler(companySvc)
 
 		authMW := handler.AuthMiddleware()
 		adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
@@ -286,6 +287,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	contractH := handler.NewContractHandler(contractSvc)
 	handler.RegisterContractRoutes(r, contractH, authMW)
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faH, pwH, recH, budH, ccdcH, costH, keeperH, costObjectH, costPoolH, costingH, authMW, adminMW)
+	handler.RegisterDepartmentRoutes(r, deptH, authMW)
 	handler.RegisterBankImportRoutes(r, bankImportH, authMW)
 	handler.RegisterInvoiceBookRoutes(r, invoiceBookH, authMW)
 	handler.RegisterNotificationRoutes(r, notifH, authMW)
@@ -327,6 +329,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	companyRepo := repository.NewMemoryCompanyRepo()
 	companySvc := service.NewCompanyService(companyRepo)
 	companyH := handler.NewCompanyHandler(companySvc)
+	deptHMem := handler.NewDepartmentHandler(companySvc)
 
 	authMW := handler.AuthMiddleware()
 	adminMW := handler.RoleMiddleware(domain.UserRoleAdmin, domain.UserRoleChiefAccountant)
@@ -429,6 +432,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	contractHMem := handler.NewContractHandler(contractSvcMem)
 	handler.RegisterContractRoutes(r, contractHMem, authMW)
 	handler.RegisterRoutesWithCompany(r, h, companyH, taxH, cashH, bankH, purchaseH, saleH, whH, faHMem, pwHMem, recHMem, budHMem, ccdcHMem, costHMem, keeperHMem, costObjectHMem, costPoolHMem, costingHMem, authMW, adminMW)
+	handler.RegisterDepartmentRoutes(r, deptHMem, authMW)
 	handler.RegisterBankImportRoutes(r, bankImportHMem, authMW)
 	handler.RegisterInvoiceBookRoutes(r, invoiceBookHMem, authMW)
 	handler.RegisterNotificationRoutes(r, notifHMem, authMW)

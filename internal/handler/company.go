@@ -52,12 +52,6 @@ func RegisterCompanyRoutes(r *gin.Engine, h *CompanyHandler, authMW gin.HandlerF
 			periods.GET("/current", h.GetCurrentPeriod)
 		}
 
-		departments := companies.Group("/:companyID/departments")
-		{
-			departments.POST("", h.CreateDepartment)
-			departments.GET("", h.ListDepartments)
-		}
-
 		employees := companies.Group("/:companyID/employees")
 		{
 			employees.POST("", h.CreateEmployee)
@@ -96,9 +90,6 @@ func RegisterCompanyRoutes(r *gin.Engine, h *CompanyHandler, authMW gin.HandlerF
 		get.DELETE("/branches/:id", h.DeactivateBranch)
 
 		get.GET("/fiscal-years/:id", h.GetFiscalYear)
-
-		get.GET("/departments/:id", h.GetDepartment)
-		get.PUT("/departments/:id", h.UpdateDepartment)
 
 		get.GET("/employees/:id", h.GetEmployee)
 		get.PUT("/employees/:id", h.UpdateEmployee)
@@ -372,58 +363,6 @@ func (h *CompanyHandler) GetCurrentPeriod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, period)
-}
-
-// ─── Department ────────────────────────────────────────────────────
-
-func (h *CompanyHandler) CreateDepartment(c *gin.Context) {
-	companyID := c.Param("companyID")
-	var dept domain.Department
-	if err := c.ShouldBindJSON(&dept); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-	dept.CompanyID = companyID
-	if err := h.svc.CreateDepartment(c.Request.Context(), &dept); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusCreated, dept)
-}
-
-func (h *CompanyHandler) GetDepartment(c *gin.Context) {
-	id := c.Param("id")
-	dept, err := h.svc.GetDepartment(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, dept)
-}
-
-func (h *CompanyHandler) ListDepartments(c *gin.Context) {
-	companyID := c.Param("companyID")
-	depts, err := h.svc.ListDepartments(c.Request.Context(), companyID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, depts)
-}
-
-func (h *CompanyHandler) UpdateDepartment(c *gin.Context) {
-	id := c.Param("id")
-	var dept domain.Department
-	if err := c.ShouldBindJSON(&dept); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-	dept.ID = id
-	if err := h.svc.UpdateDepartment(c.Request.Context(), &dept); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, dept)
 }
 
 // ─── Employee ──────────────────────────────────────────────────────

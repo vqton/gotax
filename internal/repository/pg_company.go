@@ -361,6 +361,13 @@ func (r *PGCompanyRepo) UpdateDepartment(ctx context.Context, d *domain.Departme
 	}).Error
 }
 
+func (r *PGCompanyRepo) DeactivateDepartment(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Model(&domain.DepartmentGORM{}).Where("id = ?", id).Updates(map[string]any{
+		"is_active":  false,
+		"updated_at": time.Now(),
+	}).Error
+}
+
 // ─── Employee ───────────────────────────────────────────────────────
 
 func (r *PGCompanyRepo) CreateEmployee(ctx context.Context, e *domain.Employee) error {

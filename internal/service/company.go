@@ -40,6 +40,7 @@ type CompanyService interface {
 	GetDepartment(ctx context.Context, id string) (*domain.Department, error)
 	ListDepartments(ctx context.Context, companyID string) ([]domain.Department, error)
 	UpdateDepartment(ctx context.Context, d *domain.Department) error
+	DeactivateDepartment(ctx context.Context, id string) error
 
 	CreateEmployee(ctx context.Context, e *domain.Employee) error
 	GetEmployee(ctx context.Context, id string) (*domain.Employee, error)
@@ -317,7 +318,17 @@ func (s *companyService) ListDepartments(ctx context.Context, companyID string) 
 }
 
 func (s *companyService) UpdateDepartment(ctx context.Context, d *domain.Department) error {
+	if d.Code == "" {
+		return fmt.Errorf("department code is required")
+	}
+	if d.Name == "" {
+		return fmt.Errorf("department name is required")
+	}
 	return s.repo.UpdateDepartment(ctx, d)
+}
+
+func (s *companyService) DeactivateDepartment(ctx context.Context, id string) error {
+	return s.repo.DeactivateDepartment(ctx, id)
 }
 
 func (s *companyService) CreateEmployee(ctx context.Context, e *domain.Employee) error {
