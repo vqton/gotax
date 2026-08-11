@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/css/app.css">
   <script defer src="/assets/js/alpine.min.js"></script>
   <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/components.js"></script>
   <script src="/assets/js/app.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="init()">
@@ -23,30 +24,18 @@
     <main class="p-6">
       <!-- Flash -->
       <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+        <div class="mb-4" x-html="HyperUI.alert('success', $store.app.success, true)"></div>
       </template>
       <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+        <div class="mb-4" x-html="HyperUI.alert('error', $store.app.error, true)"></div>
       </template>
 
       <!-- Summary cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-sm text-gray-500 mb-1">Tài khoản</p>
-          <p class="text-2xl font-bold text-gray-900" x-text="summary.accounts || 0"></p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-sm text-gray-500 mb-1">Chứng từ kỳ này</p>
-          <p class="text-2xl font-bold text-blue-700" x-text="summary.entries || 0"></p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-sm text-gray-500 mb-1">Doanh thu</p>
-          <p class="text-2xl font-bold text-green-700" x-text="fmtVND(summary.revenue) + ' ₫'"></p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-sm text-gray-500 mb-1">Phải thu</p>
-          <p class="text-2xl font-bold text-amber-700" x-text="fmtVND(summary.ar_balance) + ' ₫'"></p>
-        </div>
+        <div x-html="HyperUI.statCard('Tài khoản', summary.accounts || 0, { icon: '📋', color: 'blue' })"></div>
+        <div x-html="HyperUI.statCard('Chứng từ kỳ này', summary.entries || 0, { icon: '📝', color: 'blue' })"></div>
+        <div x-html="HyperUI.statCard('Doanh thu', fmtVND(summary.revenue) + ' ₫', { icon: '📈', color: 'green' })"></div>
+        <div x-html="HyperUI.statCard('Phải thu', fmtVND(summary.ar_balance) + ' ₫', { icon: '💰', color: 'amber' })"></div>
       </div>
 
       <!-- Quick actions -->

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/css/app.css">
   <script defer src="/assets/js/alpine.min.js"></script>
   <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/components.js"></script>
   <script src="/assets/js/app.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
@@ -17,17 +18,16 @@
     <header id="topbar" class="sticky top-0 z-20"></header>
 
     <main class="p-6">
+      <!-- Flash -->
       <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+        <div x-html="HyperUI.alert('success', $store.app.success, true)" class="mb-4"></div>
       </template>
       <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+        <div x-html="HyperUI.alert('error', $store.app.error, true)" class="mb-4"></div>
       </template>
 
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-gray-900">Chứng từ kế toán</h2>
-        <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">+ Lập chứng từ</button>
-      </div>
+      <!-- Page header -->
+      <div x-html="HyperUI.pageHeader('Chứng từ kế toán', HyperUI.btn('+ Lập chứng từ', { onclick: 'openCreate()' }))"></div>
 
       <!-- Filters -->
       <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
@@ -101,7 +101,7 @@
                 </tr>
               </template>
               <tr x-show="!filtered.length && !loading">
-                <td colspan="7" class="px-5 py-8 text-center text-gray-400">Chưa có chứng từ nào</td>
+                <td colspan="7" x-html="'<div class=\\'px-5 py-12 text-center\\'>' + HyperUI.emptyState('📝', 'Chưa có chứng từ', 'Bấm + Lập chứng từ để bắt đầu') + '</div>'"></td>
               </tr>
             </tbody>
           </table>
@@ -114,7 +114,12 @@
   <template x-if="showCreate">
     <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate = false">
       <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6" @click.stop>
-        <h3 class="text-lg font-bold text-gray-900 mb-4">Lập chứng từ mới</h3>
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-gray-900">Lập chứng từ mới</h3>
+          <button @click="showCreate = false" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
         <div class="grid grid-cols-3 gap-4 mb-4">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Ngày chứng từ <span class="text-red-500">*</span></label>
@@ -195,7 +200,12 @@
       <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6" @click.stop>
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-bold text-gray-900">Chi tiết chứng từ</h3>
-          <span x-html="statusBadge(viewing.status)"></span>
+          <div class="flex items-center gap-2">
+            <span x-html="statusBadge(viewing.status)"></span>
+            <button @click="viewing = null" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
         <div class="grid grid-cols-3 gap-3 text-sm mb-4">
           <div><span class="text-gray-500">Số CT:</span> <span class="font-medium" x-text="viewing.entry_number"></span></div>

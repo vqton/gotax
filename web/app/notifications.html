@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/css/app.css">
   <script defer src="/assets/js/alpine.min.js"></script>
   <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/components.js"></script>
   <script src="/assets/js/app.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="notifPage()" x-init="init()">
@@ -17,13 +18,15 @@
     <header id="topbar" class="sticky top-0 z-20"></header>
 
     <main class="p-6">
+      <!-- Flash -->
       <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+        <div x-html="HyperUI.alert('success', $store.app.success, true)" class="mb-4"></div>
       </template>
       <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+        <div x-html="HyperUI.alert('error', $store.app.error, true)" class="mb-4"></div>
       </template>
 
+      <!-- Page header -->
       <div class="flex items-center justify-between mb-6">
         <h2 class="text-xl font-bold text-gray-900">Thông báo</h2>
         <div class="flex items-center gap-3">
@@ -40,7 +43,7 @@
         </div>
       </div>
 
-      <!-- Filter bar -->
+      <!-- Filters -->
       <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
@@ -74,6 +77,7 @@
 
       <!-- Table -->
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <!-- Loading -->
         <template x-if="loading">
           <div class="p-6">
             <div class="space-y-3">
@@ -84,13 +88,12 @@
           </div>
         </template>
 
+        <!-- Empty -->
         <template x-if="!loading && filteredNotifications.length === 0">
-          <div class="p-12 text-center">
-            <div class="text-4xl mb-3">🔔</div>
-            <p class="text-gray-500 text-sm">Không có thông báo nào</p>
-          </div>
+          <div x-html="HyperUI.emptyState('🔔', 'Không có thông báo nào', 'Tất cả đã được đọc')"></div>
         </template>
 
+        <!-- Data -->
         <template x-if="!loading && filteredNotifications.length > 0">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">

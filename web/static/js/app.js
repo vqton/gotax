@@ -288,69 +288,8 @@ function fmtDateTime(s) {
   return new Date(s).toLocaleString("vi-VN");
 }
 
-/* ─── Status helpers ───────────────────────────────────────── */
-
-const STATUS_COLORS = {
-  DRAFT: "bg-gray-100 text-gray-700",
-  ACTIVE: "bg-green-100 text-green-700",
-  INACTIVE: "bg-red-100 text-red-700",
-  OPEN: "bg-green-100 text-green-700",
-  CLOSED: "bg-gray-200 text-gray-500",
-  LOCKED: "bg-red-100 text-red-700",
-  POSTED: "bg-blue-100 text-blue-700",
-  CANCELLED: "bg-red-100 text-red-700",
-  APPROVED: "bg-green-100 text-green-700",
-  PENDING: "bg-amber-100 text-amber-700",
-  REJECTED: "bg-red-100 text-red-700",
-  PAID: "bg-green-100 text-green-700",
-  UNPAID: "bg-amber-100 text-amber-700",
-  PARTIAL: "bg-blue-100 text-blue-700",
-  SUBMITTED: "bg-amber-100 text-amber-700",
-  PROCESSING: "bg-blue-100 text-blue-700",
-  COMPLETED: "bg-green-100 text-green-700",
-  CONFIRMED: "bg-green-100 text-green-700",
-  RECEIVED: "bg-blue-100 text-blue-700",
-  SENT: "bg-blue-100 text-blue-700",
-  ACCEPTED: "bg-green-100 text-green-700",
-  EXPIRED: "bg-gray-200 text-gray-500",
-  DELIVERED: "bg-blue-100 text-blue-700",
-  INVOICED: "bg-amber-100 text-amber-700",
-  OVERPAID: "bg-purple-100 text-purple-700",
-  SIGNED: "bg-blue-100 text-blue-700",
-  VALIDATED: "bg-indigo-100 text-indigo-700",
-  ISSUED: "bg-green-100 text-green-700",
-  REPLACED: "bg-purple-100 text-purple-700",
-};
-
-function statusBadge(status) {
-  const cls = STATUS_COLORS[status] || "bg-gray-100 text-gray-700";
-  return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${status}</span>`;
-}
-
-/* ─── Empty state ──────────────────────────────────────────── */
-
-function emptyState(icon, title, subtitle) {
-  return `
-  <div class="text-center py-12">
-    <span class="text-4xl">${icon}</span>
-    <h3 class="mt-3 text-sm font-medium text-gray-900">${title}</h3>
-    <p class="mt-1 text-sm text-gray-500">${subtitle}</p>
-  </div>`;
-}
-
-/* ─── Loading skeleton ─────────────────────────────────────── */
-
-function loadingSkeleton(rows = 5) {
-  const trs = Array.from({ length: rows }, () =>
-    `<tr class="border-b border-gray-100">
-      <td class="px-4 py-3"><div class="h-4 bg-gray-100 rounded animate-pulse w-24"></div></td>
-      <td class="px-4 py-3"><div class="h-4 bg-gray-100 rounded animate-pulse w-32"></div></td>
-      <td class="px-4 py-3"><div class="h-4 bg-gray-100 rounded animate-pulse w-20"></div></td>
-      <td class="px-4 py-3"><div class="h-4 bg-gray-100 rounded animate-pulse w-16"></div></td>
-    </tr>`
-  ).join("");
-  return `<tbody>${trs}</tbody>`;
-}
+/* ─── Status helpers, empty state, loading skeleton ─────────── */
+/* Moved to components.js (HyperUI library). Backward-compatible wrappers there. */
 
 /* ─── Alpine store ─────────────────────────────────────────── */
 
