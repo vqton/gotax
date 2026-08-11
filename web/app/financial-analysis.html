@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phân tích tài chính · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <script defer src="/assets/js/alpine.min.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/app.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
+
+  <div class="lg:ml-60">
+    <header id="topbar" class="sticky top-0 z-20"></header>
+    <main class="p-6">
+      <template x-if="$store.app.success">
+        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+      </template>
+      <template x-if="$store.app.error">
+        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+      </template>
+
+      <!-- Header -->
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-xl font-bold text-gray-900">Phân tích tài chính</h1>
+        <div class="flex items-center gap-3">
+          <select x-model="year" @change="load()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="2026">2026</option>
+            <option value="2025">2025</option>
+            <option value="2024">2024</option>
+          </select>
+          <button @click="load()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition" :disabled="loading">
+            <span x-show="!loading">🔄 Làm mới</span>
+            <span x-show="loading">Đang tải...</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Financial Ratios -->
+      <div class="mb-8">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Chỉ số tài chính</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <template x-for="r in ratios" :key="r.name">
+            <div class="bg-white rounded-xl border border-gray-200 p-5">
+              <p class="text-xs text-gray-500 mb-1" x-text="r.description"></p>
+              <p class="text-lg font-bold" :class="ratioColor(r.name, r.value)" x-text="ratioDisplay(r.name, r.value)"></p>
+              <p class="text-xs font-medium text-gray-700 mt-1" x-text="r.name"></p>
+            </div>
+          </template>
+          <div x-show="!ratios.length && !loading" class="col-span-full text-center py-8 text-gray-400">
+            <span class="text-3xl block mb-2">📊</span>
+            Chưa có dữ liệu phân tích
+          </div>
+        </div>
+      </div>
+
+      <!-- Budget vs Actual -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-700">Ngân sách vs Thực tế</h2>
+          <span class="text-xs text-gray-400" x-text="budgetItems.length + ' tài khoản'"></span>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tài khoản</th>
+                  <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Ngân sách</th>
+                  <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thực tế</th>
+                  <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Chênh lệch</th>
+                  <th class="text-right px-5 py-2.5 font-semibold text-gray-600">%</th>
+                  <th class="text-left px-5 py-2.5 font-semibold text-gray-600 w-40">Đánh giá</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="item in budgetItems" :key="item.account_code">
+                  <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="px-5 py-3 font-medium text-gray-900 font-mono" x-text="item.account_code"></td>
+                    <td class="px-5 py-3 text-right text-gray-700" x-text="fmtVND(item.budget) + ' ₫'"></td>
+                    <td class="px-5 py-3 text-right font-medium" :class="item.actual > item.budget ? 'text-red-700' : 'text-green-700'" x-text="fmtVND(item.actual) + ' ₫'"></td>
+                    <td class="px-5 py-3 text-right font-medium" :class="item.variance > 0 ? 'text-red-700' : 'text-green-700'" x-text="fmtVND(item.variance) + ' ₫'"></td>
+                    <td class="px-5 py-3 text-right text-xs" :class="item.variance_pct > 10 ? 'text-red-600 font-bold' : item.variance_pct < -10 ? 'text-green-600 font-bold' : 'text-gray-500'" x-text="(item.variance_pct > 0 ? '+' : '') + item.variance_pct.toFixed(1) + '%'"></td>
+                    <td class="px-5 py-3">
+                      <div class="w-full bg-gray-100 rounded-full h-2">
+                        <div class="h-2 rounded-full transition-all" :class="item.variance > 0 ? 'bg-red-400' : 'bg-green-400'" :style="'width:' + Math.min(Math.abs(item.variance_pct), 100) + '%'"></div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="!budgetItems.length && !loading">
+                  <td colspan="6" class="px-5 py-8 text-center text-gray-400">Chưa có dữ liệu ngân sách</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function comp() {
+  return {
+    year: new Date().getFullYear().toString(),
+    ratios: [],
+    budgetItems: [],
+    loading: false,
+
+    async init() {
+      mountAppShell("Phân tích tài chính", "/app/financial-analysis.html");
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const cid = App.companyId();
+        const [ratios, budget] = await Promise.all([
+          apiGet(`/reports/financial-ratios?company_id=${cid}&year=${this.year}`).catch(() => []),
+          apiGet(`/reports/budget-vs-actual?company_id=${cid}&year=${this.year}`).catch(() => ({ items: [] })),
+        ]);
+        this.ratios = Array.isArray(ratios) ? ratios : [];
+        this.budgetItems = budget.items || [];
+      } catch (e) {
+        $store.app.flashError("Không tải được dữ liệu phân tích");
+      }
+      this.loading = false;
+    },
+
+    ratioColor(name, value) {
+      if (name.includes("Margin") || name === "ROA" || name === "ROE") {
+        return value > 15 ? "text-green-700" : value > 5 ? "text-amber-700" : "text-red-700";
+      }
+      if (name === "Current Ratio" || name === "Quick Ratio") {
+        return value >= 1 ? "text-green-700" : "text-red-700";
+      }
+      if (name === "Debt-to-Equity") {
+        return value <= 2 ? "text-green-700" : value <= 4 ? "text-amber-700" : "text-red-700";
+      }
+      return "text-gray-900";
+    },
+
+    ratioDisplay(name, value) {
+      if (name.includes("Margin") || name === "ROA" || name === "ROE") {
+        return value.toFixed(1) + "%";
+      }
+      return value.toFixed(2);
+    },
+  };
+}
+</script>
+
+</body>
+</html>

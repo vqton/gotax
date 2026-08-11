@@ -108,6 +108,7 @@ const MODULE_GROUPS = [
   {
     label: "Thuế",
     items: [
+      { href: "/app/tax-einvoices.html", icon: "🧾", label: "Hóa đơn điện tử" },
       { href: "/app/tax-declarations.html", icon: "📋", label: "Tờ khai" },
       { href: "/app/tax-payments.html", icon: "💳", label: "Thanh toán" },
       { href: "/app/tax-reconciliation.html", icon: "🔍", label: "Đối chiếu" },
@@ -118,6 +119,7 @@ const MODULE_GROUPS = [
   {
     label: "Báo cáo",
     items: [
+      { href: "/app/financial-analysis.html", icon: "📊", label: "Phân tích tài chính" },
       { href: "/app/trial-balance.html", icon: "📊", label: "Bảng cân đối phát sinh" },
       { href: "/app/balance-sheet.html", icon: "📑", label: "Bảng cân đối kế toán" },
       { href: "/app/income-statement.html", icon: "📈", label: "Kết quả kinh doanh" },
@@ -310,6 +312,10 @@ const STATUS_COLORS = {
   DELIVERED: "bg-blue-100 text-blue-700",
   INVOICED: "bg-amber-100 text-amber-700",
   OVERPAID: "bg-purple-100 text-purple-700",
+  SIGNED: "bg-blue-100 text-blue-700",
+  VALIDATED: "bg-indigo-100 text-indigo-700",
+  ISSUED: "bg-green-100 text-green-700",
+  REPLACED: "bg-purple-100 text-purple-700",
 };
 
 function statusBadge(status) {

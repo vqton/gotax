@@ -24,105 +24,76 @@
       </template>
 
       <!-- Summary cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-xl border border-gray-200 p-5">
           <p class="text-sm text-gray-500 mb-1">Tổng hóa đơn</p>
           <p class="text-2xl font-bold text-gray-900" x-text="invoices.length"></p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
           <p class="text-sm text-gray-500 mb-1">Đã phát hành</p>
-          <p class="text-2xl font-bold text-green-700" x-text="issuedCount"></p>
+          <p class="text-2xl font-bold text-green-700" x-text="countByStatus('ISSUED')"></p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
           <p class="text-sm text-gray-500 mb-1">Chờ xử lý</p>
-          <p class="text-2xl font-bold text-amber-700" x-text="draftCount"></p>
+          <p class="text-2xl font-bold text-amber-700" x-text="countByStatus('DRAFT') + countByStatus('SIGNED') + countByStatus('SUBMITTED')"></p>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 p-5">
           <p class="text-sm text-gray-500 mb-1">Tổng tiền</p>
-          <p class="text-2xl font-bold text-blue-700" x-text="fmtVND(totalAmount) + ' ₫'"></p>
+          <p class="text-2xl font-bold text-blue-700" x-text="fmtVND(sumTotal()) + ' ₫'"></p>
         </div>
       </div>
 
+      <!-- Header + actions -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-xl font-bold text-gray-900">Hóa đơn điện tử</h1>
-        <button @click="showCreate = true" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800">+ Tạo hóa đơn</button>
+        <div class="flex gap-2">
+          <button @click="refresh()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition" :disabled="loading">
+            <span x-show="!loading">🔄 Làm mới</span>
+            <span x-show="loading">Đang tải...</span>
+          </button>
+          <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition">+ Tạo hóa đơn</button>
+        </div>
       </div>
 
-      <!-- Create modal -->
-      <template x-if="showCreate">
-        <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate=false">
-          <div class="bg-white rounded-xl shadow-xl p-6 w-[500px]" @click.stop>
-            <h2 class="text-lg font-bold mb-4">Tạo hóa đơn điện tử</h2>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Mẫu số</label>
-                <input x-model="form.pattern" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="01GTKT">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Ký hiệu</label>
-                <input x-model="form.serial" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="C23GHH">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Loại hóa đơn</label>
-                <select x-model="form.invoice_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="ORIGINAL">Gốc</option>
-                  <option value="ADJUSTMENT">Điều chỉnh</option>
-                  <option value="REPLACEMENT">Thay thế</option>
-                  <option value="CANCELLATION_NOTE">Hủy</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày lập</label>
-                <input type="date" x-model="form.issue_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-              <div class="col-span-2">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Tên khách hàng</label>
-                <input x-model="form.buyer_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Mã số thuế</label>
-                <input x-model="form.buyer_tax_code" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input x-model="form.buyer_email" type="email" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-            </div>
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Chi tiết hàng hóa</label>
-              <template x-for="(line, i) in form.lines" :key="i">
-                <div class="flex gap-2 mb-2">
-                  <input x-model="line.description" placeholder="Mô tả" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <input type="number" x-model.number="line.quantity" placeholder="SL" class="w-16 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <input type="number" x-model.number="line.unit_price" placeholder="Đơn giá" class="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <input type="number" x-model.number="line.vat_rate" placeholder="VAT%" class="w-16 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <button @click="form.lines.splice(i,1)" class="text-red-500 hover:text-red-700 text-sm">✕</button>
-                </div>
-              </template>
-              <button @click="form.lines.push({description:'',quantity:1,unit_price:0,vat_rate:10,unit:'Chiếc',line_total:0,vat_amount:0})" class="text-sm text-blue-600 hover:text-blue-800">+ Thêm dòng</button>
-            </div>
-            <div class="flex justify-end gap-2 mt-4">
-              <button @click="showCreate=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
-              <button @click="createInvoice()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium">Tạo hóa đơn</button>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <!-- Filter -->
+      <!-- Filters -->
       <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
         <div class="flex flex-wrap items-end gap-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
-            <select x-model="filterStatus" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Trạng thái</label>
+            <select x-model="filter.status" @change="applyFilter()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Tất cả</option>
               <option value="DRAFT">Nháp</option>
+              <option value="SIGNED">Đã ký</option>
               <option value="SUBMITTED">Đã gửi</option>
+              <option value="VALIDATED">Đã xác thực</option>
               <option value="ISSUED">Đã phát hành</option>
               <option value="CANCELLED">Đã hủy</option>
+              <option value="REPLACED">Đã thay thế</option>
             </select>
           </div>
-          <button @click="filterStatus=''" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Xoá lọc</button>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Loại HĐ</label>
+            <select x-model="filter.type" @change="applyFilter()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tất cả</option>
+              <option value="ORIGINAL">Gốc</option>
+              <option value="ADJUSTMENT">Điều chỉnh</option>
+              <option value="REPLACEMENT">Thay thế</option>
+              <option value="CANCELLATION_NOTE">Phiếu hủy</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Từ ngày</label>
+            <input type="date" x-model="filter.from" @change="applyFilter()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Đến ngày</label>
+            <input type="date" x-model="filter.to" @change="applyFilter()" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex-1 min-w-[200px]">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Tìm kiếm</label>
+            <input type="text" x-model="filter.search" @input="applyFilter()" placeholder="Tên KH, MST, mẫu số..." class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <button @click="clearFilter()" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Xoá lọc</button>
         </div>
       </div>
 
@@ -136,34 +107,56 @@
           <table class="w-full text-sm">
             <thead class="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mẫu/Ký hiệu</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600 w-12">STT</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mẫu / Ký hiệu</th>
                 <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Khách hàng</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">MST</th>
                 <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày lập</th>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại</th>
                 <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
                 <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng tiền</th>
                 <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="inv in filtered" :key="inv.id">
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                  <td class="px-5 py-3 font-medium text-gray-900" x-text="inv.pattern + '/' + inv.serial"></td>
+              <template x-for="(inv, idx) in filtered" :key="inv.id">
+                <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" @click="viewDetail(inv)">
+                  <td class="px-5 py-3 text-gray-500" x-text="idx + 1"></td>
+                  <td class="px-5 py-3">
+                    <span class="font-medium text-gray-900" x-text="inv.pattern"></span>
+                    <span class="text-gray-400 mx-1">/</span>
+                    <span class="text-blue-700 font-medium" x-text="inv.serial"></span>
+                  </td>
                   <td class="px-5 py-3 text-gray-700" x-text="inv.buyer_name"></td>
+                  <td class="px-5 py-3 text-gray-500 font-mono text-xs" x-text="inv.buyer_tax_code || '—'"></td>
                   <td class="px-5 py-3 text-gray-500" x-text="fmtDate(inv.issue_date)"></td>
+                  <td class="px-5 py-3" x-html="invTypeBadge(inv.invoice_type)"></td>
                   <td class="px-5 py-3" x-html="invStatusBadge(inv.status)"></td>
-                  <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(inv.grand_total) + ' ₫'"></td>
-                  <td class="px-5 py-3 text-right">
-                    <template x-if="inv.status === 'DRAFT' || inv.status === 'VALIDATED'">
-                      <button @click="issueInvoice(inv.id)" class="text-xs text-green-600 hover:text-green-800 font-medium">Phát hành</button>
-                    </template>
-                    <template x-if="inv.status === 'ISSUED'">
-                      <button @click="cancelInvoice(inv.id)" class="text-xs text-red-600 hover:text-red-800 font-medium ml-2">Hủy</button>
-                    </template>
+                  <td class="px-5 py-3 text-right font-medium text-gray-900" x-text="fmtVND(inv.grand_total) + ' ₫'"></td>
+                  <td class="px-5 py-3 text-right" @click.stop>
+                    <div class="flex items-center justify-end gap-1">
+                      <template x-if="inv.status === 'DRAFT' || inv.status === 'SIGNED'">
+                        <button @click="issueInvoice(inv)" class="px-2 py-1 text-xs text-green-700 bg-green-50 rounded hover:bg-green-100 font-medium transition">Phát hành</button>
+                      </template>
+                      <template x-if="inv.status === 'SUBMITTED'">
+                        <button @click="checkStatus(inv)" class="px-2 py-1 text-xs text-blue-700 bg-blue-50 rounded hover:bg-blue-100 font-medium transition">Kiểm tra</button>
+                      </template>
+                      <template x-if="inv.status === 'ISSUED'">
+                        <button @click="openCancel(inv)" class="px-2 py-1 text-xs text-red-700 bg-red-50 rounded hover:bg-red-100 font-medium transition">Hủy</button>
+                      </template>
+                      <template x-if="inv.status === 'ISSUED'">
+                        <button @click="openAmend(inv)" class="px-2 py-1 text-xs text-purple-700 bg-purple-50 rounded hover:bg-purple-100 font-medium transition">Sửa đổi</button>
+                      </template>
+                      <button @click.stop="viewDetail(inv)" class="px-2 py-1 text-xs text-gray-600 bg-gray-50 rounded hover:bg-gray-100 font-medium transition">Chi tiết</button>
+                    </div>
                   </td>
                 </tr>
               </template>
-              <tr x-show="!filtered.length">
-                <td colspan="6" class="px-5 py-8 text-center text-gray-400">Không có hóa đơn nào</td>
+              <tr x-show="!filtered.length && !loading">
+                <td colspan="9" class="px-5 py-12 text-center text-gray-400">
+                  <span class="text-4xl block mb-3">🧾</span>
+                  Không có hóa đơn điện tử nào
+                </td>
               </tr>
             </tbody>
           </table>
@@ -172,83 +165,514 @@
     </main>
   </div>
 
+  <!-- Create Modal -->
+  <template x-if="showCreate">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showCreate=false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-[680px] max-h-[90vh] overflow-y-auto" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Tạo hóa đơn điện tử</h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Mẫu số *</label>
+            <input x-model="form.pattern" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="01GTKT">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Ký hiệu *</label>
+            <input x-model="form.serial" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="C23GHH">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Loại hóa đơn</label>
+            <select x-model="form.invoice_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="ORIGINAL">Gốc</option>
+              <option value="ADJUSTMENT">Điều chỉnh</option>
+              <option value="REPLACEMENT">Thay thế</option>
+              <option value="CANCELLATION_NOTE">Phiếu hủy</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Ngày lập *</label>
+            <input type="date" x-model="form.issue_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <template x-if="form.invoice_type !== 'ORIGINAL'">
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-gray-600 mb-1">HĐ gốc ID *</label>
+              <input x-model="form.original_invoice_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ID hóa đơn gốc">
+            </div>
+          </template>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Tên khách hàng *</label>
+            <input x-model="form.buyer_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Công ty ABC">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Mã số thuế</label>
+            <input x-model="form.buyer_tax_code" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="0123456789">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Email</label>
+            <input x-model="form.buyer_email" type="email" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Địa chỉ</label>
+            <input x-model="form.buyer_address" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+
+        <!-- Line items -->
+        <div class="mt-4">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-gray-600">Chi tiết hàng hóa/dịch vụ</label>
+            <button @click="addLine()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">+ Thêm dòng</button>
+          </div>
+          <div class="border border-gray-200 rounded-lg overflow-hidden">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="text-left px-3 py-2 font-medium text-gray-600">Mô tả</th>
+                  <th class="text-right px-3 py-2 font-medium text-gray-600 w-14">SL</th>
+                  <th class="text-right px-3 py-2 font-medium text-gray-600 w-24">Đơn giá</th>
+                  <th class="text-right px-3 py-2 font-medium text-gray-600 w-16">VAT%</th>
+                  <th class="text-right px-3 py-2 font-medium text-gray-600 w-24">Thành tiền</th>
+                  <th class="px-3 py-2 w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(line, i) in form.lines" :key="i">
+                  <tr class="border-t border-gray-100">
+                    <td class="px-3 py-1.5"><input x-model="line.description" class="w-full border-0 text-sm focus:outline-none" placeholder="Tên hàng hóa"></td>
+                    <td class="px-3 py-1.5"><input type="number" x-model.number="line.quantity" class="w-full border-0 text-sm text-right focus:outline-none" min="0"></td>
+                    <td class="px-3 py-1.5"><input type="number" x-model.number="line.unit_price" class="w-full border-0 text-sm text-right focus:outline-none" min="0"></td>
+                    <td class="px-3 py-1.5">
+                      <select x-model.number="line.vat_rate" class="w-full border-0 text-sm text-right focus:outline-none bg-transparent">
+                        <option value="0">0%</option>
+                        <option value="5">5%</option>
+                        <option value="8">8%</option>
+                        <option value="10">10%</option>
+                      </select>
+                    </td>
+                    <td class="px-3 py-1.5 text-right font-medium" x-text="fmtVND(line.quantity * line.unit_price)"></td>
+                    <td class="px-3 py-1.5 text-center">
+                      <button @click="form.lines.splice(i,1)" class="text-red-400 hover:text-red-600" x-show="form.lines.length > 1">✕</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+              <tfoot class="bg-gray-50 border-t border-gray-200">
+                <tr>
+                  <td colspan="4" class="px-3 py-2 text-right text-gray-600 font-medium">Tạm tính:</td>
+                  <td class="px-3 py-2 text-right font-bold text-gray-900" x-text="fmtVND(calcSubtotal()) + ' ₫'"></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td colspan="4" class="px-3 py-2 text-right text-gray-600 font-medium">VAT:</td>
+                  <td class="px-3 py-2 text-right font-bold text-amber-700" x-text="fmtVND(calcVAT()) + ' ₫'"></td>
+                  <td></td>
+                </tr>
+                <tr class="border-t border-gray-200">
+                  <td colspan="4" class="px-3 py-2 text-right text-gray-900 font-bold">Tổng cộng:</td>
+                  <td class="px-3 py-2 text-right font-bold text-blue-700 text-base" x-text="fmtVND(calcSubtotal() + calcVAT()) + ' ₫'"></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+          <button @click="showCreate=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+          <button @click="createInvoice()" class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition" :disabled="saving">
+            <span x-show="!saving">Tạo hóa đơn</span>
+            <span x-show="saving">Đang lưu...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Detail Modal -->
+  <template x-if="viewing">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="viewing=null">
+      <div class="bg-white rounded-xl shadow-xl w-[720px] max-h-[90vh] overflow-y-auto" @click.stop>
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-gray-900">Chi tiết hóa đơn</h2>
+            <p class="text-sm text-gray-500 mt-0.5" x-text="viewing.pattern + '/' + viewing.serial + ' — ' + fmtDate(viewing.issue_date)"></p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span x-html="invStatusBadge(viewing.status)"></span>
+            <button @click="viewing=null" class="ml-2 text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Status timeline -->
+        <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+          <p class="text-xs font-medium text-gray-500 mb-2">Lịch sử trạng thái</p>
+          <div class="flex items-center gap-1 text-xs">
+            <template x-for="(step, si) in statusTimeline(viewing)" :key="si">
+              <div class="flex items-center">
+                <div class="flex flex-col items-center">
+                  <div class="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs" :class="step.active ? 'bg-green-600' : step.past ? 'bg-blue-500' : 'bg-gray-300'" x-text="step.past || step.active ? '✓' : (si+1)"></div>
+                  <span class="mt-1 text-[10px] text-gray-500 whitespace-nowrap" x-text="step.label"></span>
+                </div>
+                <div x-show="si < statusTimeline(viewing).length - 1" class="w-8 h-0.5 mx-1" :class="step.past ? 'bg-blue-400' : 'bg-gray-200'"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="p-6">
+          <!-- Buyer info -->
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <p class="text-xs text-gray-500 mb-0.5">Bên bán (Đơn vị)</p>
+              <p class="text-sm font-medium text-gray-900">GoTax Company</p>
+            </div>
+            <div>
+              <p class="text-xs text-gray-500 mb-0.5">Bên mua (Khách hàng)</p>
+              <p class="text-sm font-medium text-gray-900" x-text="viewing.buyer_name"></p>
+              <p class="text-xs text-gray-500" x-show="viewing.buyer_tax_code" x-text="'MST: ' + viewing.buyer_tax_code"></p>
+              <p class="text-xs text-gray-500" x-show="viewing.buyer_address" x-text="viewing.buyer_address"></p>
+            </div>
+          </div>
+
+          <!-- Invoice lines -->
+          <div class="mb-6">
+            <p class="text-xs font-medium text-gray-500 mb-2">Chi tiết hàng hóa/dịch vụ</p>
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium text-gray-600">#</th>
+                    <th class="text-left px-4 py-2 font-medium text-gray-600">Mô tả</th>
+                    <th class="text-right px-4 py-2 font-medium text-gray-600">SL</th>
+                    <th class="text-right px-4 py-2 font-medium text-gray-600">Đơn giá</th>
+                    <th class="text-right px-4 py-2 font-medium text-gray-600">VAT</th>
+                    <th class="text-right px-4 py-2 font-medium text-gray-600">Thành tiền</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="line in viewing.lines" :key="line.line_number">
+                    <tr class="border-t border-gray-100">
+                      <td class="px-4 py-2 text-gray-500" x-text="line.line_number"></td>
+                      <td class="px-4 py-2 text-gray-900" x-text="line.description"></td>
+                      <td class="px-4 py-2 text-right" x-text="line.quantity"></td>
+                      <td class="px-4 py-2 text-right" x-text="fmtVND(line.unit_price)"></td>
+                      <td class="px-4 py-2 text-right" x-text="line.vat_rate + '%'"></td>
+                      <td class="px-4 py-2 text-right font-medium" x-text="fmtVND(line.line_total)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+                <tfoot class="bg-gray-50 border-t border-gray-200 font-medium">
+                  <tr>
+                    <td colspan="5" class="px-4 py-2 text-right text-gray-600">Tạm tính:</td>
+                    <td class="px-4 py-2 text-right" x-text="fmtVND(viewing.subtotal) + ' ₫'"></td>
+                  </tr>
+                  <tr>
+                    <td colspan="5" class="px-4 py-2 text-right text-gray-600">VAT:</td>
+                    <td class="px-4 py-2 text-right text-amber-700" x-text="fmtVND(viewing.vat_amount) + ' ₫'"></td>
+                  </tr>
+                  <tr class="border-t border-gray-200">
+                    <td colspan="5" class="px-4 py-2 text-right font-bold text-gray-900">Tổng cộng:</td>
+                    <td class="px-4 py-2 text-right font-bold text-blue-700" x-text="fmtVND(viewing.grand_total) + ' ₫'"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- GDT info -->
+          <div x-show="viewing.gdt_transaction_id" class="bg-blue-50 rounded-lg p-4 mb-6">
+            <p class="text-xs font-medium text-blue-700 mb-1">Thông tin GDT</p>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div><span class="text-gray-500">Giao dịch GDT:</span> <span class="font-mono text-blue-800" x-text="viewing.gdt_transaction_id"></span></div>
+              <div><span class="text-gray-500">Ngày ký:</span> <span x-text="fmtDate(viewing.signing_date)"></span></div>
+            </div>
+          </div>
+
+          <!-- Cancel info -->
+          <div x-show="viewing.status === 'CANCELLED'" class="bg-red-50 rounded-lg p-4 mb-6">
+            <p class="text-xs font-medium text-red-700 mb-1">Thông tin hủy</p>
+            <div class="text-sm">
+              <p><span class="text-gray-500">Lý do:</span> <span class="text-red-800" x-text="viewing.cancel_reason || 'Không có'"></span></p>
+              <p><span class="text-gray-500">Ngày hủy:</span> <span x-text="fmtDate(viewing.cancelled_at)"></span></p>
+            </div>
+          </div>
+
+          <!-- XML preview -->
+          <div x-show="viewing.xml_body" class="mb-6">
+            <button @click="showXml = !showXml" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+              <span x-text="showXml ? 'Ẩn XML' : 'Xem XML gốc'"></span>
+            </button>
+            <template x-if="showXml">
+              <pre class="mt-2 bg-gray-900 text-green-400 text-xs p-4 rounded-lg overflow-x-auto max-h-60 overflow-y-auto" x-text="viewing.xml_body"></pre>
+            </template>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex justify-between pt-4 border-t border-gray-100">
+            <div class="flex gap-2">
+              <template x-if="viewing.status === 'DRAFT' || viewing.status === 'SIGNED'">
+                <button @click="issueInvoice(viewing); viewing=null" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">Phát hành lên GDT</button>
+              </template>
+              <template x-if="viewing.status === 'SUBMITTED'">
+                <button @click="checkStatus(viewing)" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">Kiểm tra trạng thái</button>
+              </template>
+              <template x-if="viewing.status === 'ISSUED'">
+                <button @click="openCancel(viewing); viewing=null" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">Hủy hóa đơn</button>
+              </template>
+              <template x-if="viewing.status === 'ISSUED'">
+                <button @click="openAmend(viewing); viewing=null" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition">Tạo sửa đổi</button>
+              </template>
+            </div>
+            <button @click="viewing=null" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Đóng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Cancel Modal -->
+  <template x-if="cancelling">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="cancelling=null">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-[420px]" @click.stop>
+        <h2 class="text-lg font-bold mb-2 text-red-700">Hủy hóa đơn điện tử</h2>
+        <p class="text-sm text-gray-600 mb-4">Bạn chắc chắn muốn hủy hóa đơn <span class="font-medium" x-text="cancelling.pattern + '/' + cancelling.serial"></span>?</p>
+        <div class="mb-4">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Lý do hủy *</label>
+          <textarea x-model="cancelReason" rows="3" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="Nhập lý do hủy..."></textarea>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button @click="cancelling=null" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy bỏ</button>
+          <button @click="confirmCancel()" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition" :disabled="!cancelReason">Xác nhận hủy</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Amend Modal -->
+  <template x-if="amending">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="amending=null">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-[560px] max-h-[90vh] overflow-y-auto" @click.stop>
+        <h2 class="text-lg font-bold mb-4">Tạo hóa đơn sửa đổi</h2>
+        <p class="text-sm text-gray-600 mb-4">Hóa đơn gốc: <span class="font-medium" x-text="amending.pattern + '/' + amending.serial"></span></p>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Loại sửa đổi *</label>
+            <select x-model="amendForm.invoice_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="ADJUSTMENT">Điều chỉnh</option>
+              <option value="REPLACEMENT">Thay thế</option>
+              <option value="CANCELLATION_NOTE">Phiếu hủy</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-gray-600">Chi tiết hàng hóa</label>
+            <button @click="amendForm.lines.push({description:'',quantity:1,unit_price:0,vat_rate:10,line_total:0,vat_amount:0})" class="text-xs text-blue-600 hover:text-blue-800">+ Thêm dòng</button>
+          </div>
+          <template x-for="(line, i) in amendForm.lines" :key="i">
+            <div class="flex gap-2 mb-2">
+              <input x-model="line.description" placeholder="Mô tả" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <input type="number" x-model.number="line.quantity" placeholder="SL" class="w-16 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right">
+              <input type="number" x-model.number="line.unit_price" placeholder="Đơn giá" class="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right">
+              <select x-model.number="line.vat_rate" class="w-16 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right">
+                <option value="0">0%</option>
+                <option value="5">5%</option>
+                <option value="8">8%</option>
+                <option value="10">10%</option>
+              </select>
+              <button @click="amendForm.lines.splice(i,1)" class="text-red-400 hover:text-red-600 text-sm" x-show="amendForm.lines.length > 1">✕</button>
+            </div>
+          </template>
+        </div>
+        <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+          <button @click="amending=null" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Hủy</button>
+          <button @click="submitAmend()" class="px-5 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition" :disabled="saving">Tạo sửa đổi</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
 <script>
 function comp() {
   return {
     invoices: [],
-    filterStatus: "",
+    filtered: [],
+    loading: false,
+    saving: false,
     showCreate: false,
-    form: {
-      pattern: "01GTKT", serial: "C23GHH", invoice_type: "ORIGINAL",
-      issue_date: new Date().toISOString().slice(0,10),
-      buyer_name: "", buyer_tax_code: "", buyer_email: "",
-      currency_code: "VND", exchange_rate: 1,
-      lines: [{description:"",quantity:1,unit_price:0,vat_rate:10,unit:"Chiếc",line_total:0,vat_amount:0}],
-    },
-
-    get filtered() {
-      if (!this.filterStatus) return this.invoices;
-      return this.invoices.filter(i => i.status === this.filterStatus);
-    },
-    get issuedCount() { return this.invoices.filter(i => i.status === "ISSUED").length; },
-    get draftCount() { return this.invoices.filter(i => i.status === "DRAFT" || i.status === "SUBMITTED").length; },
-    get totalAmount() { return this.invoices.reduce((s, i) => s + (i.grand_total || 0), 0); },
+    showXml: false,
+    viewing: null,
+    cancelling: null,
+    cancelReason: "",
+    amending: null,
+    amendForm: { invoice_type: "ADJUSTMENT", lines: [] },
+    filter: { status: "", type: "", from: "", to: "", search: "" },
+    form: {},
 
     async init() {
       mountAppShell("Hóa đơn điện tử", "/app/tax-einvoices.html");
+      this.resetForm();
+      await this.refresh();
+    },
+
+    resetForm() {
+      this.form = {
+        pattern: "01GTKT", serial: "C23GHH", invoice_type: "ORIGINAL",
+        issue_date: new Date().toISOString().slice(0, 10),
+        buyer_name: "", buyer_tax_code: "", buyer_email: "", buyer_address: "",
+        currency_code: "VND", exchange_rate: 1, original_invoice_id: "",
+        lines: [{ description: "", quantity: 1, unit_price: 0, vat_rate: 10, unit: "Chiếc", line_total: 0, vat_amount: 0 }],
+      };
+    },
+
+    async refresh() {
+      this.loading = true;
       try {
         const cid = App.companyId();
         this.invoices = await apiGet(`/tax/e-invoices?company_id=${cid}`).catch(() => []);
-      } catch (e) {
-        console.error("e-invoices init:", e);
+        if (!Array.isArray(this.invoices)) this.invoices = [];
+        this.applyFilter();
+      } catch (e) { console.error("e-invoices load:", e); }
+      this.loading = false;
+    },
+
+    applyFilter() {
+      let list = [...this.invoices];
+      if (this.filter.status) list = list.filter(i => i.status === this.filter.status);
+      if (this.filter.type) list = list.filter(i => i.invoice_type === this.filter.type);
+      if (this.filter.from) list = list.filter(i => i.issue_date >= this.filter.from);
+      if (this.filter.to) list = list.filter(i => i.issue_date <= this.filter.to);
+      if (this.filter.search) {
+        const q = this.filter.search.toLowerCase();
+        list = list.filter(i =>
+          (i.buyer_name || "").toLowerCase().includes(q) ||
+          (i.buyer_tax_code || "").includes(q) ||
+          (i.pattern || "").toLowerCase().includes(q) ||
+          (i.serial || "").toLowerCase().includes(q)
+        );
       }
+      this.filtered = list;
+    },
+
+    clearFilter() {
+      this.filter = { status: "", type: "", from: "", to: "", search: "" };
+      this.filtered = [...this.invoices];
+    },
+
+    countByStatus(s) { return this.invoices.filter(i => i.status === s).length; },
+    sumTotal() { return this.invoices.reduce((s, i) => s + (i.grand_total || 0), 0); },
+
+    calcSubtotal() { return this.form.lines.reduce((s, l) => s + (l.quantity * l.unit_price), 0); },
+    calcVAT() { return this.form.lines.reduce((s, l) => s + (l.quantity * l.unit_price * l.vat_rate / 100), 0); },
+
+    addLine() {
+      this.form.lines.push({ description: "", quantity: 1, unit_price: 0, vat_rate: 10, unit: "Chiếc", line_total: 0, vat_amount: 0 });
+    },
+
+    openCreate() {
+      this.resetForm();
+      this.showCreate = true;
     },
 
     async createInvoice() {
-      if (!this.form.buyer_name) {
-        $store.app.flashError("Vui lòng nhập tên khách hàng");
-        return;
-      }
-      const cid = App.companyId();
-      for (let l of this.form.lines) {
-        l.line_total = l.quantity * l.unit_price;
-        l.vat_amount = l.line_total * l.vat_rate / 100;
-      }
-      const subtotal = this.form.lines.reduce((s,l) => s + l.line_total, 0);
-      const vat = this.form.lines.reduce((s,l) => s + l.vat_amount, 0);
-      const payload = {...this.form, company_id: cid, subtotal, vat_amount: vat, grand_total: subtotal + vat};
+      if (!this.form.buyer_name) { $store.app.flashError("Vui lòng nhập tên khách hàng"); return; }
+      this.saving = true;
       try {
+        const cid = App.companyId();
+        for (let l of this.form.lines) {
+          l.line_total = l.quantity * l.unit_price;
+          l.vat_amount = l.line_total * l.vat_rate / 100;
+        }
+        const payload = {
+          ...this.form, company_id: cid,
+          subtotal: this.calcSubtotal(),
+          vat_amount: this.calcVAT(),
+          grand_total: this.calcSubtotal() + this.calcVAT(),
+        };
         await apiPost("/tax/e-invoices", payload);
         this.showCreate = false;
-        this.invoices = await apiGet(`/tax/e-invoices?company_id=${cid}`).catch(() => []);
+        await this.refresh();
         $store.app.flashSuccess("Tạo hóa đơn thành công");
-      } catch (e) {
-        $store.app.flashError(e.error || "Không tạo được hóa đơn");
-      }
+      } catch (e) { $store.app.flashError(e.error || "Không tạo được hóa đơn"); }
+      this.saving = false;
     },
 
-    async issueInvoice(id) {
+    async issueInvoice(inv) {
+      if (!App.confirm(`Phát hành hóa đơn ${inv.pattern}/${inv.serial} lên GDT?`)) return;
       try {
-        await apiPost(`/tax/e-invoices/${id}/issue`);
-        const cid = App.companyId();
-        this.invoices = await apiGet(`/tax/e-invoices?company_id=${cid}`).catch(() => []);
+        await apiPost(`/tax/e-invoices/${inv.id}/issue`);
+        await this.refresh();
         $store.app.flashSuccess("Đã gửi hóa đơn lên GDT");
-      } catch (e) {
-        $store.app.flashError(e.error || "Không phát hành được");
-      }
+      } catch (e) { $store.app.flashError(e.error || "Không phát hành được"); }
     },
 
-    async cancelInvoice(id) {
-      const reason = prompt("Lý do hủy:");
-      if (!reason) return;
+    async checkStatus(inv) {
       try {
-        await apiPost(`/tax/e-invoices/${id}/cancel`, {reason});
-        const cid = App.companyId();
-        this.invoices = await apiGet(`/tax/e-invoices?company_id=${cid}`).catch(() => []);
+        await apiPost(`/tax/e-invoices/${inv.id}/status`);
+        await this.refresh();
+        $store.app.flashSuccess("Đã cập nhật trạng thái từ GDT");
+      } catch (e) { $store.app.flashError(e.error || "Không kiểm tra được"); }
+    },
+
+    openCancel(inv) {
+      this.cancelling = inv;
+      this.cancelReason = "";
+    },
+
+    async confirmCancel() {
+      if (!this.cancelReason) return;
+      try {
+        await apiPost(`/tax/e-invoices/${this.cancelling.id}/cancel`, { reason: this.cancelReason });
+        this.cancelling = null;
+        await this.refresh();
         $store.app.flashSuccess("Đã hủy hóa đơn");
-      } catch (e) {
-        $store.app.flashError(e.error || "Không hủy được");
+      } catch (e) { $store.app.flashError(e.error || "Không hủy được"); }
+    },
+
+    openAmend(inv) {
+      this.amending = inv;
+      this.amendForm = {
+        invoice_type: "ADJUSTMENT",
+        lines: [{ description: "", quantity: 1, unit_price: 0, vat_rate: 10, line_total: 0, vat_amount: 0 }],
+      };
+    },
+
+    async submitAmend() {
+      this.saving = true;
+      try {
+        for (let l of this.amendForm.lines) {
+          l.line_total = l.quantity * l.unit_price;
+          l.vat_amount = l.line_total * l.vat_rate / 100;
+        }
+        await apiPost(`/tax/e-invoices/${this.amending.id}/amend`, {
+          invoice_type: this.amendForm.invoice_type,
+          lines: this.amendForm.lines,
+        });
+        this.amending = null;
+        await this.refresh();
+        $store.app.flashSuccess("Tạo hóa đơn sửa đổi thành công");
+      } catch (e) { $store.app.flashError(e.error || "Không tạo được sửa đổi"); }
+      this.saving = false;
+    },
+
+    viewDetail(inv) {
+      this.viewing = inv;
+      this.showXml = false;
+    },
+
+    statusTimeline(inv) {
+      const all = ["DRAFT", "SIGNED", "SUBMITTED", "VALIDATED", "ISSUED"];
+      const labels = { DRAFT: "Nháp", SIGNED: "Đã ký", SUBMITTED: "Đã gửi", VALIDATED: "Xác thực", ISSUED: "Phát hành" };
+      const cur = all.indexOf(inv.status);
+      if (inv.status === "CANCELLED") {
+        return all.map((s, i) => ({ label: labels[s], past: i <= cur, active: false })).concat([{ label: "Hủy", past: true, active: true }]);
       }
+      if (inv.status === "REPLACED") {
+        return all.map((s, i) => ({ label: labels[s], past: i <= cur, active: false })).concat([{ label: "Thay thế", past: true, active: true }]);
+      }
+      return all.map((s, i) => ({ label: labels[s], past: i < cur, active: i === cur }));
     },
   };
 }
@@ -258,12 +682,24 @@ function invStatusBadge(s) {
     DRAFT: "bg-gray-100 text-gray-700",
     SIGNED: "bg-blue-100 text-blue-700",
     SUBMITTED: "bg-amber-100 text-amber-700",
-    VALIDATED: "bg-red-100 text-red-700",
+    VALIDATED: "bg-indigo-100 text-indigo-700",
     ISSUED: "bg-green-100 text-green-700",
     CANCELLED: "bg-red-100 text-red-700",
     REPLACED: "bg-purple-100 text-purple-700",
   };
-  return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${m[s]||m.DRAFT}">${s}</span>`;
+  const t = { DRAFT: "Nháp", SIGNED: "Đã ký", SUBMITTED: "Đã gửi", VALIDATED: "Xác thực", ISSUED: "Phát hành", CANCELLED: "Đã hủy", REPLACED: "Thay thế" };
+  return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${m[s]||m.DRAFT}">${t[s]||s}</span>`;
+}
+
+function invTypeBadge(t) {
+  const m = {
+    ORIGINAL: "bg-gray-100 text-gray-700",
+    ADJUSTMENT: "bg-yellow-100 text-yellow-700",
+    REPLACEMENT: "bg-orange-100 text-orange-700",
+    CANCELLATION_NOTE: "bg-red-100 text-red-700",
+  };
+  const l = { ORIGINAL: "Gốc", ADJUSTMENT: "Điều chỉnh", REPLACEMENT: "Thay thế", CANCELLATION_NOTE: "Phiếu hủy" };
+  return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${m[t]||m.ORIGINAL}">${l[t]||t}</span>`;
 }
 </script>
 
