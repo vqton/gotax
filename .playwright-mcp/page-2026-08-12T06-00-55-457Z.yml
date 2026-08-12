@@ -1,0 +1,33 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: 📊 GoTax
+    - heading "Đăng nhập hệ thống" [level=1] [ref=e5]
+    - paragraph [ref=e6]: Hệ thống Quản lý Thuế Kế toán · Circular 99/2025
+  - alert
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - text: Tên đăng nhập
+      - textbox "Tên đăng nhập" [ref=e9]:
+        - /placeholder: ten.dang.nhap
+      - paragraph [ref=e10]: Tên đăng nhập do quản trị cấp.
+    - generic [ref=e11]:
+      - text: Mật khẩu
+      - generic [ref=e12]:
+        - textbox "Mật khẩu" [ref=e13]:
+          - /placeholder: ••••••••
+        - button "Hiện / ẩn" [ref=e14]: 👁
+    - generic [ref=e16]:
+      - checkbox "Kèm mã MST / tenant" [ref=e17]
+      - text: Kèm mã MST / tenant
+    - generic [ref=e18]:
+      - text: Mã MST
+      - textbox "Mã MST" [ref=e19]:
+        - /placeholder: "0123456789"
+      - paragraph [ref=e20]: 10–14 chữ số.
+    - button "ĐĂNG NHẬP" [ref=e21]
+  - generic [ref=e22]: hoặc
+  - button "🪪 Đăng nhập qua VNeID" [ref=e23]
+  - generic [ref=e24]:
+    - link "Quên mật khẩu?" [ref=e25] [cursor=pointer]:
+      - /url: /forgot-password
+    - text: © 2026 GoTax

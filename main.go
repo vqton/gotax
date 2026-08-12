@@ -104,9 +104,9 @@ func main() {
 		MaxAge:           12 * 60 * 60 * 1000000000,
 	}))
 r.LoadHTMLGlob("web/auth/*.html")
-// Static assets: no-cache forces revalidation so browser never serves stale
-// compiled CSS/JS after a Tailwind rebuild or JS edit (last build at 1287819
-// was served from Brave disk cache, breaking the COA layout).
+// Static assets: no-cache forces revalidation so the browser never serves
+// stale CSS/JS after an edit (a stale app.css from disk cache once broke
+// the COA layout in Brave).
 assets := r.Group("/assets")
 assets.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-cache"); c.Next() })
 assets.Static("", "./web/static")

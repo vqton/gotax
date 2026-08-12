@@ -9,7 +9,7 @@
 
 Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company.
 
-**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + htmx + Tailwind CSS v4 (frontend)
+**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + htmx (frontend, CSS framework TBD — was Tailwind, removed)
 
 ## Architecture
 
@@ -149,9 +149,6 @@ go test -v -run TestCreateCompany ./internal/handler/   # single test
 # Regenerate swagger (annotations in main.go + handler comments)
 swag init --parseDependency --parseInternal
 # → docs/docs.go, docs/swagger.json, docs/swagger.yaml — DO NOT EDIT
-
-# Recompile Tailwind after ANY new utility class appears in an HTML file:
-./node_modules/.bin/tailwindcss -i web/static/css/tailwind.css -o web/static/css/app.css --minify
 ```
 
 No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
@@ -206,9 +203,7 @@ When adding a new module that uses the validator: register custom validators in 
 
 `/app/*` catch-all (`internal/web/pages.go`): page in template sets → server-render; otherwise `http.ServeFile` from `web/app/*.html` — served fresh from disk per request, so **HTML edits to static pages need no server restart**.
 
-**Tailwind CSS v4 — compiled, no watch mode.** Source `web/static/css/tailwind.css` (`@source "../.."`), output `web/static/css/app.css` (stale last build = layout breaks silently). After adding ANY new utility class, recompile:
-`./node_modules/.bin/tailwindcss -i web/static/css/tailwind.css -o web/static/css/app.css --minify`
-Minified CSS escapes `/` → `\/` — naive grep for a class like `blue-50/50` gives false negatives.
+**CSS: vanilla, no framework.** Tailwind v4 removed (Aug 2026). Only `web/static/css/auth.css` (handwritten, used by `/login` pages) remains. All Tailwind utility classes in HTML are now inert — pages are unstyled until a new framework lands. Don't expect utility classes to render.
 
 **UI entry points:**
 - `/app/*` — Main accounting UI. MISA SME 2026 layout: left sidebar, top bar, content area.
