@@ -104,8 +104,15 @@ func main() {
 		MaxAge:           12 * 60 * 60 * 1000000000,
 	}))
 r.LoadHTMLGlob("web/auth/*.html")
-r.Static("/assets", "./web/static")
-r.Static("/payroll", "./web/payroll")
+// Static assets: no-cache forces revalidation so browser never serves stale
+// compiled CSS/JS after a Tailwind rebuild or JS edit (last build at 1287819
+// was served from Brave disk cache, breaking the COA layout).
+assets := r.Group("/assets")
+assets.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-cache"); c.Next() })
+assets.Static("", "./web/static")
+payroll := r.Group("/payroll")
+payroll.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-cache"); c.Next() })
+payroll.Static("", "./web/payroll")
 // /app served by internal/web catch-all: converted pages render templates,
 // unconverted pages fall back to static files.
 

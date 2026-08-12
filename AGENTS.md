@@ -9,7 +9,7 @@
 
 Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company.
 
-**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + Tailwind CSS v4 (frontend)
+**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + htmx + Tailwind CSS v4 (frontend)
 
 ## Architecture
 
@@ -34,6 +34,7 @@ internal/service/           →  business rules, validation, orchestration. Pure
   - year_end_service.go     →  year-end close (Revenue/Expense → 421, carry-forward, TT200→TT99 mapping)
   - print_service.go        →  PDF generation (Phiếu thu/chi TT99 format)
 internal/validate/          →  go-playground/validator singleton + custom validators
+internal/web/               →  htmx server-rendered pages (dashboard/users/journal-entries) + /app/* catch-all
 internal/xmldsig/           →  XML digital signature (RSA, for e-invoice)
 ```
 
@@ -74,6 +75,8 @@ authMW → extract Bearer → verify RS256 → set user_id, username, role in gi
 GetUserID(c) → helper for user_id from context
 RoleMiddleware(admin, chief) → RBAC gate
 ```
+
+Dev seed login: `admin` / `Admin@123456!` (migration 000040). Login rate-limited: 5 attempts / 15 min / username, in-memory — server restart clears it.
 
 ## Company ID Pattern
 
@@ -132,6 +135,8 @@ Same pattern across all module handlers. **Not** `c.GetString("company_id")`.
 
 Auth middleware on all groups except auth endpoints.
 
+**Web pages** (GET `/app/*`, auth-gated via internal/web catch-all): only `dashboard`, `users`, `journal-entries` are htmx server-rendered; every other file in `web/app/*.html` (e.g. `coa.html`) is served statically and rendered client-side with Alpine. See Frontend.
+
 ## Commands
 
 ```sh
@@ -144,6 +149,9 @@ go test -v -run TestCreateCompany ./internal/handler/   # single test
 # Regenerate swagger (annotations in main.go + handler comments)
 swag init --parseDependency --parseInternal
 # → docs/docs.go, docs/swagger.json, docs/swagger.yaml — DO NOT EDIT
+
+# Recompile Tailwind after ANY new utility class appears in an HTML file:
+./node_modules/.bin/tailwindcss -i web/static/css/tailwind.css -o web/static/css/app.css --minify
 ```
 
 No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
@@ -159,7 +167,7 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 
 ## Migration System
 
-31+ versioned files in `migrations/`. **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000041_tt99_coa_official`.
+45 versioned files in `migrations/` (000001–000045). **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000045_tt99_coa_loai2`.
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`.
 
@@ -191,16 +199,21 @@ When adding a new module that uses the validator: register custom validators in 
 
 ## Frontend
 
-**No build step.** Tailwind CSS v4 compiled to `web/static/css/app.css`. Alpine.js bundled at `web/static/js/alpine.min.js`. No webpack, no Vite.
+**Two rendering stacks, no build step:**
+
+1. **htmx server-rendered** (newer, `internal/web/`): converted pages render Go templates from `web/templates/` (base + `_sidebar` + `_topbar` partials, parsed per-page at startup). Mutations via explicit POST routes + htmx fragment swaps. Currently only `dashboard`, `users`, `journal-entries`. Adding a page = template in `web/app/<page>.html` (defines "content" block) + `Load` func in `internal/web/pages_app.go` + add to `web.NewServer([...])` list in **both** main.go branches.
+2. **Alpine.js legacy** (everything else, e.g. `coa.html`): standalone page, `x-data` per page, `mountAppShell(title, activePath)` on init, API via `apiGet`/`apiPost`/`apiPut`/`apiDelete` (JWT refresh). Uses `app-legacy.js` + `auth-legacy.js`; htmx pages use `app.js` + `auth.js`.
+
+`/app/*` catch-all (`internal/web/pages.go`): page in template sets → server-render; otherwise `http.ServeFile` from `web/app/*.html` — served fresh from disk per request, so **HTML edits to static pages need no server restart**.
+
+**Tailwind CSS v4 — compiled, no watch mode.** Source `web/static/css/tailwind.css` (`@source "../.."`), output `web/static/css/app.css` (stale last build = layout breaks silently). After adding ANY new utility class, recompile:
+`./node_modules/.bin/tailwindcss -i web/static/css/tailwind.css -o web/static/css/app.css --minify`
+Minified CSS escapes `/` → `\/` — naive grep for a class like `blue-50/50` gives false negatives.
 
 **UI entry points:**
 - `/app/*` — Main accounting UI. MISA SME 2026 layout: left sidebar, top bar, content area.
 - `/payroll/*` — Payroll module. Separate nav bar (top).
-- `/login` — Auth pages at `web/auth/*.html`.
-
-**Shared JS:** `web/static/js/app.js` — sidebar nav, API client (`apiGet`/`apiPost`/`apiPut`/`apiDelete` with JWT refresh), formatters, Alpine store.
-
-**Page pattern:** Each HTML page is standalone with Alpine.js `x-data`. Calls `mountAppShell(title, activePath)` on init. Uses `apiGet`/`apiPost` from app.js.
+- `/login` — Auth pages at `web/auth/*.html` (plain gin templates).
 
 ## Adding a Feature — Step Order
 
@@ -229,6 +242,9 @@ When adding a new module that uses the validator: register custom validators in 
 - **Migration idempotency**: Always use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` in migrations. Legacy `.sql` files (002-007) may have been run manually against PG, creating tables outside migration tracking. Without `IF NOT EXISTS`, golang-migrate fails with `relation already exists`.
 - **SQLite rejected**: Schema deeply PG-specific (`pgcrypto`, `gen_random_uuid()`, `TIMESTAMPTZ`, `plpgsql` triggers, `SUBSTRING FROM` regex, `GREATEST()`). 20+ raw SQL queries in PG repos. In-memory backend already covers dev/test.
 - **No LINQ library needed**: Standard `for` loops + `slices.SortFunc` sufficient. Don't add collection libraries unless profiling shows bottleneck.
+- **Server start**: `setsid nohup go run . & disown` — plain `nohup &` dies when the launching shell/command times out (process group killed). Templates resolve relative to cwd → start from repo root. Needs `JWT_SECRET` (+ `DATABASE_URL` for PG branch).
+- **COA structure**: accounts = 9 loại (1-char grouping headers, NOT postable), cấp 1 = 3-digit. `NormalBalance` derived, not stored: ASSET/EXPENSE→DEBIT, else CREDIT. 221 accounts, 71 cấp 1. Service guards: `CreateAccount` requires parent exists, `UpdateAccount` runs `Validate()`, `DeleteAccount` blocked when account used in POSTED entries (`GetAccountUsage().EntryCount`).
+- **Playwright (this host)**: `chrome` channel uninstallable on Kali — symlink cached chromium: `ln -sf ~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome /opt/google/chrome/chrome`. Screenshots must live under repo root (`.playwright-mcp/` allowed, `/tmp` denied).
 
 ## Commenting & Documentation Standards
 
