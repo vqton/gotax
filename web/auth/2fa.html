@@ -4,56 +4,47 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Xác thực 2FA · GoTax</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body class="auth-page">
 
-<div class="w-full max-w-[520px] bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,.1),0_8px_24px_rgba(0,0,0,.06)] p-8 pb-7 border border-gray-200" aria-labelledby="page-title">
+<div class="auth-card auth-wide" aria-labelledby="page-title">
 
-  <div class="text-center mb-6">
-    <div class="inline-flex items-center gap-2 mb-3">
-      <span class="text-2xl">📊</span>
-      <span class="text-xl font-bold text-brand tracking-tight">GoTax</span>
-    </div>
-    <h1 id="page-title" class="text-xl font-semibold text-gray-900 mb-1">Xác thực hai yếu tố</h1>
-    <p class="text-sm text-gray-500">Nhập mã 6 số từ ứng dụng Google Authenticator</p>
+  <div class="auth-logo">
+    <span class="logo-mark">📊</span>
+    <span class="logo-name">GoTax</span>
+  </div>
+  <div class="auth-header">
+    <h1 id="page-title" class="auth-title">Xác thực hai yếu tố</h1>
+    <p class="auth-subtitle">Nhập mã 6 số từ ứng dụng Google Authenticator</p>
   </div>
 
-  <div id="login-error" class="hidden mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-800" role="alert"></div>
+  <div id="login-error" class="alert alert-error hidden" role="alert"></div>
 
   <form id="2fa-form" novalidate>
 
-    <div class="mb-4">
-      <label class="block text-sm font-semibold text-gray-900 mb-1.5">Mã xác thực</label>
-      <div class="flex gap-2 items-center justify-center">
-        <input type="text" id="code0" data-i="0" maxlength="1" inputmode="numeric" autocomplete="one-time-code" aria-label="Chữ số 1"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
-        <input type="text" id="code1" data-i="1" maxlength="1" inputmode="numeric" aria-label="Chữ số 2"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
-        <input type="text" id="code2" data-i="2" maxlength="1" inputmode="numeric" aria-label="Chữ số 3"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
-        <input type="text" id="code3" data-i="3" maxlength="1" inputmode="numeric" aria-label="Chữ số 4"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
-        <input type="text" id="code4" data-i="4" maxlength="1" inputmode="numeric" aria-label="Chữ số 5"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
-        <input type="text" id="code5" data-i="5" maxlength="1" inputmode="numeric" aria-label="Chữ số 6"
-          class="code-input flex-1 min-w-10 max-w-13 h-14 p-2 text-center text-xl font-bold tracking-wider border-[1.5px] border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:border-accent focus:bg-white focus:ring-2 focus:ring-blue-200/40">
+    <div class="form-group">
+      <label class="form-label">Mã xác thực</label>
+      <div class="code-group">
+        <input type="text" id="code0" data-i="0" maxlength="1" inputmode="numeric" autocomplete="one-time-code" aria-label="Chữ số 1" class="code-input">
+        <input type="text" id="code1" data-i="1" maxlength="1" inputmode="numeric" aria-label="Chữ số 2" class="code-input">
+        <input type="text" id="code2" data-i="2" maxlength="1" inputmode="numeric" aria-label="Chữ số 3" class="code-input">
+        <input type="text" id="code3" data-i="3" maxlength="1" inputmode="numeric" aria-label="Chữ số 4" class="code-input">
+        <input type="text" id="code4" data-i="4" maxlength="1" inputmode="numeric" aria-label="Chữ số 5" class="code-input">
+        <input type="text" id="code5" data-i="5" maxlength="1" inputmode="numeric" aria-label="Chữ số 6" class="code-input">
       </div>
-      <p class="text-xs text-gray-500 mt-1">Mã đổi mỗi 30 giây · Mở Google Authenticator để xem.</p>
+      <p class="form-hint">Mã đổi mỗi 30 giây · Mở Google Authenticator để xem.</p>
     </div>
 
-    <button
-      type="submit"
-      id="submit-btn"
-      class="w-full h-10 inline-flex items-center justify-center gap-2 bg-accent text-white font-semibold text-[0.925rem] leading-none rounded-md cursor-pointer transition-all duration-150 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap"
-    >
+    <button type="submit" id="submit-btn" class="btn btn-primary btn-lg" style="width:100%">
       <span id="submit-label">XÁC THỰC</span>
     </button>
 
   </form>
 
-  <div class="mt-6 pt-4 border-t border-gray-200 flex justify-between items-center text-sm">
-    <a href="/login" class="text-accent hover:underline">← Quay lại đăng nhập</a>
-    <button type="button" id="resend-btn" class="bg-transparent border-none p-0 font-[inherit] text-accent cursor-pointer hover:underline">Gửi lại mã SMS?</button>
+  <div class="auth-footer">
+    <a href="/login" class="auth-link">← Quay lại đăng nhập</a>
+    <button type="button" id="resend-btn" class="auth-link-btn">Gửi lại mã SMS?</button>
   </div>
 
 </div>

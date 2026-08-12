@@ -713,3 +713,150 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width
 .f-col textarea { resize: vertical; }
 .f-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; padding: 8px 0; cursor: pointer; }
 .f-col .hint { font-size: 11.5px; color: var(--fb-faint); margin-top: 4px; }
+
+/* ============================================================
+   Auth pages (login / 2FA / forgot / reset) — standalone,
+   outside the app shell. Semantic classes only.
+   ============================================================ */
+
+.hidden { display: none !important; }
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgba(37,99,235,0.08), transparent),
+    var(--fb-bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--fb-surface);
+  border: 1px solid var(--fb-border);
+  border-radius: 14px;
+  box-shadow: var(--fb-shadow-lg);
+  padding: 2rem 1.9rem 1.75rem;
+}
+.auth-card.auth-wide { max-width: 520px; }
+
+.auth-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.auth-logo .logo-mark {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--fb-primary);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.auth-logo .logo-name { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+.auth-header { text-align: center; margin-bottom: 22px; }
+.auth-title { font-size: 19px; font-weight: 700; color: var(--fb-text); margin-bottom: 4px; }
+.auth-subtitle { font-size: 13px; color: var(--fb-muted); }
+
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 13px; font-weight: 600; color: var(--fb-text); margin-bottom: 6px; }
+.form-input {
+  width: 100%;
+  padding: 10px 13px;
+  border: 1.5px solid var(--fb-border);
+  border-radius: 8px;
+  background: var(--fb-bg);
+  font-size: 14.5px;
+  color: var(--fb-text);
+  appearance: none;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.form-input:focus {
+  border-color: var(--fb-primary);
+  background: var(--fb-surface);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+}
+.form-input.is-invalid { border-color: var(--fb-danger); }
+.form-hint { margin-top: 6px; font-size: 12px; color: var(--fb-muted); }
+
+.password-wrapper { position: relative; }
+.password-wrapper .form-input { padding-right: 44px; }
+.password-toggle {
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none; cursor: pointer;
+  font-size: 15px; line-height: 1;
+  padding: 5px; border-radius: 6px;
+  color: var(--fb-faint);
+}
+.password-toggle:hover { color: var(--fb-text); background: var(--fb-bg); }
+
+.check-box {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13.5px; cursor: pointer; user-select: none;
+}
+.check-box input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--fb-primary); cursor: pointer; }
+
+.auth-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 18px 0;
+  color: var(--fb-faint); font-size: 13px;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--fb-border);
+}
+
+.auth-footer {
+  margin-top: 22px; padding-top: 14px;
+  border-top: 1px solid var(--fb-border-l);
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px;
+}
+.auth-link { color: var(--fb-primary); font-size: 13.5px; }
+.auth-link:hover { text-decoration: underline; }
+.auth-link-btn { background: none; border: none; padding: 0; font: inherit; color: var(--fb-primary); cursor: pointer; }
+.auth-link-btn:hover { text-decoration: underline; }
+.auth-foot-note { color: var(--fb-faint); }
+
+/* 2FA code inputs */
+.code-group { display: flex; gap: 8px; align-items: center; justify-content: center; }
+.code-input {
+  flex: 1 1 0;
+  min-width: 40px; max-width: 52px;
+  height: 56px; padding: 6px;
+  text-align: center;
+  font-size: 24px; font-weight: 700; letter-spacing: 0.05em;
+  border: 1.5px solid var(--fb-border);
+  border-radius: 8px;
+  background: var(--fb-bg);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  -moz-appearance: textfield;
+}
+.code-input::-webkit-outer-spin-button, .code-input::-webkit-inner-spin-button { margin: 0; appearance: none; }
+.code-input:focus { border-color: var(--fb-primary); background: var(--fb-surface); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
+.code-input.is-invalid { border-color: var(--fb-danger); background: #fef2f2; }
+
+/* Alerts (inline, above the form) */
+.alert {
+  border-radius: 8px; padding: 11px 14px;
+  font-size: 13px; font-weight: 500;
+  line-height: 1.45;
+  margin-bottom: 16px;
+}
+.alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.alert-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.alert-info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+
+@media (max-width: 520px) {
+  .auth-card { padding: 1.4rem 1.15rem; }
+  .code-input { max-width: 48px; height: 48px; font-size: 20px; }
+}

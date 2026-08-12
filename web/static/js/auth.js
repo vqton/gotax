@@ -108,8 +108,7 @@
     function setMsg(text, type) {
       if (!msgEl) { GoTax.Toast.show(text, type); return; }
       msgEl.textContent = text;
-      msgEl.className = "text-sm rounded-md border px-3 py-2 " +
-        (type === "success" ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800");
+      msgEl.className = "alert " + (type === "success" ? "alert-success" : "alert-error");
       msgEl.classList.remove("hidden");
     }
   };
@@ -174,5 +173,13 @@
     GoTax.loginPage();
     GoTax.forgotPage();
     GoTax.resetPage();
+    // flash after password reset → /login?reset=1
+    if (window.location.search.indexOf("reset=1") !== -1) {
+      var errEl = document.getElementById("login-error");
+      if (errEl) {
+        errEl.textContent = "Mật khẩu đã được đặt lại. Đăng nhập bằng mật khẩu mới.";
+        errEl.className = "alert alert-success";
+      }
+    }
   });
 })();
