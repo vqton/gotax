@@ -3,6 +3,7 @@ package web
 import (
 	"log"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/dashboard.html":       {Title: "Tổng quan", NavPath: "/app/dashboard.html", Load: dashboardLoad(d)},
 		"/app/users.html":           {Title: "Người dùng", NavPath: "/app/users.html", Load: usersLoad(d)},
 		"/app/journal-entries.html": {Title: "Chứng từ kế toán", NavPath: "/app/journal-entries.html", Load: journalEntriesLoad(d)},
+		"/app/coa.html":             {Title: "Hệ thống tài khoản", NavPath: "/app/coa.html", Load: coaLoad(d)},
 	}
 }
 
@@ -41,6 +43,12 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"approve": s.journalStatus(d, "approve"),
 			"post":    s.journalStatus(d, "post"),
 			"cancel":  s.journalStatus(d, "cancel"),
+		},
+		"/app/coa": {
+			"save":     s.coaSave(d),
+			"delete":   s.coaDelete(d),
+			"freeze":   s.coaFreeze(d),
+			"unfreeze": s.coaUnfreeze(d),
 		},
 	}
 }
@@ -345,4 +353,280 @@ func (s *Server) renderJournalTable(c *gin.Context, d Deps) {
 		return
 	}
 	s.RenderFragment(c, "journal-entries", "journal-table", data)
+}
+
+// ── COA (Hệ thống tài khoản) ─────────────────────────────────────────────
+
+// CoaLoai is one loại node in the left pane + loại header rows of the grid.
+type CoaLoai struct {
+	Code  string
+	Name  string
+	Count int
+}
+
+// CoaRow is one grid row (loại header or account), precomputed server-side so
+// the template holds zero business logic.
+type CoaRow struct {
+	Code         string
+	Name         string
+	Name2        string
+	ParentCode   string
+	LoaiCode     string // top-level loại ancestor code (filter target)
+	Type         string // ASSET/LIABILITY/... (form select value)
+	TypeLabel    string // TS/NV/VH/DN/CP (badge text)
+	TypeName     string // Tài sản/Nguồn vốn/... (tooltip)
+	TypeClass    string // badge-type-ts/... (badge color)
+	Normal       string // Nợ/Có
+	NormalClass  string // debit/credit (legend dot color)
+	DetailBy     string // OBJECT/PROJECT/... (form select value)
+	DetailLabel  string // Đối tượng/Công trình/... (display)
+	IsForeign    bool
+	Status       string // ACTIVE/FROZEN/INACTIVE (filter value)
+	StatusClass  string // badge-success/warning/default
+	StatusLabel  string // Hoạt động/Ngừng TD/Không dùng
+	FreezeReason string
+	Depth        int
+	HasChildren  bool
+	IsLoai       bool
+	LoaiName     string
+	LoaiCount    int
+	Search       string // lowercase code|name|name2 for client filter
+}
+
+// acctLess orders accounts by code length then code — loại headers (1-digit)
+// first, then cấp 1 (3-digit), then deeper levels. Lexicographic compare
+// alone would put "9" after "111".
+func acctLess(a, b domain.Account) bool {
+	if len(a.Code) != len(b.Code) {
+		return len(a.Code) < len(b.Code)
+	}
+	return a.Code < b.Code
+}
+
+// coaTypeMeta maps AccountType → short label, full name, badge class.
+func coaTypeMeta(t domain.AccountType) (label, name, cls string) {
+	switch t {
+	case domain.AccountTypeAsset:
+		return "TS", "Tài sản", "badge-type-ts"
+	case domain.AccountTypeLiability:
+		return "NV", "Nguồn vốn", "badge-type-nv"
+	case domain.AccountTypeEquity:
+		return "VH", "Vốn chủ sở hữu", "badge-type-vh"
+	case domain.AccountTypeRevenue:
+		return "DN", "Doanh thu", "badge-type-dn"
+	case domain.AccountTypeExpense:
+		return "CP", "Chi phí", "badge-type-cp"
+	}
+	return "", "", "badge-default"
+}
+
+// coaStatusMeta maps account status → badge class + label (shared with the
+// accountStatusBadge helper).
+func coaStatusMeta(status string) (class, label string) {
+	switch strings.ToUpper(status) {
+	case "ACTIVE":
+		return "badge-success", "Hoạt động"
+	case "FROZEN":
+		return "badge-warning", "Ngừng TD"
+	case "INACTIVE":
+		return "badge-default", "Không dùng"
+	}
+	return "badge-default", status
+}
+
+// coaDetailLabel maps DetailBy → Vietnamese display label.
+func coaDetailLabel(d domain.DetailBy) string {
+	switch d {
+	case domain.DetailByObject:
+		return "Đối tượng"
+	case domain.DetailByProject:
+		return "Công trình"
+	case domain.DetailByContract:
+		return "Hợp đồng"
+	case domain.DetailByCostItem:
+		return "Khoản mục"
+	case domain.DetailByDepartment:
+		return "Phòng ban"
+	}
+	return "—"
+}
+
+// coaData builds the full COA view: left-pane loại list, flat grid rows
+// (loại headers + account rows in tree order), parent datalist options.
+func coaData(c *gin.Context, d Deps) (gin.H, error) {
+	accs, err := d.Svc.GetAllAccounts(c.Request.Context(), false)
+	if err != nil {
+		return nil, err
+	}
+	if accs == nil {
+		accs = []domain.Account{}
+	}
+	children := map[string][]domain.Account{}
+	for _, a := range accs {
+		children[a.ParentCode] = append(children[a.ParentCode], a)
+	}
+	for p := range children {
+		sort.Slice(children[p], func(i, j int) bool { return acctLess(children[p][i], children[p][j]) })
+	}
+
+	var subtreeCount func(code string) int
+	subtreeCount = func(code string) int {
+		n := 0
+		for _, ch := range children[code] {
+			n += 1 + subtreeCount(ch.Code)
+		}
+		return n
+	}
+
+	loais := []CoaLoai{}
+	rows := []CoaRow{}
+	parentOpts := []CoaRow{}
+
+	var walk func(a domain.Account, loaiCode string, depth int)
+	walk = func(a domain.Account, loaiCode string, depth int) {
+		hasChildren := len(children[a.Code]) > 0
+		if depth == 0 {
+			loaiCode = a.Code
+			loais = append(loais, CoaLoai{Code: a.Code, Name: a.Name, Count: subtreeCount(a.Code) + 1})
+		} else {
+			parentOpts = append(parentOpts, CoaRow{Code: a.Code, Name: a.Name})
+		}
+		tl, tn, tc := coaTypeMeta(a.Type)
+		normal := "Có"
+		normalClass := "credit"
+		if a.Type.NormalBalance() == domain.NormalBalanceDebit {
+			normal = "Nợ"
+			normalClass = "debit"
+		}
+		sc, sl := coaStatusMeta(string(a.Status))
+		rows = append(rows, CoaRow{
+			Code: a.Code, Name: a.Name, Name2: a.Name2, ParentCode: a.ParentCode,
+			LoaiCode:     loaiCode,
+			Type:         string(a.Type),
+			TypeLabel:    tl, TypeName: tn, TypeClass: tc,
+			Normal:       normal, NormalClass: normalClass,
+			DetailBy:     string(a.DetailBy), DetailLabel: coaDetailLabel(a.DetailBy),
+			IsForeign:    a.IsForeign,
+			Status:       string(a.Status), StatusClass: sc, StatusLabel: sl,
+			FreezeReason: a.FreezeReason,
+			Depth:        depth, HasChildren: hasChildren,
+			IsLoai: depth == 0, LoaiName: a.Name, LoaiCount: subtreeCount(a.Code) + 1,
+			Search: strings.ToLower(a.Code + "|" + a.Name + "|" + a.Name2),
+		})
+		for _, ch := range children[a.Code] {
+			walk(ch, loaiCode, depth+1)
+		}
+	}
+	loaiAccs := children[""]
+	sort.Slice(loaiAccs, func(i, j int) bool { return acctLess(loaiAccs[i], loaiAccs[j]) })
+	for _, l := range loaiAccs {
+		walk(l, "", 0)
+	}
+
+	return gin.H{
+		"Loais":         loais,
+		"Rows":          rows,
+		"ParentOptions": parentOpts,
+		"Total":         len(rows),
+	}, nil
+}
+
+func coaLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		return coaData(c, d)
+	}
+}
+
+// renderCoaGrid re-renders the grid fragment after a mutation, keeping the
+// client-side filter state (search/status/loại live outside the fragment).
+func (s *Server) renderCoaGrid(c *gin.Context, d Deps) {
+	data, err := coaData(c, d)
+	if err != nil {
+		log.Printf("render coa grid: %v", err)
+		c.String(500, "load accounts failed")
+		return
+	}
+	s.RenderFragment(c, "coa", "coa-grid", data)
+}
+
+// coaSave creates or updates one account. mode=create|update from the modal.
+// Code edits are not supported (API pins the code to the path param), so the
+// modal locks the code field in update mode and submits it as-is.
+func (s *Server) coaSave(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acc := &domain.Account{
+			Code:       strings.TrimSpace(c.PostForm("code")),
+			Name:       strings.TrimSpace(c.PostForm("name")),
+			Name2:      strings.TrimSpace(c.PostForm("name2")),
+			Type:       domain.AccountType(c.PostForm("type")),
+			ParentCode: strings.TrimSpace(c.PostForm("parent_code")),
+			DetailBy:   domain.DetailBy(c.PostForm("detail_by")),
+			IsForeign:  c.PostForm("is_foreign") == "on" || c.PostForm("is_foreign") == "true",
+		}
+		ctx := c.Request.Context()
+		var err error
+		if c.PostForm("mode") == "update" {
+			err = d.Svc.UpdateAccount(ctx, acc)
+		} else {
+			err = d.Svc.CreateAccount(ctx, acc)
+		}
+		if err != nil {
+			log.Printf("coa save %s: %v", acc.Code, err)
+			Toast(c, "error", "Không lưu được tài khoản: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã lưu tài khoản "+acc.Code+".")
+		}
+		s.renderCoaGrid(c, d)
+	}
+}
+
+func (s *Server) coaDelete(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := strings.TrimSpace(c.PostForm("code"))
+		if err := d.Svc.DeleteAccount(c.Request.Context(), code); err != nil {
+			log.Printf("coa delete %s: %v", code, err)
+			Toast(c, "error", "Không xóa được tài khoản: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã xóa tài khoản "+code+".")
+		}
+		s.renderCoaGrid(c, d)
+	}
+}
+
+// coaFreeze requires a reason (Ngừng theo dõi tài khoản).
+func (s *Server) coaFreeze(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := strings.TrimSpace(c.PostForm("code"))
+		reason := strings.TrimSpace(c.PostForm("reason"))
+		if code == "" || reason == "" {
+			Toast(c, "error", "Thiếu mã tài khoản hoặc lý do ngừng theo dõi.")
+			s.renderCoaGrid(c, d)
+			return
+		}
+		if err := d.Svc.FreezeAccount(c.Request.Context(), code, reason); err != nil {
+			log.Printf("coa freeze %s: %v", code, err)
+			Toast(c, "error", "Không ngừng theo dõi được: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã ngừng theo dõi tài khoản "+code+".")
+		}
+		s.renderCoaGrid(c, d)
+	}
+}
+
+func (s *Server) coaUnfreeze(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := strings.TrimSpace(c.PostForm("code"))
+		if code == "" {
+			Toast(c, "error", "Thiếu mã tài khoản.")
+			s.renderCoaGrid(c, d)
+			return
+		}
+		if err := d.Svc.UnfreezeAccount(c.Request.Context(), code, "Mở khóa tài khoản"); err != nil {
+			log.Printf("coa unfreeze %s: %v", code, err)
+			Toast(c, "error", "Không mở khóa được tài khoản: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã mở khóa tài khoản "+code+".")
+		}
+		s.renderCoaGrid(c, d)
+	}
 }

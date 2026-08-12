@@ -34,7 +34,7 @@ internal/service/           →  business rules, validation, orchestration. Pure
   - year_end_service.go     →  year-end close (Revenue/Expense → 421, carry-forward, TT200→TT99 mapping)
   - print_service.go        →  PDF generation (Phiếu thu/chi TT99 format)
 internal/validate/          →  go-playground/validator singleton + custom validators
-internal/web/               →  htmx server-rendered pages (dashboard/users/journal-entries) + /app/* catch-all
+internal/web/               →  htmx server-rendered pages (dashboard/users/journal-entries/coa) + /app/* catch-all
 internal/xmldsig/           →  XML digital signature (RSA, for e-invoice)
 ```
 
@@ -135,7 +135,7 @@ Same pattern across all module handlers. **Not** `c.GetString("company_id")`.
 
 Auth middleware on all groups except auth endpoints.
 
-**Web pages** (GET `/app/*`, auth-gated via internal/web catch-all): only `dashboard`, `users`, `journal-entries` are htmx server-rendered; every other file in `web/app/*.html` (e.g. `coa.html`) is served statically and rendered client-side with Alpine. See Frontend.
+**Web pages** (GET `/app/*`, auth-gated via internal/web catch-all): `dashboard`, `users`, `journal-entries`, `coa` are htmx server-rendered; every other file in `web/app/*.html` (e.g. `customers.html`) is served statically and rendered client-side with Alpine. See Frontend.
 
 ## Commands
 
@@ -198,12 +198,12 @@ When adding a new module that uses the validator: register custom validators in 
 
 **Two rendering stacks, no build step:**
 
-1. **htmx server-rendered** (newer, `internal/web/`): converted pages render Go templates from `web/templates/` (base + `_sidebar` + `_topbar` partials, parsed per-page at startup). Mutations via explicit POST routes + htmx fragment swaps. Currently only `dashboard`, `users`, `journal-entries`. Adding a page = template in `web/app/<page>.html` (defines "content" block) + `Load` func in `internal/web/pages_app.go` + add to `web.NewServer([...])` list in **both** main.go branches.
-2. **Alpine.js legacy** (everything else, e.g. `coa.html`): standalone page, `x-data` per page, `mountAppShell(title, activePath)` on init, API via `apiGet`/`apiPost`/`apiPut`/`apiDelete` (JWT refresh). Uses `app-legacy.js` + `auth-legacy.js`; htmx pages use `app.js` + `auth.js`.
+1. **htmx server-rendered** (newer, `internal/web/`): converted pages render Go templates from `web/templates/` (base + `_sidebar` + `_topbar` partials, parsed per-page at startup). Mutations via explicit POST routes + htmx fragment swaps. Currently `dashboard`, `users`, `journal-entries`, `coa`. Adding a page = template in `web/app/<page>.html` (defines "content" block) + `Load` func in `internal/web/pages_app.go` + add to `web.NewServer([...])` list in **both** main.go branches.
+2. **Alpine.js legacy** (everything else, e.g. `customers.html`): standalone page, `x-data` per page, `mountAppShell(title, activePath)` on init, API via `apiGet`/`apiPost`/`apiPut`/`apiDelete` (JWT refresh). Uses `app-legacy.js` + `auth-legacy.js`; htmx pages use `app.js` + `auth.js`.
 
 `/app/*` catch-all (`internal/web/pages.go`): page in template sets → server-render; otherwise `http.ServeFile` from `web/app/*.html` — served fresh from disk per request, so **HTML edits to static pages need no server restart**.
 
-**CSS: hand-rolled design system, no framework.** Tailwind v4 removed (Aug 2026); its utility classes in HTML are inert. `web/static/css/app.css` (Aug 2026) is the htmx-page design system: tokens, dark slate sidebar, topbar, dropdowns, buttons, cards, KPI grid, badges, tables, status bars, toasts, responsive breakpoints. All styling via semantic classes (`.badge-posted`, `.kpi`, `.btn-primary`…) — **do not use Tailwind utility classes in htmx templates**. Legacy Alpine pages still use their own CSS (e.g. `coa.css`); only `web/static/css/auth.css` remains from the pre-Tailwind era.
+**CSS: hand-rolled design system, no framework.** Tailwind v4 removed (Aug 2026); its utility classes in HTML are inert. `web/static/css/app.css` (Aug 2026) is the htmx-page design system: tokens, dark slate sidebar, topbar, dropdowns, buttons, cards, KPI grid, badges, tables, status bars, toasts, responsive breakpoints. All styling via semantic classes (`.badge-posted`, `.kpi`, `.btn-primary`…) — **do not use Tailwind utility classes in htmx templates**. Legacy Alpine pages still use their own CSS (e.g. `customers.html` links `customers.css`); only `web/static/css/auth.css` remains from the pre-Tailwind era.
 
 **Flowbite Core (v4):** vendored at `web/static/js/flowbite.min.js` (v4.0.2 — the new framework-agnostic "Core" line; `@flowbite/core` is NOT on npm). Behaviors only (dropdowns, modals, collapses, tooltips, tabs) via `data-*` attributes + auto-init; **no Flowbite CSS classes used** — pages styled by app.css. Global `window.initFlowbite()` re-inits all components (used by app.js `htmx:afterSwap` hook for fragment swaps). Auto-init runs once at script load — components injected by htmx swaps need the re-init hook. Collapse toggles `.hidden` on the target element, NOT a class on the trigger — chevron rotation in app.css uses `.sb-group:has(.sb-links:not(.hidden))`.
 

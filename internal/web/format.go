@@ -99,3 +99,27 @@ func statusBadge(status string) template.HTML {
 	}
 	return template.HTML(`<span class="badge ` + class + `">` + label + `</span>`)
 }
+
+// accountStatusBadge renders a colored pill for an account status
+// (ACTIVE/FROZEN/INACTIVE). Fixed map — safe to emit as trusted HTML.
+func accountStatusBadge(status string) template.HTML {
+	cls := map[string]string{
+		"active":   "badge-success",
+		"frozen":   "badge-warning",
+		"inactive": "badge-default",
+	}
+	labels := map[string]string{
+		"active":   "Hoạt động",
+		"frozen":   "Ngừng TD",
+		"inactive": "Không dùng",
+	}
+	key := strings.ToLower(status)
+	class, label := cls[key], labels[key]
+	if class == "" {
+		class = "badge-default"
+	}
+	if label == "" {
+		label = status
+	}
+	return template.HTML(`<span class="badge ` + class + `">` + label + `</span>`)
+}

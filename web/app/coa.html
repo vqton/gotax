@@ -1,689 +1,495 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hệ thống tài khoản · GoTax</title>
-  <link rel="stylesheet" href="/assets/css/coa.css">
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth-legacy.js"></script>
-  <script src="/assets/js/app-legacy.js"></script>
-</head>
-<body x-data="coaPage()" x-init="init()">
-
-  <!-- -translate-x-full toggled by hamburger (app-legacy.js); inert on desktop -->
-  <aside id="sidebar" class="-translate-x-full"></aside>
-
-  <div class="app-main">
-    <header id="topbar"></header>
-
-    <template x-if="$store.app.success">
-      <div class="flash flash-success" x-text="$store.app.success"></div>
-    </template>
-    <template x-if="$store.app.error">
-      <div class="flash flash-error" x-text="$store.app.error"></div>
-    </template>
-
-    <!-- ── MISA SME 2026 layout: left category tree + right grid ── -->
-    <div class="page-wrap">
-
-      <!-- Breadcrumb + page title -->
-      <p class="breadcrumb">Danh mục <b>› Hệ thống tài khoản</b></p>
+{{define "content"}}
+      <!-- Page header -->
       <div class="page-head">
-        <h2>Hệ thống tài khoản</h2>
-        <span class="head-count" x-text="treeCount + ' tài khoản'"></span>
-      </div>
-
-      <div class="coa-panes">
-
-        <!-- ═══ LEFT: Danh mục tài khoản (loại tree) ═══ -->
-        <div class="panel tree-panel">
-          <div class="tree-head">
-            <h3>Danh mục tài khoản</h3>
-            <button @click="selectedLoai = null" class="tree-all">Tất cả</button>
-          </div>
-          <div class="tree-body">
-            <template x-for="loai in loaiNodes" :key="loai.code">
-              <div>
-                <!-- loại header -->
-                <button class="tree-node"
-                        :class="selectedLoai === loai.code ? 'selected' : ''"
-                        @click="selectedLoai = selectedLoai === loai.code ? null : loai.code">
-                  <svg class="chev" :class="treeCollapsed[loai.code] ? '' : 'open'" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
-                  <svg class="folder" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
-                  <span class="node-code" x-text="loai.code"></span>
-                  <span class="node-name" x-text="loai.name"></span>
-                  <span class="node-count" x-text="loai.count"></span>
-                </button>
-                <!-- children -->
-                <template x-if="!treeCollapsed[loai.code]">
-                  <div>
-                    <template x-for="kid in loai.children" :key="kid.code">
-                      <button class="tree-node kid"
-                              :class="selectedLoai === kid.code ? 'selected' : ''"
-                              @click="selectedLoai = selectedLoai === kid.code ? null : kid.code">
-                        <svg class="folder-sub" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
-                        <span class="node-code" x-text="kid.code"></span>
-                        <span class="node-name" x-text="kid.name"></span>
-                      </button>
-                    </template>
-                  </div>
-                </template>
-              </div>
-            </template>
-          </div>
+        <div>
+          <h1>Hệ thống tài khoản</h1>
+          <p class="ph-sub">Circular 99/2025/TT-BTC · {{.Data.Total}} dòng · Bấm <b>F2</b> sửa, <b>Insert</b> thêm, <b>Delete</b> xóa</p>
         </div>
-
-        <!-- ═══ RIGHT: toolbar + grid ═══ -->
-        <div class="panel">
-          <!-- toolbar -->
-          <div class="toolbar">
-            <button @click="openCreate()" class="btn btn-primary">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-              Thêm
-            </button>
-            <button @click="openEdit(selected)" :disabled="!selected" class="btn">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-              Sửa
-            </button>
-            <button @click="deleteAccount(selected)" :disabled="!selected" class="btn btn-danger">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              Xóa
-            </button>
-            <span class="divider"></span>
-            <button @click="duplicate(selected)" :disabled="!selected" class="btn">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-              Nhân bản
-            </button>
-            <button @click="openCreateChild(selected)" :disabled="!selected" class="btn" title="Thêm tài khoản con của tài khoản đang chọn">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              Thêm con
-            </button>
-            <button @click="openFreeze()" :disabled="!selected || selected.status === 'INACTIVE'" class="btn"
-                    x-text="selected?.status === 'FROZEN' ? 'Mở khóa' : 'Ngừng theo dõi'"></button>
-            <span class="spacer"></span>
-            <select x-model="statusFilter" class="status-filter" title="Lọc theo trạng thái">
-              <option value="">Tất cả trạng thái</option>
-              <option value="ACTIVE">Đang sử dụng</option>
-              <option value="FROZEN">Ngừng theo dõi</option>
-              <option value="INACTIVE">Không dùng</option>
-            </select>
-            <div class="search-box">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              <input type="text" x-model="search" placeholder="Tìm mã hoặc tên TK...">
-              <button x-show="search" @click="search = ''" class="search-clear" title="Xóa tìm kiếm">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <button @click="exportCSV()" class="btn">Xuất Excel</button>
-            <button @click="printTable()" class="btn">In</button>
-          </div>
-
-          <!-- grid -->
-          <div class="grid-scroll">
-            <table class="coa-table">
-              <thead>
-                <tr>
-                  <th class="text-left">Số hiệu TK</th>
-                  <th class="text-left">Tên tài khoản</th>
-                  <th class="text-left">Tên tiếng Anh</th>
-                  <th class="text-left">Loại TK</th>
-                  <th class="text-left">Tính chất</th>
-                  <th class="text-left">Theo dõi chi tiết</th>
-                  <th class="text-left">Ngoại tệ</th>
-                  <th class="text-left">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="a in filtered" :key="a.code">
-                  <tr :class="selected?.code === a.code ? 'selected' : ''"
-                      @click="selected = a"
-                      @dblclick="openEdit(a)">
-                    <td class="cell-code" :style="'padding-left:' + (12 + (a._depth || 0) * 18) + 'px'">
-                      <span x-show="a._children.length" @click.stop="toggleCollapse(a)" class="row-expand">
-                        <svg x-show="!isCollapsed(a)" class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-                        <svg x-show="isCollapsed(a)" class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
-                      </span>
-                      <span x-text="a.code"></span>
-                    </td>
-                    <td class="cell-name">
-                      <span x-text="a.name"></span>
-                      <!-- TH chip only on real tổng hợp accounts, not 1-char loại headers -->
-                      <span x-show="a.is_parent && a.code.length > 1" class="badge-th" title="Tài khoản tổng hợp">TH</span>
-                    </td>
-                    <td class="cell-muted" x-text="a.name2 || '—'"></td>
-                    <td><span class="badge" :class="typeColor(a.type)" x-text="typeLabel(a.type)"></span></td>
-                    <td>
-                      <span class="badge badge-normal" x-text="normalBalance(a.type) === 'DEBIT' ? 'Nợ' : 'Có'"></span>
-                    </td>
-                    <td>
-                      <span x-show="a.detail_by" class="badge badge-detail" x-text="detailByLabel(a.detail_by)"></span>
-                      <span x-show="!a.detail_by" class="cell-em">—</span>
-                    </td>
-                    <td>
-                      <span x-show="a.is_foreign" class="badge badge-foreign">Ngoại tệ</span>
-                      <span x-show="!a.is_foreign" class="cell-em">—</span>
-                    </td>
-                    <td x-html="statusBadge(a.status || 'ACTIVE')"></td>
-                  </tr>
-                </template>
-                <tr x-show="!filtered.length" class="empty-row">
-                  <td colspan="8">
-                    <span class="empty-ic">📂</span>
-                    Không có tài khoản nào
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="8" class="grid-footer">
-                    <span><b x-text="filtered.length"></b> tài khoản</span>
-                    <template x-if="search">
-                      <span>· tìm thấy <b x-text="filtered.length"></b>/<b x-text="treeCount"></b></span>
-                    </template>
-                    <template x-if="selectedLoai"><span>· danh mục <b x-text="loaiName(selectedLoai)"></b></span></template>
-                    <span class="sep">|</span>
-                    <span>Nợ = Tài sản + Chi phí · Có = Nợ phải trả + VCSH + Thu nhập</span>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Create/Edit modal -->
-  <template x-if="showModal">
-    <div class="modal-overlay" @click.self="showModal=false">
-      <div class="modal" @click.stop>
-        <div class="modal-header">
-          <h3 x-text="editing ? 'Sửa tài khoản' : (duplicating ? 'Nhân bản tài khoản' : 'Thêm tài khoản mới')"></h3>
-          <button @click="showModal=false" class="modal-close">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        <div class="ph-actions">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="CoaUI.exportCsv()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m-4-4l4 4 4-4"/></svg>
+            Xuất Excel
           </button>
         </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="field">
-              <label>Mã tài khoản <span class="req">*</span></label>
-              <input type="text" x-model="form.code" :disabled="editing" placeholder="111, 1111, 511...">
+      </div>
+
+      <div class="coa-layout">
+        <!-- Left pane: loại categories -->
+        <aside class="card coa-pane">
+          <div class="coa-pane-head">Danh mục loại</div>
+          <div class="coa-pane-list">
+            <button type="button" class="coa-pane-item active" data-loai="" onclick="CoaUI.setLoai('')">
+              <span class="p-name">Tất cả tài khoản</span>
+              <span class="p-count">{{.Data.Total}}</span>
+            </button>
+            {{range .Data.Loais}}
+            <button type="button" class="coa-pane-item" data-loai="{{.Code}}" onclick="CoaUI.setLoai('{{.Code}}')">
+              <span class="p-name"><b>{{.Code}}</b> · {{.Name}}</span>
+              <span class="p-count">{{.Count}}</span>
+            </button>
+            {{end}}
+          </div>
+        </aside>
+
+        <div class="coa-main">
+          <!-- Toolbar -->
+          <div class="card coa-toolbar">
+            <div class="tb-left">
+              <button type="button" class="btn btn-primary btn-sm" onclick="CoaUI.open('create')">＋ Thêm</button>
+              <button type="button" class="btn btn-sm" id="coa-child" onclick="CoaUI.open('child')" disabled>＋ Thêm con</button>
+              <button type="button" class="btn btn-sm" id="coa-dup" onclick="CoaUI.open('dup')" disabled>Nhân bản</button>
+              <button type="button" class="btn btn-sm" id="coa-edit" onclick="CoaUI.open('edit')" disabled>Sửa</button>
+              <span class="coa-sep" aria-hidden="true"></span>
+              <button type="button" class="btn btn-danger btn-sm" id="coa-del" disabled
+                hx-post="/app/coa/delete" hx-target="#coa-grid" hx-swap="innerHTML"
+                hx-vals='js:{code: CoaUI.selectedCode()}' hx-confirm="Xóa tài khoản đã chọn?">Xóa</button>
+              <span class="coa-sep" aria-hidden="true"></span>
+              <button type="button" class="btn btn-sm" id="coa-freeze" onclick="CoaUI.openFreeze()" disabled>Ngừng theo dõi</button>
+              <button type="button" class="btn btn-sm" id="coa-unfreeze" disabled
+                hx-post="/app/coa/unfreeze" hx-target="#coa-grid" hx-swap="innerHTML"
+                hx-vals='js:{code: CoaUI.selectedCode()}' hx-confirm="Mở khóa tài khoản đã chọn?">Mở khóa</button>
             </div>
-            <div class="field">
-              <label>Tên tài khoản <span class="req">*</span></label>
-              <input type="text" x-model="form.name" placeholder="Tiền mặt, Hàng tồn kho...">
-            </div>
-            <div class="field full">
-              <label>Tên tiếng Anh</label>
-              <input type="text" x-model="form.name2" placeholder="Cash on hand, Inventories...">
-            </div>
-            <div class="field">
-              <label>Loại tài khoản <span class="req">*</span></label>
-              <select x-model="form.type">
-                <option value="ASSET">Tài sản (Asset)</option>
-                <option value="LIABILITY">Nợ phải trả (Liability)</option>
-                <option value="EQUITY">Vốn chủ sở hữu (Equity)</option>
-                <option value="REVENUE">Thu nhập (Revenue)</option>
-                <option value="EXPENSE">Chi phí (Expense)</option>
+            <div class="tb-right">
+              <input type="search" id="coa-search" class="coa-search" placeholder="Tìm mã / tên tài khoản…" autocomplete="off">
+              <select id="coa-status" class="coa-search sel">
+                <option value="">Mọi trạng thái</option>
+                <option value="ACTIVE">Hoạt động</option>
+                <option value="FROZEN">Ngừng theo dõi</option>
+                <option value="INACTIVE">Không dùng</option>
               </select>
             </div>
-            <div class="field">
-              <label>Tài khoản cha</label>
-              <select x-model="form.parent_code">
-                <option value="">Không có</option>
-                <template x-for="p in parentOptions" :key="p.code">
-                  <option :value="p.code" x-text="p.code + ' — ' + p.name"></option>
-                </template>
-              </select>
-            </div>
-            <div class="field">
-              <label>Theo dõi chi tiết theo</label>
-              <select x-model="form.detail_by">
-                <option value="">Không theo dõi</option>
-                <option value="OBJECT">Đối tượng</option>
-                <option value="PROJECT">Công trình</option>
-                <option value="CONTRACT">Hợp đồng</option>
-                <option value="COST_ITEM">Khoản mục chi phí</option>
-                <option value="DEPARTMENT">Đơn vị</option>
-              </select>
-            </div>
-            <div class="field">
-              <div class="checkline">
-                <input type="checkbox" x-model="form.is_foreign" :disabled="isForcedForeign" id="is_foreign">
-                <label for="is_foreign">Hạch toán ngoại tệ</label>
+          </div>
+
+          <!-- Grid (htmx swap target) -->
+          <div id="coa-grid" class="mt-16">{{template "coa-grid" .}}</div>
+        </div>
+      </div>
+
+      <!-- Create / edit modal -->
+      <div id="coa-modal" class="modal-overlay hidden">
+        <div class="modal modal-lg">
+          <div class="modal-head">
+            <h3 id="coa-modal-title">Thêm tài khoản mới</h3>
+            <button type="button" class="modal-x" onclick="CoaUI.close('coa-modal')" aria-label="Đóng">✕</button>
+          </div>
+          <form id="coa-form" hx-post="/app/coa/save" hx-target="#coa-grid" hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){CoaUI.close('coa-modal')}">
+            <input type="hidden" name="mode" id="coa-mode">
+            <div class="form-grid">
+              <div class="f-col">
+                <label class="f-label" for="coa-code">Mã số tài khoản <span class="f-req">*</span></label>
+                <input type="text" id="coa-code" name="code" required maxlength="6" placeholder="1111" pattern="[0-9]{3,6}">
+                <p class="hint" id="coa-code-hint">3–6 chữ số theo TT99 (VD: 1111)</p>
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="coa-type">Loại <span class="f-req">*</span></label>
+                <select id="coa-type" name="type">
+                  <option value="ASSET">TS — Tài sản</option>
+                  <option value="LIABILITY">NV — Nguồn vốn</option>
+                  <option value="EQUITY">VH — Vốn chủ sở hữu</option>
+                  <option value="REVENUE">DN — Doanh thu</option>
+                  <option value="EXPENSE">CP — Chi phí</option>
+                </select>
+              </div>
+              <div class="f-col span2">
+                <label class="f-label" for="coa-name">Tên tài khoản <span class="f-req">*</span></label>
+                <input type="text" id="coa-name" name="name" required placeholder="VD: Tiền mặt tại quỹ">
+              </div>
+              <div class="f-col span2">
+                <label class="f-label" for="coa-name2">Tên tiếng Anh</label>
+                <input type="text" id="coa-name2" name="name2" placeholder="VD: Cash in hand">
+              </div>
+              <div class="f-col span2">
+                <label class="f-label" for="coa-parent">Tài khoản cha</label>
+                <input type="text" id="coa-parent" name="parent_code" list="coa-parents" placeholder="Trống = tài khoản cấp 1">
+                <datalist id="coa-parents">
+                  {{range .Data.ParentOptions}}<option value="{{.Code}}">{{.Code}} — {{.Name}}</option>{{end}}
+                </datalist>
+                <p class="hint" id="coa-parent-hint"></p>
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="coa-detail">Chi tiết theo</label>
+                <select id="coa-detail" name="detail_by">
+                  <option value="">— Không chi tiết</option>
+                  <option value="OBJECT">Đối tượng</option>
+                  <option value="PROJECT">Công trình</option>
+                  <option value="CONTRACT">Hợp đồng</option>
+                  <option value="COST_ITEM">Khoản mục</option>
+                  <option value="DEPARTMENT">Phòng ban</option>
+                </select>
+              </div>
+              <div class="f-col">
+                <label class="f-label">Ngoại tệ</label>
+                <label class="f-check">
+                  <input type="checkbox" id="coa-foreign" name="is_foreign"> Theo dõi ngoại tệ
+                </label>
+                <p class="hint" id="coa-foreign-hint"></p>
               </div>
             </div>
+            <div class="modal-foot">
+              <button type="button" class="btn" onclick="CoaUI.close('coa-modal')">Hủy</button>
+              <button type="submit" class="btn btn-primary" id="coa-save-btn">Thêm tài khoản</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Freeze modal (reason required) -->
+      <div id="coa-freeze-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <div class="modal-head">
+            <h3>Ngừng theo dõi tài khoản</h3>
+            <button type="button" class="modal-x" onclick="CoaUI.close('coa-freeze-modal')" aria-label="Đóng">✕</button>
           </div>
-          <p x-show="isForcedForeign" class="form-note note-warn">
-            Tài khoản <span class="font-semibold" x-text="form.code"></span> bắt buộc hạch toán ngoại tệ theo quy định TT99/2025/TT-BTC.
-          </p>
-          <p x-show="form.parent_code" class="form-note note-info">
-            Lưu ý: TK tổng hợp không hạch toán trực tiếp. Chỉ hạch toán trên tài khoản chi tiết cấp con.
-          </p>
-        </div>
-        <div class="modal-footer">
-          <button @click="showModal=false" class="btn-cancel">Hủy</button>
-          <button @click="saveAccount()" :disabled="saving" class="btn btn-primary">
-            <span x-show="!saving" x-text="editing ? 'Cập nhật' : 'Thêm mới'"></span>
-            <span x-show="saving">Đang lưu...</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <!-- Delete confirmation -->
-  <template x-if="showDeleteConfirm">
-    <div class="modal-overlay" @click.self="showDeleteConfirm=false">
-      <div class="modal modal-sm" @click.stop>
-        <div class="modal-header">
-          <h3>Xác nhận xóa</h3>
-          <button @click="showDeleteConfirm=false" class="modal-close">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <p>Bạn có chắc chắn muốn xóa tài khoản <b x-text="deletingAccount?.code"></b> — <b x-text="deletingAccount?.name"></b>?</p>
-        </div>
-        <div class="modal-footer">
-          <button @click="showDeleteConfirm=false" class="btn-cancel">Hủy</button>
-          <button @click="confirmDelete()" class="btn btn-danger">Xóa</button>
+          <form hx-post="/app/coa/freeze" hx-target="#coa-grid" hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){CoaUI.close('coa-freeze-modal')}">
+            <input type="hidden" name="code" id="coa-freeze-code">
+            <div class="form-grid">
+              <div class="f-col span2">
+                <label class="f-label" for="coa-freeze-reason">Lý do ngừng theo dõi <span class="f-req">*</span></label>
+                <textarea id="coa-freeze-reason" name="reason" rows="3" required placeholder="VD: Tài khoản hết nhu cầu sử dụng, đang chuyển đổi sang TT99"></textarea>
+              </div>
+            </div>
+            <div class="modal-foot">
+              <button type="button" class="btn" onclick="CoaUI.close('coa-freeze-modal')">Hủy</button>
+              <button type="submit" class="btn btn-primary">Xác nhận ngừng theo dõi</button>
+            </div>
+          </form>
         </div>
       </div>
-    </div>
-  </template>
 
-  <!-- Freeze/Unfreeze modal -->
-  <template x-if="showFreezeModal">
-    <div class="modal-overlay" @click.self="showFreezeModal=false">
-      <div class="modal modal-sm" @click.stop>
-        <div class="modal-header">
-          <h3 x-text="freezingAccount?.status === 'FROZEN' ? 'Mở khóa tài khoản' : 'Ngừng theo dõi tài khoản'"></h3>
-          <button @click="showFreezeModal=false" class="modal-close">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <p><b x-text="freezingAccount?.code"></b> — <b x-text="freezingAccount?.name"></b></p>
-          <div class="field" style="margin-top:10px">
-            <label>Lý do <span class="req">*</span></label>
-            <textarea x-model="freezeReason" rows="3" placeholder="Ghi rõ lý do ngừng theo dõi / mở khóa..."></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="showFreezeModal=false" class="btn-cancel">Hủy</button>
-          <button @click="confirmFreeze()" :disabled="saving || !freezeReason.trim()" class="btn btn-primary">
-            <span x-show="!saving" x-text="freezingAccount?.status === 'FROZEN' ? 'Mở khóa' : 'Ngừng theo dõi'"></span>
-            <span x-show="saving">Đang lưu...</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </template>
+      <script>
+        (function () {
+          "use strict";
 
-<style>
-  @media print {
-    thead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
+          /* ── State ── */
+          var selCode = null;      // selected account code ('' for none)
+          var collapsed = {};      // code → true (subtree hidden)
+          var activeLoai = '';     // '' = all loại
+          var searchEl = document.getElementById('coa-search');
+          var statusEl = document.getElementById('coa-status');
 
-<script>
-const TYPE_COLORS = {
-  ASSET: "badge-type-asset",
-  LIABILITY: "badge-type-liability",
-  EQUITY: "badge-type-equity",
-  REVENUE: "badge-type-revenue",
-  EXPENSE: "badge-type-expense",
-};
-const TYPE_LABELS = {
-  ASSET: "Tài sản",
-  LIABILITY: "Nợ phải trả",
-  EQUITY: "Vốn CSH",
-  REVENUE: "Thu nhập",
-  EXPENSE: "Chi phí",
-};
-const DETAIL_BY_LABELS = {
-  OBJECT: "Đối tượng",
-  PROJECT: "Công trình",
-  CONTRACT: "Hợp đồng",
-  COST_ITEM: "Khoản mục CP",
-  DEPARTMENT: "Đơn vị",
-};
-// TT99/2025/TT-BTC: tài khoản tiền gửi ngoại tệ bắt buộc hạch toán ngoại tệ
-const FORCED_FOREIGN_CODES = ["1112", "1122", "1132"];
-
-function coaPage() {
-  return {
-    accounts: [],
-    search: "",
-    statusFilter: "", // '' | ACTIVE | FROZEN | INACTIVE
-    showModal: false,
-    showDeleteConfirm: false,
-    showFreezeModal: false,
-    editing: false,
-    duplicating: false,
-    saving: false,
-    selected: null,
-    deletingAccount: null,
-    freezingAccount: null,
-    freezeReason: "",
-    collapsed: {},      // grid subtree collapse state
-    treeCollapsed: {},  // left panel loại collapse state
-    selectedLoai: null, // loại code or cấp 1 code filter; null = all
-    form: { code: "", name: "", name2: "", type: "ASSET", parent_code: "", detail_by: "", is_foreign: false, is_active: true },
-
-    /* ── LEFT tree: loại nodes + their direct cấp 1 children ── */
-    get loaiNodes() {
-      const byCode = {};
-      this.accounts.forEach(a => { byCode[a.code] = a; });
-      return this.accounts
-        .filter(a => !a.parent_code && a.code.length <= 2)
-        .map(loai => ({
-          code: loai.code,
-          name: loai.name,
-          count: this.accounts.filter(a => (a.parent_code || "").startsWith(loai.code) || a.code === loai.code).length,
-          children: this.accounts
-            .filter(a => a.parent_code === loai.code)
-            .map(kid => ({ code: kid.code, name: kid.name })),
-        }))
-        .sort((a, b) => a.code.localeCompare(b.code, "vi", { numeric: true }));
-    },
-
-    get treeCount() { return this.accounts.length; },
-
-    loaiName(code) {
-      const a = this.accounts.find(x => x.code === code);
-      return a ? a.name : "";
-    },
-
-    /* ── RIGHT grid: filtered by selection + status + search, tree-walked ── */
-    get filtered() {
-      const q = this.search.toLowerCase();
-      let list = this.accounts;
-      if (this.selectedLoai) {
-        const root = this.selectedLoai;
-        list = list.filter(a => a.code === root || (a.parent_code || "").startsWith(root));
-      }
-      if (this.statusFilter) {
-        list = list.filter(a => (a.status || "ACTIVE") === this.statusFilter);
-      }
-      if (q) {
-        const matched = new Set();
-        list.forEach(a => {
-          if (a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || (a.name2 || "").toLowerCase().includes(q)) {
-            matched.add(a.code);
+          function rows() {
+            return Array.prototype.slice.call(
+              document.querySelectorAll('#coa-grid .coa-row, #coa-grid .coa-loai-row'));
           }
-        });
-        list = list.filter(a => {
-          if (matched.has(a.code)) return true;
-          for (const m of matched) {
-            if (m.startsWith(a.code)) return true;
+          function byCode() {
+            var m = {};
+            rows().forEach(function (r) { m[r.dataset.code] = r; });
+            return m;
           }
-          return false;
-        });
-      }
-      const byCode = {};
-      list.forEach(a => { byCode[a.code] = { ...a, _depth: 0, _children: [] }; });
-      const roots = [];
-      list.forEach(a => {
-        const node = byCode[a.code];
-        if (a.parent_code && byCode[a.parent_code]) {
-          byCode[a.parent_code]._children.push(node);
-          node._depth = (byCode[a.parent_code]._depth || 0) + 1;
-        } else {
-          roots.push(node);
-        }
-      });
-      const flat = [];
-      const walk = (nodes) => {
-        nodes.forEach(n => {
-          flat.push(n);
-          if (q || !this.isCollapsed(n)) walk(n._children);
-        });
-      };
-      walk(roots);
-      return flat;
-    },
+          function isLoai(r) { return r.classList.contains('coa-loai-row'); }
+          function totalAccounts() {
+            return rows().filter(function (r) { return !isLoai(r); }).length;
+          }
 
-    isCollapsed(a) { return !!this.collapsed[a.code]; },
-    toggleCollapse(a) {
-      if (this.collapsed[a.code]) {
-        delete this.collapsed[a.code];
-      } else {
-        this.collapsed[a.code] = true;
-      }
-    },
+          /* ── Visibility (search + status + loại + collapse) ── */
+          function sync() {
+            var q = (searchEl.value || '').toLowerCase();
+            var st = statusEl.value;
+            var map = byCode();
+            var visible = 0;
+            rows().forEach(function (r) {
+              var show = true;
+              if (isLoai(r)) {
+                if (q && r.dataset.search.indexOf(q) === -1) show = false;
+                if (activeLoai && r.dataset.code !== activeLoai) show = false;
+              } else {
+                if (q && r.dataset.search.indexOf(q) === -1) show = false;
+                if (st && r.dataset.status !== st) show = false;
+                if (activeLoai && r.dataset.loai !== activeLoai) show = false;
+                if (show) { // walk ancestors; any collapsed → hide
+                  var p = r.dataset.parent;
+                  while (p) {
+                    if (collapsed[p]) { show = false; break; }
+                    var pr = map[p];
+                    p = pr ? pr.dataset.parent : '';
+                  }
+                }
+                if (show) visible++;
+              }
+              r.style.display = show ? '' : 'none';
+            });
+            // caret glyphs
+            Object.keys(collapsed).forEach(function (code) {
+              var b = document.querySelector('.coa-caret[data-code="' + code + '"]');
+              if (b) b.textContent = '▸';
+            });
+            document.querySelectorAll('.coa-caret').forEach(function (b) {
+              if (!collapsed[b.dataset.code]) b.textContent = '▾';
+            });
+            // left pane active state
+            document.querySelectorAll('.coa-pane-item').forEach(function (b) {
+              b.classList.toggle('active', b.dataset.loai === activeLoai);
+            });
+            var total = totalAccounts();
+            var el = document.getElementById('coa-count');
+            if (el) el.textContent = 'Hiển thị ' + visible + ' / ' + total + ' tài khoản';
+          }
 
-    typeColor(t) { return TYPE_COLORS[t] || "badge-normal"; },
-    typeLabel(t) { return TYPE_LABELS[t] || t; },
-    detailByLabel(d) { return DETAIL_BY_LABELS[d] || "—"; },
-    normalBalance(t) { return (t === "ASSET" || t === "EXPENSE") ? "DEBIT" : "CREDIT"; },
-    statusBadge(s) {
-      const map = {
-        ACTIVE: "badge-status-active",
-        FROZEN: "badge-status-frozen",
-        INACTIVE: "badge-status-inactive",
-      };
-      const label = { ACTIVE: "Đang sử dụng", FROZEN: "Ngừng theo dõi", INACTIVE: "Không dùng" };
-      return `<span class="badge ${map[s] || map.ACTIVE}">${label[s] || s}</span>`;
-    },
+          /* ── Selection + toolbar state ── */
+          function selectRow(r) {
+            selCode = r ? r.dataset.code : null;
+            rows().forEach(function (x) { x.classList.remove('sel'); });
+            if (r && !isLoai(r)) r.classList.add('sel');
+            updateActions();
+          }
+          function selectedRow() {
+            if (!selCode) return null;
+            var r = byCode()[selCode];
+            return r && !isLoai(r) ? r : null;
+          }
+          function updateActions() {
+            var r = selectedRow();
+            var ok = !!r;
+            ['coa-child', 'coa-dup', 'coa-edit', 'coa-del'].forEach(function (id) {
+              document.getElementById(id).disabled = !ok;
+            });
+            var frozen = ok && r.dataset.status === 'FROZEN';
+            document.getElementById('coa-freeze').disabled = !ok || frozen;
+            document.getElementById('coa-unfreeze').disabled = !ok || !frozen;
+          }
+          function selectedCode() { return selCode || ''; }
 
-    get isForcedForeign() {
-      return FORCED_FOREIGN_CODES.includes(this.form.code);
-    },
+          /* ── Modal ── */
+          var forcedForeign = { '1112': 1, '1122': 1, '1132': 1 }; // TT99 mandatory FX accounts
 
-    get parentOptions() {
-      const excluded = new Set([this.form.code]);
-      if (this.editing) {
-        const walk = (code) => {
-          this.accounts.forEach(a => {
-            if (a.parent_code === code && !excluded.has(a.code)) {
-              excluded.add(a.code);
-              walk(a.code);
+          function parentName(code) {
+            var r = byCode()[code];
+            return r ? r.dataset.name : '';
+          }
+
+          function open(mode) {
+            var form = document.getElementById('coa-form');
+            form.reset();
+            var isUpdate = (mode === 'edit');
+            document.getElementById('coa-code').readOnly = isUpdate;
+            var sel = selectedRow();
+            var title = 'Thêm tài khoản mới';
+            var saveLabel = 'Thêm tài khoản';
+            var hint = '3–6 chữ số theo TT99 (VD: 1111)';
+
+            if (mode === 'edit' && sel) {
+              title = 'Sửa tài khoản ' + sel.dataset.code;
+              saveLabel = 'Lưu tài khoản';
+              hint = 'Mã số không đổi được khi sửa';
+              document.getElementById('coa-code').value = sel.dataset.code;
+              document.getElementById('coa-name').value = sel.dataset.name;
+              document.getElementById('coa-name2').value = sel.dataset.name2 || '';
+              document.getElementById('coa-type').value = sel.dataset.type;
+              document.getElementById('coa-parent').value = sel.dataset.parent || '';
+              document.getElementById('coa-detail').value = sel.dataset.detail;
+              document.getElementById('coa-foreign').checked = sel.dataset.foreign === 'true';
+            } else if (mode === 'child' && sel) {
+              title = 'Thêm tài khoản con của ' + sel.dataset.code;
+              document.getElementById('coa-parent').value = sel.dataset.code;
+              document.getElementById('coa-name').value = '';
+            } else if (mode === 'dup' && sel) {
+              title = 'Nhân bản tài khoản ' + sel.dataset.code;
+              // copy all editable fields, clear the code
+              document.getElementById('coa-name').value = sel.dataset.name;
+              document.getElementById('coa-name2').value = sel.dataset.name2 || '';
+              document.getElementById('coa-type').value = sel.dataset.type;
+              document.getElementById('coa-detail').value = sel.dataset.detail;
+              document.getElementById('coa-foreign').checked = sel.dataset.foreign === 'true';
+              document.getElementById('coa-parent').value = sel.dataset.parent || '';
+            }
+
+            document.getElementById('coa-mode').value = isUpdate ? 'update' : 'create';
+            document.getElementById('coa-modal-title').textContent = title;
+            document.getElementById('coa-save-btn').textContent = saveLabel;
+            document.getElementById('coa-code-hint').textContent = hint;
+            onCodeInput();
+            document.getElementById('coa-modal').classList.remove('hidden');
+            document.getElementById('coa-code').focus();
+          }
+
+          function onCodeInput() {
+            var code = document.getElementById('coa-code').value.trim();
+            var fx = document.getElementById('coa-foreign');
+            var hint = document.getElementById('coa-foreign-hint');
+            if (forcedForeign[code]) {
+              fx.checked = true;
+              fx.disabled = true;
+              hint.textContent = 'Tài khoản ngoại tệ bắt buộc theo TT99';
+            } else {
+              fx.disabled = false;
+              hint.textContent = '';
+            }
+            var ph = document.getElementById('coa-parent');
+            var phHint = document.getElementById('coa-parent-hint');
+            var pname = parentName(ph.value.trim());
+            phHint.textContent = pname ? 'TK cha: ' + pname : '';
+          }
+
+          function openFreeze() {
+            var r = selectedRow();
+            if (!r) return;
+            document.getElementById('coa-freeze-code').value = r.dataset.code;
+            document.getElementById('coa-freeze-reason').value = '';
+            document.getElementById('coa-freeze-modal').classList.remove('hidden');
+            document.getElementById('coa-freeze-reason').focus();
+          }
+
+          function close(id) {
+            document.getElementById(id).classList.add('hidden');
+          }
+
+          /* ── CSV export (visible rows) ── */
+          function exportCsv() {
+            var head = 'Mã TK,Tên tài khoản,TK cha,Loại,Tính chất,Chi tiết theo,Ngoại tệ,Trạng thái';
+            var lines = [head];
+            rows().forEach(function (r) {
+              if (r.style.display === 'none') return;
+              if (isLoai(r)) return;
+              var cell = function (v) {
+                v = (v || '').replace(/"/g, '""');
+                return '"' + v + '"';
+              };
+              lines.push([
+                cell(r.dataset.code), cell(r.dataset.name), cell(r.dataset.parent),
+                cell(r.querySelector('.badge').textContent),
+                cell(r.querySelector('.normal').textContent),
+                cell(r.querySelector('.col-detail').textContent.trim()),
+                r.dataset.foreign === 'true' ? 'Có' : '',
+                cell(r.querySelector('.badge.status').textContent)
+              ].join(','));
+            });
+            var blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'he-thong-tai-khoan.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }
+
+          /* ── Events ── */
+          document.getElementById('coa-grid').addEventListener('click', function (e) {
+            var caret = e.target.closest('.coa-caret');
+            var row = e.target.closest('tr');
+            if (!row) return;
+            if (caret) {
+              e.stopPropagation();
+              var code = caret.dataset.code;
+              if (collapsed[code]) delete collapsed[code]; else collapsed[code] = true;
+              sync();
+              return;
+            }
+            if (isLoai(row)) {
+              activeLoai = activeLoai === row.dataset.code ? '' : row.dataset.code;
+              sync();
+              return;
+            }
+            if (e.target.closest('.coa-table')) selectRow(row);
+          });
+          document.getElementById('coa-grid').addEventListener('dblclick', function (e) {
+            var row = e.target.closest('.coa-row');
+            if (row && !e.target.closest('.coa-caret')) open('edit');
+          });
+          searchEl.addEventListener('input', sync);
+          statusEl.addEventListener('change', sync);
+          document.getElementById('coa-code').addEventListener('input', onCodeInput);
+          document.getElementById('coa-parent').addEventListener('input', onCodeInput);
+
+          document.addEventListener('keydown', function (e) {
+            var tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+            if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); open('edit'); }
+            else if (e.key === 'Insert') { e.preventDefault(); open('create'); }
+            else if (e.key === 'Delete' || e.key === 'Backspace') {
+              var del = document.getElementById('coa-del');
+              if (!del.disabled) del.click();
+            } else if (e.key === 'Escape') {
+              close('coa-modal'); close('coa-freeze-modal');
             }
           });
-        };
-        walk(this.form.code);
-      }
-      return this.accounts.filter(a => !excluded.has(a.code));
-    },
 
-    async init() {
-      mountAppShell("Hệ thống tài khoản", "/app/coa.html");
-      // Keyboard shortcuts: Enter = sửa, Delete = xóa (MISA-style)
-      document.addEventListener("keydown", (e) => {
-        if (this.showModal || this.showDeleteConfirm || this.showFreezeModal) return;
-        const tag = (e.target.tagName || "").toLowerCase();
-        if (tag === "input" || tag === "textarea" || tag === "select") return;
-        if ((e.key === "Enter" || e.key === "F2") && this.selected) {
-          e.preventDefault();
-          this.openEdit(this.selected);
-        } else if ((e.key === "Delete" || e.key === "Backspace") && this.selected) {
-          e.preventDefault();
-          this.deleteAccount(this.selected);
-        }
-      });
-      try {
-        const res = await apiGet("/accounts");
-        this.accounts = Array.isArray(res) ? res : (res?.data || []);
-      } catch (e) {
-        console.error("coa init:", e);
-        this.$store.app.flashError(e.error || "Không thể tải danh sách tài khoản");
-      }
-    },
+          // After any htmx grid swap (create/update/delete/freeze/unfreeze):
+          // re-apply the active filter, reset selection.
+          document.addEventListener('htmx:afterSwap', function () {
+            selCode = null;
+            if (searchEl && statusEl) { sync(); updateActions(); }
+          });
 
-    emptyForm() {
-      return { code: "", name: "", name2: "", type: "ASSET", parent_code: "", detail_by: "", is_foreign: false };
-    },
+          window.CoaUI = {
+            open: open, openFreeze: openFreeze, close: close,
+            setLoai: function (code) {
+              activeLoai = activeLoai === code ? '' : code;
+              sync();
+            },
+            selectedCode: selectedCode, exportCsv: exportCsv
+          };
 
-    openCreate() {
-      this.editing = false;
-      this.duplicating = false;
-      this.form = this.emptyForm();
-      this.showModal = true;
-      this.syncFormSelects();
-    },
+          sync();
+        })();
+      </script>
+{{end}}
 
-    openCreateChild(a) {
-      if (!a) return;
-      this.openCreate();
-      this.form.parent_code = a.code;
-    },
-
-    // Alpine renders x-model select before nested x-for options exist,
-    // so the DOM selection is lost on open — re-apply it after render.
-    syncFormSelects() {
-      requestAnimationFrame(() => {
-        const sel = document.querySelector('select[x-model="form.parent_code"]');
-        if (sel) sel.value = this.form.parent_code || "";
-      });
-    },
-
-    duplicate(a) {
-      if (!a) return;
-      this.editing = false;
-      this.duplicating = true;
-      this.form = {
-        code: "",
-        name: a.name,
-        name2: a.name2 || "",
-        type: a.type || "ASSET",
-        parent_code: a.parent_code || "",
-        detail_by: a.detail_by || "",
-        is_foreign: !!a.is_foreign,
-        is_active: a.is_active !== false,
-      };
-      this.showModal = true;
-      this.syncFormSelects();
-    },
-
-    openEdit(a) {
-      if (!a) return;
-      this.editing = true;
-      this.duplicating = false;
-      this.form = {
-        code: a.code,
-        name: a.name,
-        name2: a.name2 || "",
-        type: a.type || "ASSET",
-        parent_code: a.parent_code || "",
-        detail_by: a.detail_by || "",
-        is_foreign: !!a.is_foreign,
-        is_active: a.is_active !== false,
-      };
-      if (this.isForcedForeign) this.form.is_foreign = true;
-      this.showModal = true;
-      this.syncFormSelects();
-    },
-
-    async saveAccount() {
-      if (this.isForcedForeign) this.form.is_foreign = true;
-      if (!this.form.code || !this.form.name) {
-        this.$store.app.flashError("Vui lòng nhập mã và tên tài khoản");
-        return;
-      }
-      this.saving = true;
-      try {
-        if (this.editing) {
-          await apiPut(`/accounts/${this.form.code}`, this.form);
-          this.$store.app.flashSuccess("Đã cập nhật tài khoản");
-        } else {
-          await apiPost("/accounts", this.form);
-          this.$store.app.flashSuccess("Đã thêm tài khoản mới");
-        }
-        this.showModal = false;
-        await this.reload();
-      } catch (e) {
-        this.$store.app.flashError(e.error || "Lỗi lưu tài khoản");
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    deleteAccount(a) {
-      if (!a) return;
-      this.deletingAccount = a;
-      this.showDeleteConfirm = true;
-    },
-
-    async confirmDelete() {
-      if (!this.deletingAccount) return;
-      try {
-        await apiDelete(`/accounts/${this.deletingAccount.code}`);
-        this.showDeleteConfirm = false;
-        this.deletingAccount = null;
-        this.selected = null;
-        await this.reload();
-        this.$store.app.flashSuccess("Đã xóa tài khoản");
-      } catch (e) {
-        this.$store.app.flashError(e.error || "Không thể xóa tài khoản");
-      }
-    },
-
-    openFreeze() {
-      if (!this.selected) return;
-      this.freezingAccount = this.selected;
-      this.freezeReason = "";
-      this.showFreezeModal = true;
-    },
-
-    async confirmFreeze() {
-      if (!this.freezingAccount || !this.freezeReason.trim()) return;
-      this.saving = true;
-      const code = this.freezingAccount.code;
-      const frozen = this.freezingAccount.status === "FROZEN";
-      try {
-        const res = await apiPost(`/coa/accounts/${code}/${frozen ? "unfreeze" : "freeze"}`, { reason: this.freezeReason.trim() });
-        this.showFreezeModal = false;
-        this.freezingAccount = null;
-        this.freezeReason = "";
-        await this.reload();
-        this.$store.app.flashSuccess(frozen ? "Đã mở khóa tài khoản" : "Đã ngừng theo dõi tài khoản");
-      } catch (e) {
-        this.$store.app.flashError(e.error || "Lỗi cập nhật trạng thái");
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    exportCSV() {
-      const rows = this.filtered.map(a => [
-        a.code,
-        a.name,
-        a.name2 || "",
-        TYPE_LABELS[a.type] || a.type,
-        this.normalBalance(a.type) === "DEBIT" ? "Nợ" : "Có",
-        a.parent_code || "",
-        a.is_foreign ? "Có" : "",
-        a.detail_by ? (DETAIL_BY_LABELS[a.detail_by] || a.detail_by) : "",
-        a.status === "FROZEN" ? "Ngừng theo dõi" : (a.status === "INACTIVE" ? "Không dùng" : "Đang sử dụng"),
-      ]);
-      const csv = "\uFEFF" + ["Số hiệu TK", "Tên tài khoản", "Tên tiếng Anh", "Loại", "Tính chất", "TK cha", "Ngoại tệ", "Theo dõi chi tiết", "Trạng thái"]
-        .concat(rows.map(r => r.map(v => '"' + (v || "").replace(/"/g, '""') + '"').join(","))).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const aEl = document.createElement("a");
-      aEl.href = url;
-      aEl.download = "he-thong-tai-khoan.csv";
-      aEl.click();
-      URL.revokeObjectURL(url);
-    },
-
-    printTable() {
-      window.print();
-    },
-
-    async reload() {
-      const res = await apiGet("/accounts");
-      this.accounts = Array.isArray(res) ? res : (res?.data || []);
-      if (this.selected) {
-        this.selected = this.accounts.find(a => a.code === this.selected.code) || null;
-      }
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+{{define "coa-grid"}}
+      <div class="card">
+        <div class="table-wrap">
+          <table class="coa-table">
+            <thead>
+              <tr>
+                <th class="col-code">Mã TK</th>
+                <th>Tên tài khoản</th>
+                <th class="col-parent">TK cha</th>
+                <th class="col-type">Loại</th>
+                <th class="col-normal">Tính chất</th>
+                <th class="col-detail">Chi tiết theo</th>
+                <th class="col-foreign">NT</th>
+                <th class="col-status">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Data.Rows}}
+              {{if .IsLoai}}
+              <tr class="coa-loai-row" data-code="{{.Code}}" data-search="{{.Code}} {{.Name}}">
+                <td colspan="8">
+                  <span class="coa-loai-name">
+                    <button type="button" class="coa-caret" data-code="{{.Code}}" title="Thu gọn / mở rộng" aria-label="Thu gọn / mở rộng">▾</button>
+                    <strong>Loại {{.Code}}</strong> — {{.Name}}
+                  </span>
+                  <span class="coa-loai-count">{{.LoaiCount}} tài khoản</span>
+                </td>
+              </tr>
+              {{else}}
+              <tr class="coa-row" data-code="{{.Code}}" data-parent="{{.ParentCode}}" data-loai="{{.LoaiCode}}"
+                data-status="{{.Status}}" data-search="{{.Search}}" data-depth="{{.Depth}}"
+                data-name="{{.Name}}" data-name2="{{.Name2}}" data-type="{{.Type}}"
+                data-detail="{{.DetailBy}}" data-foreign="{{.IsForeign}}"
+                {{if .FreezeReason}}title="Ngừng theo dõi: {{.FreezeReason}}"{{end}}>
+                <td class="col-code">
+                  <span class="coa-indent" style="--d:{{.Depth}}">
+                    {{if .HasChildren}}
+                    <button type="button" class="coa-caret" data-code="{{.Code}}" title="Thu gọn / mở rộng" aria-label="Thu gọn / mở rộng">▾</button>
+                    {{else}}<span class="coa-caret-spacer"></span>{{end}}
+                    <span class="coa-code">{{.Code}}</span>
+                  </span>
+                </td>
+                <td class="col-name">
+                  <span class="coa-t">{{.Name}}</span>
+                  {{if .Name2}}<span class="coa-t2">{{.Name2}}</span>{{end}}
+                </td>
+                <td class="col-parent">{{if .ParentCode}}<span class="mono">{{.ParentCode}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+                <td class="col-type"><span class="badge {{.TypeClass}}" title="{{.TypeName}}">{{.TypeLabel}}</span></td>
+                <td class="col-normal"><span class="normal {{.NormalClass}}">{{.Normal}}</span></td>
+                <td class="col-detail muted">{{.DetailLabel}}</td>
+                <td class="col-foreign">{{if .IsForeign}}<span class="fx">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
+                <td class="col-status"><span class="badge status">{{.StatusLabel}}</span></td>
+              </tr>
+              {{end}}
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        <div class="coa-foot">
+          <span id="coa-count">Hiển thị toàn bộ tài khoản</span>
+          <span class="coa-legend">
+            <span class="legend-item"><span class="dot dot-debit"></span> Dư Nợ — Tài sản, Chi phí</span>
+            <span class="legend-item"><span class="dot dot-credit"></span> Dư Có — Nguồn vốn, Doanh thu</span>
+            <span class="legend-item"><span class="dot dot-frozen"></span> Ngừng theo dõi</span>
+          </span>
+        </div>
+      </div>
+{{end}}
