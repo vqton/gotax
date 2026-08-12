@@ -3,8 +3,7 @@ package domain
 import "time"
 
 type AccountGORM struct {
-	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Code         string    `gorm:"column:code;uniqueIndex;not null;size:20" json:"code"`
+	Code         string    `gorm:"column:code;primaryKey;size:20" json:"code"`
 	Name         string    `gorm:"column:name;not null;size:255" json:"name"`
 	Name2        string    `gorm:"column:name2;size:255" json:"name2"`
 	Type         string    `gorm:"column:type;not null;size:20" json:"type"`

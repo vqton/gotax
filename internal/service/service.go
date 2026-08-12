@@ -265,6 +265,11 @@ func (s *service) CreateAccount(ctx context.Context, account *domain.Account) er
 	if existing != nil {
 		return domain.ErrAccountCodeExists
 	}
+	if account.ParentCode != "" {
+		if _, err := s.accounts.GetByCode(ctx, account.ParentCode); err != nil {
+			return err
+		}
+	}
 	return s.accounts.Create(ctx, account)
 }
 
@@ -284,12 +289,19 @@ func (s *service) UpdateAccount(ctx context.Context, account *domain.Account) er
 	if existing == nil {
 		return domain.ErrAccountNotFound
 	}
+	if err := account.Validate(); err != nil {
+		return err
+	}
+	// PUT payload carries editable fields only; lifecycle fields are
+	// managed by freeze/unfreeze and must survive a plain edit.
+	account.IsActive = existing.IsActive
+	account.Status = existing.Status
+	account.FreezeReason = existing.FreezeReason
 	return s.accounts.Update(ctx, account)
 }
 
 func (s *service) DeleteAccount(ctx context.Context, code string) error {
-	_, err := s.accounts.GetByCode(ctx, code)
-	if err != nil {
+	if _, err := s.accounts.GetByCode(ctx, code); err != nil {
 		return err
 	}
 	children, err := s.accounts.GetChildren(ctx, code)
@@ -298,6 +310,16 @@ func (s *service) DeleteAccount(ctx context.Context, code string) error {
 	}
 	if len(children) > 0 {
 		return domain.ErrAccountHasChildren
+	}
+	// Block deletion of accounts used in posted journal entries: PG would
+	// hit the FK constraint (raw 500), memory backend would leave dangling
+	// line references. TT99 keeps accounts with balance/usage open — freeze instead.
+	usage, err := s.journals.GetAccountUsage(ctx, code)
+	if err != nil {
+		return err
+	}
+	if usage.EntryCount > 0 {
+		return domain.ErrAccountHasBalance
 	}
 	return s.accounts.Delete(ctx, code)
 }

@@ -39,8 +39,8 @@ Competitors (MISA, Fast, BravoERP) offer mature COA modules with import/export, 
 ## 3. Scope
 
 ### In Scope (Phase 1)
-- Full Circular 99 COA with all 71 Level-1 accounts + missing accounts (215, 332, 158, 171, 82112)
-- Loai 0 (Off-balance sheet) accounts support
+- Full Circular 99 COA with all 71 Level-1 accounts + full Appendix II detail (215, 332, 158, 171, 82112 seeded; 22 missing detail accounts added in migration 000041)
+- Loai 0 (Off-balance sheet) accounts — N/A: TT99 eliminated Loai 0 (001-009) from Appendix II
 - COA CSV/Excel import with validation, mapping, rollback
 - COA CSV/Excel/PDF export
 - Mass account operations (update, activate, deactivate, freeze)
@@ -105,7 +105,7 @@ Competitors (MISA, Fast, BravoERP) offer mature COA modules with import/export, 
 | ID | Requirement | Priority |
 |---|---|---|
 | FR1.1 | Pre-seed Circular 99 COA (71 L1 accounts + sub-accounts) | P0 |
-| FR1.2 | Support Loai 0 (Off-balance sheet: 001-009) | P0 |
+| FR1.2 | Loai 0 (Off-balance sheet: 001-009) — N/A: TT99 eliminated Loai 0 from Appendix II; reject codes starting '0' | N/A |
 | FR1.3 | User can add new accounts (code, name, type, parent) | P0 |
 | FR1.4 | User can modify account name, attributes (type locked if used) | P0 |
 | FR1.5 | User can deactivate account (soft-delete, no impact on history) | P0 |

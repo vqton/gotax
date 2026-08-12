@@ -157,9 +157,9 @@ func ValidateAccountCode(code, parentCode string, existingCodes map[string]bool)
         return ErrAccountCodeInvalid
     }
     // R003: first digit valid
+    // TT99 eliminated Loai 0 (off-balance 001-009) — '0' now invalid.
     first := code[0]
     switch first {
-    case '0': // Loai 0: off-balance sheet
     case '1','2': // Loai 1,2: ASSET
     case '3': // Loai 3: LIABILITY
     case '4': // Loai 4: EQUITY

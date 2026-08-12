@@ -243,7 +243,7 @@ closing_balance = (opening_debit + period_debit) - (opening_credit + period_cred
 |---|---|
 | R001 | Code must be numeric only |
 | R002 | Code min 3 characters, max 20 |
-| R003 | First digit must match account type (1-2=ASSET, 3=LIABILITY, 4=EQUITY, 5-7=REVENUE, 6-8=EXPENSE) |
+| R003 | First digit must match account type (1-2=ASSET, 3=LIABILITY, 4=EQUITY, 5+7=REVENUE, 6+8+9=EXPENSE) |
 | R004 | Parent's code must be prefix of child code |
 | R005 | Code must be unique within tenant |
 | R006 | Code cannot be changed once journal entries reference it |

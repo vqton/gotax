@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,18 +35,28 @@ func NewPGClosingTemplateRepo(db *gorm.DB) *PGClosingTemplateRepo { return &PGCl
 // account methods reuse domain.Account; use Raw or model scans.
 
 func (r *PGAccountRepo) Create(ctx context.Context, a *domain.Account) error {
-	m := domain.AccountGORM{
-		Code: a.Code, Name: a.Name, Name2: a.Name2, Type: string(a.Type),
-		ParentCode: a.ParentCode, IsActive: a.IsActive, IsForeign: a.IsForeign,
-		DetailBy: string(a.DetailBy), IsParent: a.IsParent, Status: string(a.Status),
-		FreezeReason: a.FreezeReason, ArrearsDays: a.ArrearsDays, Note: a.Note,
+	// map insert so empty parent_code/detail_by stay NULL (GORM writes ''
+	// for zero strings, violating the FK and CHECK constraints)
+	data := map[string]interface{}{
+		"code": a.Code, "name": a.Name, "type": string(a.Type),
+		"is_active": a.IsActive, "is_foreign": a.IsForeign,
+		"is_parent": a.IsParent, "status": string(a.Status),
+		"arrears_days": a.ArrearsDays,
 	}
-	return r.db.WithContext(ctx).Create(&m).Error
+	if a.Name2 != "" { data["name2"] = a.Name2 }
+	if a.ParentCode != "" { data["parent_code"] = a.ParentCode }
+	if a.DetailBy != "" { data["detail_by"] = string(a.DetailBy) }
+	if a.FreezeReason != "" { data["freeze_reason"] = a.FreezeReason }
+	if a.Note != "" { data["note"] = a.Note }
+	return r.db.WithContext(ctx).Model(&domain.AccountGORM{}).Create(data).Error
 }
 
 func (r *PGAccountRepo) GetByCode(ctx context.Context, code string) (*domain.Account, error) {
 	var m domain.AccountGORM
 	if err := r.db.WithContext(ctx).Where("code = ?", code).First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrAccountNotFound
+		}
 		return nil, err
 	}
 	return gormAccountToDomain(&m), nil
@@ -68,11 +79,16 @@ func (r *PGAccountRepo) GetAll(ctx context.Context, activeOnly bool) ([]domain.A
 }
 
 func (r *PGAccountRepo) Update(ctx context.Context, a *domain.Account) error {
-	return r.db.WithContext(ctx).Model(&domain.AccountGORM{}).Where("code = ?", a.Code).Updates(map[string]interface{}{
+	// empty parent_code/detail_by omitted so they stay NULL (see Create)
+	data := map[string]interface{}{
 		"name": a.Name, "name2": a.Name2, "type": string(a.Type),
-		"parent_code": a.ParentCode, "is_active": a.IsActive, "is_foreign": a.IsForeign,
-		"detail_by": string(a.DetailBy), "is_parent": a.IsParent, "note": a.Note,
-	}).Error
+		"is_active": a.IsActive, "is_foreign": a.IsForeign,
+		"is_parent": a.IsParent, "note": a.Note,
+		"status": string(a.Status), "freeze_reason": a.FreezeReason,
+	}
+	if a.ParentCode != "" { data["parent_code"] = a.ParentCode }
+	if a.DetailBy != "" { data["detail_by"] = string(a.DetailBy) }
+	return r.db.WithContext(ctx).Model(&domain.AccountGORM{}).Where("code = ?", a.Code).Updates(data).Error
 }
 
 func (r *PGAccountRepo) Delete(ctx context.Context, code string) error {

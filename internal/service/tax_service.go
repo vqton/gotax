@@ -1159,10 +1159,14 @@ func (s *taxService) CloseAuditCase(ctx context.Context, id string, findings str
 
 // VAT account classification. Explicit VAT accounts (3331x output, 133x input)
 // carry the bookkeeper-posted amounts and win over rate-based estimation.
-var vatOutputAccounts = []string{"33311", "33312", "33313"}
+var vatOutputAccounts = []string{"33311", "33312"}
 var vatInputAccounts = []string{"1331", "1332"}
-var vatRevenueAccounts = []string{"5111", "5112", "5113", "711"}
-var vatExpenseAccounts = []string{"152", "153", "156", "611", "621", "627", "641", "642"}
+// Revenue base = 511 family only. 711 (thu nhập khác) excluded: mostly
+// non-VAT income (bồi thường, phạt...) — GTGT02 direct-method computes
+// payable tax = SalesTotal × rate, so including 711 overstates the return.
+var vatRevenueAccounts = []string{"5111", "5112", "5113"}
+// TT99 eliminated TK 611 (Mua hàng, inventory model) — no longer a purchase base.
+var vatExpenseAccounts = []string{"152", "153", "156", "621", "627", "641", "642"}
 
 func (s *taxService) CalculateVAT(ctx context.Context, companyID string, period domain.TaxPeriod, entries []domain.JournalEntry) (*domain.VATResult, error) {
 	if companyID == "" {

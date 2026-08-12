@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -52,8 +53,14 @@ type Account struct {
 
 func (a *Account) Validate() error {
 	if a.Code=="" { return ErrAccountCodeRequired }
-	if len(a.Code)<3 { return ErrAccountCodeInvalid }
+	if len(a.Code)<3 || len(a.Code)>6 { return ErrAccountCodeInvalid }
 	for _,c:=range a.Code{if !unicode.IsDigit(c){return ErrAccountCodeInvalid}}
+	// TT99 hierarchy: cấp n+1 code is a string-prefix of its parent
+	// (1111→111, 215121→21512, 82111→8211). Loại grouping rows '1'-'9'
+	// are 1-digit synthetic headers exempt from the prefix rule.
+	if a.ParentCode!="" && len(a.ParentCode)>=3 && !strings.HasPrefix(a.Code, a.ParentCode) {
+		return ErrAccountCodeInvalidHierarchy
+	}
 	if a.Name=="" { return ErrAccountNameRequired }
 	switch a.Type{
 	case AccountTypeAsset,AccountTypeLiability,AccountTypeEquity,AccountTypeRevenue,AccountTypeExpense:

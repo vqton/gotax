@@ -29,12 +29,11 @@
  │ │ │ ► 4     VON CHU SO HUU (EQUITY)       EQUITY  ✓   │    │
  │ │ │ ► 5     DOANH THU (REVENUE)           REV     ✓   │    │
  │ │ │ ► 6-9   CHI PHI (EXPENSES)            EXP     ✓   │    │
- │ │ │ ► 0     TAI KHOAN NGOAI BANG          OFF     ✓   │    │
  │ │ └───────────────────────────────────────────────────┘    │
  │ │                                                           │
  │ │ [📥 Import] [📤 Export ▼] [📋 Versions] [📄 IGAP]       │
  │ │                                                           │
- │ └─ Status: 189 accounts loaded | v2.1 | 71 L1 accounts ──┘ │
+ │ └─ Status: 220 accounts loaded | v2.1 | 71 L1 accounts ──┘ │
  └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -197,7 +196,8 @@
  │ │ 🟢 158   Hang hoa kho bao thue         v2.0 15/05/2026 │  │
  │ │ 🟢 171   Giao dich mua lai             v2.0 15/05/2026 │  │
  │ │ 🟢 82112 CP thue TNDN toi cau          v2.0 15/05/2026 │  │
- │ │ 🟢 001   Tai khoan ngoai bang          v2.1 27/07/2026 │  │
+ │ │ 🟢 1362  Phai thu noi bo ty gia        v3.0 27/07/2026 │  │
+ │ │ 🟢 3386  Bao hiem that nghiep          v3.0 27/07/2026 │  │
  │ └────────────────────────────────────────────────────────┘  │
  │                                                              │
  │ ┌─ Removed Accounts ───────────────────────────────────┐  │
@@ -311,7 +311,6 @@
  │ ► VON CSH      │
  │ ► DOANH THU    │
  │ ► CHI PHI      │
- │ ► NGOAI BANG   │
  ├────────────────┤
  │ [+ Add] [📥]   │
  └────────────────┘
