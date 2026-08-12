@@ -15,97 +15,166 @@
 
   <div class="lg:ml-60">
     <header id="topbar" class="sticky top-0 z-20"></header>
-    <main class="p-6">
-      <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
-      </template>
 
-      <!-- Page header -->
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold text-gray-900">Hệ thống tài khoản</h2>
-        <span class="text-xs text-gray-400" x-text="accounts.length + ' tài khoản'"></span>
-      </div>
+    <template x-if="$store.app.success">
+      <div class="mb-4 mx-6 mt-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
+    </template>
+    <template x-if="$store.app.error">
+      <div class="mb-4 mx-6 mt-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
+    </template>
 
-      <!-- Toolbar (MISA SME 2026 style) -->
-      <div class="flex flex-wrap items-center gap-2 mb-4 print:hidden">
-        <button @click="openCreate()" class="px-3 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition flex items-center gap-1.5">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Thêm
-        </button>
-        <button @click="openEdit(selected)" :disabled="!selected" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed">Sửa</button>
-        <button @click="deleteAccount(selected)" :disabled="!selected" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed">Xóa</button>
-        <button @click="duplicate(selected)" :disabled="!selected" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed" title="Nhân bản tài khoản">Nhân bản</button>
-        <button @click="openFreeze()" :disabled="!selected || selected.status === 'INACTIVE'" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed" x-text="selected?.status === 'FROZEN' ? 'Mở khóa' : 'Ngừng theo dõi'"></button>
-        <span class="flex-1"></span>
-        <button @click="exportCSV()" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">Xuất Excel</button>
-        <button @click="printTable()" class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">In</button>
-      </div>
+    <!-- ── MISA SME 2026 layout: left category tree + right grid ── -->
+    <div class="p-4 lg:p-6">
 
-      <!-- Search -->
-      <div class="mb-4 print:hidden">
-        <input type="text" x-model="search" placeholder="Tìm mã hoặc tên tài khoản..." class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500">
-      </div>
-
-      <!-- Table -->
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700">Danh sách tài khoản</h3>
-          <span class="text-xs text-gray-400" x-text="filtered.length + ' tài khoản'"></span>
+      <!-- Breadcrumb + page title -->
+      <div class="mb-3">
+        <p class="text-xs text-gray-400">Danh mục <span class="mx-1">›</span> Hệ thống tài khoản</p>
+        <div class="flex items-center justify-between mt-1">
+          <h2 class="text-lg font-bold text-gray-900">Hệ thống tài khoản</h2>
+          <span class="text-xs text-gray-500" x-text="treeCount + ' tài khoản'"></span>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã tài khoản</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên tài khoản</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên tiếng Anh</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Loại</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Theo dõi chi tiết</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngoại tệ</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="a in filtered" :key="a.code">
-                <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                    :class="selected?.code === a.code ? 'bg-blue-50' : ''"
-                    @click="selected = a">
-                  <td class="px-5 py-3 font-medium text-blue-700 whitespace-nowrap">
-                    <span x-show="a._children.length" @click.stop="toggleCollapse(a)" class="inline-flex items-center justify-center w-4 text-gray-400 hover:text-gray-600 cursor-pointer mr-1">
-                      <svg x-show="!isCollapsed(a)" class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-                      <svg x-show="isCollapsed(a)" class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
-                    </span>
-                    <span class="ml-1" x-text="a.code"></span>
-                  </td>
-                  <td class="px-5 py-3 text-gray-900" :style="'padding-left:' + (12 + (a._depth || 0) * 20) + 'px'">
-                    <span x-text="a.name"></span>
-                  </td>
-                  <td class="px-5 py-3 text-gray-500" x-text="a.name2 || '—'"></td>
-                  <td class="px-5 py-3">
-                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium" :class="typeColor(a.type)" x-text="typeLabel(a.type)"></span>
-                  </td>
-                  <td class="px-5 py-3 text-gray-500" x-text="detailByLabel(a.detail_by)"></td>
-                  <td class="px-5 py-3">
-                    <span x-show="a.is_foreign" class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Ngoại tệ</span>
-                    <span x-show="!a.is_foreign" class="text-gray-400">—</span>
-                  </td>
-                  <td class="px-5 py-3" x-html="statusBadge(a.status || 'ACTIVE')"></td>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-[17rem_1fr] gap-4 items-start">
+
+        <!-- ═══ LEFT: Danh mục tài khoản (loại tree) ═══ -->
+        <div class="bg-white rounded-lg border border-gray-200 overflow-hidden lg:sticky lg:top-20">
+          <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wide">Danh mục tài khoản</h3>
+            <button @click="selectedLoai = null" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium">Tất cả</button>
+          </div>
+          <div class="max-h-[70vh] overflow-y-auto py-1" x-data="{}">
+            <template x-for="loai in loaiNodes" :key="loai.code">
+              <div>
+                <!-- loại header -->
+                <button class="w-full flex items-center gap-1.5 px-3 py-2 text-left text-[13px] font-semibold text-gray-700 hover:bg-gray-50 transition"
+                        :class="selectedLoai === loai.code ? 'bg-blue-50 text-blue-800' : ''"
+                        @click="selectedLoai = selectedLoai === loai.code ? null : loai.code">
+                  <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" :class="treeCollapsed[loai.code] ? '' : 'rotate-90'" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
+                  <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
+                  <span x-text="loai.code"></span>
+                  <span class="text-gray-600 font-normal" x-text="loai.name"></span>
+                  <span class="ml-auto text-[11px] text-gray-400" x-text="loai.count"></span>
+                </button>
+                <!-- children -->
+                <template x-if="!treeCollapsed[loai.code]">
+                  <div>
+                    <template x-for="kid in loai.children" :key="kid.code">
+                      <button class="w-full flex items-center gap-1.5 pl-8 pr-3 py-1.5 text-left text-[13px] text-gray-600 hover:bg-gray-50 transition"
+                              :class="selectedLoai === kid.code ? 'bg-blue-50 text-blue-800 font-medium' : ''"
+                              @click="selectedLoai = selectedLoai === kid.code ? null : kid.code">
+                        <svg class="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
+                        <span x-text="kid.code"></span>
+                        <span class="truncate" x-text="kid.name"></span>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ═══ RIGHT: toolbar + grid ═══ -->
+        <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <!-- toolbar -->
+          <div class="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-b border-gray-200 print:hidden">
+            <button @click="openCreate()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white rounded-md text-[13px] font-medium hover:bg-blue-800 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              Thêm
+            </button>
+            <button @click="openEdit(selected)" :disabled="!selected" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Sửa
+            </button>
+            <button @click="deleteAccount(selected)" :disabled="!selected" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Xóa
+            </button>
+            <span class="w-px h-5 bg-gray-200 mx-1"></span>
+            <button @click="duplicate(selected)" :disabled="!selected" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              Nhân bản
+            </button>
+            <button @click="openFreeze()" :disabled="!selected || selected.status === 'INACTIVE'" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    x-text="selected?.status === 'FROZEN' ? 'Mở khóa' : 'Ngừng theo dõi'"></button>
+            <span class="flex-1"></span>
+            <div class="relative">
+              <input type="text" x-model="search" placeholder="Tìm mã hoặc tên TK..."
+                     class="w-56 pl-8 pr-3 py-1.5 text-[13px] border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </div>
+            <button @click="exportCSV()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 transition">Xuất Excel</button>
+            <button @click="printTable()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 rounded-md text-[13px] text-gray-700 hover:bg-gray-50 transition">In</button>
+          </div>
+
+          <!-- grid -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-[13px]">
+              <thead class="bg-gray-50 border-b border-gray-200 text-gray-500">
+                <tr>
+                  <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Số hiệu TK</th>
+                  <th class="text-left px-4 py-2.5 font-semibold">Tên tài khoản</th>
+                  <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Tên tiếng Anh</th>
+                  <th class="text-left px-4 py-2.5 font-semibold">Loại TK</th>
+                  <th class="text-left px-4 py-2.5 font-semibold">Tính chất</th>
+                  <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Theo dõi chi tiết</th>
+                  <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Ngoại tệ</th>
+                  <th class="text-left px-4 py-2.5 font-semibold">Trạng thái</th>
                 </tr>
-              </template>
-              <tr x-show="!filtered.length">
-                <td colspan="7" class="px-5 py-12 text-center text-gray-400">
-                  <span class="text-3xl block mb-2">📋</span>
-                  Không có tài khoản nào
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <template x-for="a in filtered" :key="a.code">
+                  <tr class="border-b border-gray-100 hover:bg-blue-50/50 cursor-pointer"
+                      :class="selected?.code === a.code ? 'bg-blue-50 border-l-2 border-l-blue-600' : ''"
+                      @click="selected = a"
+                      @dblclick="openEdit(a)">
+                    <td class="px-4 py-2.5 font-medium text-blue-700 whitespace-nowrap" :style="'padding-left:' + (16 + (a._depth || 0) * 18) + 'px'">
+                      <span x-show="a._children.length" @click.stop="toggleCollapse(a)" class="inline-flex items-center justify-center w-4 text-gray-400 hover:text-gray-600 cursor-pointer mr-1">
+                        <svg x-show="!isCollapsed(a)" class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                        <svg x-show="isCollapsed(a)" class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
+                      </span>
+                      <span class="ml-1" x-text="a.code"></span>
+                    </td>
+                    <td class="px-4 py-2.5 text-gray-900">
+                      <span x-text="a.name"></span>
+                      <span x-show="a.is_parent" class="ml-1.5 text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-px" title="Tài khoản tổng hợp">TH</span>
+                    </td>
+                    <td class="px-4 py-2.5 text-gray-500" x-text="a.name2 || '—'"></td>
+                    <td class="px-4 py-2.5">
+                      <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium" :class="typeColor(a.type)" x-text="typeLabel(a.type)"></span>
+                    </td>
+                    <td class="px-4 py-2.5">
+                      <span class="inline-block px-2 py-0.5 rounded text-[11px] font-medium" :class="normalBalance(a.type) === 'DEBIT' ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-700'" x-text="normalBalance(a.type) === 'DEBIT' ? 'Nợ' : 'Có'"></span>
+                    </td>
+                    <td class="px-4 py-2.5 text-gray-500" x-text="detailByLabel(a.detail_by)"></td>
+                    <td class="px-4 py-2.5">
+                      <span x-show="a.is_foreign" class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-700">Ngoại tệ</span>
+                      <span x-show="!a.is_foreign" class="text-gray-300">—</span>
+                    </td>
+                    <td class="px-4 py-2.5" x-html="statusBadge(a.status || 'ACTIVE')"></td>
+                  </tr>
+                </template>
+                <tr x-show="!filtered.length">
+                  <td colspan="8" class="px-4 py-16 text-center text-gray-400">
+                    <span class="text-3xl block mb-2">📂</span>
+                    Không có tài khoản nào
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="bg-gray-50 border-t border-gray-200">
+                  <td colspan="8" class="px-4 py-2 text-xs text-gray-500">
+                    <span class="font-medium" x-text="filtered.length"></span> tài khoản
+                    <template x-if="selectedLoai"><span> · danh mục <span class="font-medium" x-text="loaiName(selectedLoai)"></span></span></template>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   </div>
 
   <!-- Create/Edit modal -->
@@ -230,7 +299,7 @@
     #sidebar, #topbar, .print\:hidden { display: none !important; }
     .lg\:ml-60 { margin-left: 0 !important; }
     main { padding: 0 !important; }
-    .rounded-xl { border-radius: 0 !important; border: none !important; box-shadow: none !important; }
+    .rounded-lg { border-radius: 0 !important; border: none !important; box-shadow: none !important; }
     table { font-size: 12px; }
     thead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
@@ -275,33 +344,43 @@ function coaPage() {
     deletingAccount: null,
     freezingAccount: null,
     freezeReason: "",
-    collapsed: {}, // code -> true when collapsed
+    collapsed: {},      // grid subtree collapse state
+    treeCollapsed: {},  // left panel loại collapse state
+    selectedLoai: null, // loại code or cấp 1 code filter; null = all
     form: { code: "", name: "", name2: "", type: "ASSET", parent_code: "", detail_by: "", is_foreign: false, is_active: true },
 
-    get isForcedForeign() {
-      return FORCED_FOREIGN_CODES.includes(this.form.code);
+    /* ── LEFT tree: loại nodes + their direct cấp 1 children ── */
+    get loaiNodes() {
+      const byCode = {};
+      this.accounts.forEach(a => { byCode[a.code] = a; });
+      return this.accounts
+        .filter(a => !a.parent_code && a.code.length <= 2)
+        .map(loai => ({
+          code: loai.code,
+          name: loai.name,
+          count: this.accounts.filter(a => (a.parent_code || "").startsWith(loai.code) || a.code === loai.code).length,
+          children: this.accounts
+            .filter(a => a.parent_code === loai.code)
+            .map(kid => ({ code: kid.code, name: kid.name })),
+        }))
+        .sort((a, b) => a.code.localeCompare(b.code, "vi", { numeric: true }));
     },
 
-    get parentOptions() {
-      const excluded = new Set([this.form.code]);
-      if (this.editing) {
-        // exclude descendants to avoid cycles
-        const walk = (code) => {
-          this.accounts.forEach(a => {
-            if (a.parent_code === code && !excluded.has(a.code)) {
-              excluded.add(a.code);
-              walk(a.code);
-            }
-          });
-        };
-        walk(this.form.code);
-      }
-      return this.accounts.filter(a => !excluded.has(a.code));
+    get treeCount() { return this.accounts.length; },
+
+    loaiName(code) {
+      const a = this.accounts.find(x => x.code === code);
+      return a ? a.name : "";
     },
 
+    /* ── RIGHT grid: filtered by selection + search, tree-walked ── */
     get filtered() {
       const q = this.search.toLowerCase();
       let list = this.accounts;
+      if (this.selectedLoai) {
+        const root = this.selectedLoai;
+        list = list.filter(a => a.code === root || (a.parent_code || "").startsWith(root));
+      }
       if (q) {
         const matched = new Set();
         list.forEach(a => {
@@ -309,8 +388,6 @@ function coaPage() {
             matched.add(a.code);
           }
         });
-        // keep matched accounts + their ancestors (prefix rule) so the
-        // subtree stays visible in context
         list = list.filter(a => {
           if (matched.has(a.code)) return true;
           for (const m of matched) {
@@ -332,12 +409,11 @@ function coaPage() {
         }
       });
       const flat = [];
-      // node always visible when reached; children only when node expanded.
-      // collapsed node keeps its row (expandable), descendants hidden.
       const walk = (nodes) => {
         nodes.forEach(n => {
           flat.push(n);
-          if (q || !this.isCollapsed(n)) walk(n._children);        });
+          if (q || !this.isCollapsed(n)) walk(n._children);
+        });
       };
       walk(roots);
       return flat;
@@ -355,6 +431,7 @@ function coaPage() {
     typeColor(t) { return TYPE_COLORS[t] || "bg-gray-100 text-gray-700"; },
     typeLabel(t) { return TYPE_LABELS[t] || t; },
     detailByLabel(d) { return DETAIL_BY_LABELS[d] || "—"; },
+    normalBalance(t) { return (t === "ASSET" || t === "EXPENSE") ? "DEBIT" : "CREDIT"; },
     statusBadge(s) {
       const map = {
         ACTIVE: "bg-green-100 text-green-700",
@@ -362,7 +439,27 @@ function coaPage() {
         INACTIVE: "bg-gray-200 text-gray-600",
       };
       const label = { ACTIVE: "Đang sử dụng", FROZEN: "Ngừng theo dõi", INACTIVE: "Không dùng" };
-      return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${map[s] || map.ACTIVE}">${label[s] || s}</span>`;
+      return `<span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${map[s] || map.ACTIVE}">${label[s] || s}</span>`;
+    },
+
+    get isForcedForeign() {
+      return FORCED_FOREIGN_CODES.includes(this.form.code);
+    },
+
+    get parentOptions() {
+      const excluded = new Set([this.form.code]);
+      if (this.editing) {
+        const walk = (code) => {
+          this.accounts.forEach(a => {
+            if (a.parent_code === code && !excluded.has(a.code)) {
+              excluded.add(a.code);
+              walk(a.code);
+            }
+          });
+        };
+        walk(this.form.code);
+      }
+      return this.accounts.filter(a => !excluded.has(a.code));
     },
 
     async init() {
@@ -418,7 +515,6 @@ function coaPage() {
         is_foreign: !!a.is_foreign,
         is_active: a.is_active !== false,
       };
-      // forced-foreign codes always tracked in foreign currency
       if (this.isForcedForeign) this.form.is_foreign = true;
       this.showModal = true;
     },
@@ -499,12 +595,13 @@ function coaPage() {
         a.name,
         a.name2 || "",
         TYPE_LABELS[a.type] || a.type,
+        this.normalBalance(a.type) === "DEBIT" ? "Nợ" : "Có",
         a.parent_code || "",
         a.is_foreign ? "Có" : "",
         a.detail_by ? (DETAIL_BY_LABELS[a.detail_by] || a.detail_by) : "",
         a.status === "FROZEN" ? "Ngừng theo dõi" : (a.status === "INACTIVE" ? "Không dùng" : "Đang sử dụng"),
       ]);
-      const csv = "\uFEFF" + ["Mã tài khoản", "Tên tài khoản", "Tên tiếng Anh", "Loại", "TK cha", "Ngoại tệ", "Theo dõi chi tiết", "Trạng thái"]
+      const csv = "\uFEFF" + ["Số hiệu TK", "Tên tài khoản", "Tên tiếng Anh", "Loại", "Tính chất", "TK cha", "Ngoại tệ", "Theo dõi chi tiết", "Trạng thái"]
         .concat(rows.map(r => r.map(v => '"' + (v || "").replace(/"/g, '""') + '"').join(","))).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);

@@ -152,3 +152,17 @@ All items below verified against live PostgreSQL after restart (server auto-migr
   only 33311/33312 per Appendix II).
 - `vatExpenseAccounts` — 611 removed (eliminated by TT99); 152/153/156/621/627/641/642
   kept per Appendix I.
+
+### 2026-08-12 (follow-up, migration 000045)
+
+- **Loại 2 (Tài sản dài hạn) missing from seed** — 15 accounts (171, 211..244) were
+  wrongly parented to loại 1 ("Tài sản"). TT99 Appendix II groups Loại 1 = Tài sản
+  ngắn hạn (18 accounts), Loại 2 = Tài sản dài hạn (15 accounts). 000045 creates
+  loại 2, reparents, renames loại 1 → "Tài sản ngắn hạn". Verified live: all 9 loại
+  rows present, 71 cấp 1 across them, zero orphans.
+- **COA UI (web/app/coa.html) redesigned MISA SME style** — two-panel: left "Danh mục
+  tài khoản" loại tree (9 nodes, expandable to cấp 1, click = filter grid to
+  subtree), right MISA-style grid with toolbar (Thêm/Sửa/Xóa/Nhân bản/Ngừng theo
+  dõi/Xuất Excel/In), search, Tính chất (Nợ/Có), TH badge for tổng hợp accounts,
+  status footer. dblclick row = edit. Playwright-verified: loại 2→49 rows, 333→14,
+  search keeps ancestors, zero JS errors.
