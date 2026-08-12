@@ -95,17 +95,11 @@
       if (!host) {
         host = document.createElement("div");
         host.id = "toast-host";
-        host.className = "fixed top-4 right-4 z-50 space-y-2 w-80";
+        host.className = "toast-host";
         document.body.appendChild(host);
       }
       var el = document.createElement("div");
-      var styles = {
-        success: "bg-green-50 border-green-200 text-green-800",
-        error: "bg-red-50 border-red-200 text-red-800",
-        info: "bg-blue-50 border-blue-200 text-blue-800",
-        warning: "bg-amber-50 border-amber-200 text-amber-800",
-      };
-      el.className = "rounded-md border px-4 py-3 text-sm font-medium shadow-sm cursor-pointer " + (styles[type] || styles.info);
+      el.className = "toast toast-" + (type || "info");
       el.textContent = text;
       el.onclick = function () { el.remove(); };
       host.appendChild(el);
@@ -132,6 +126,12 @@
   document.addEventListener("toast", function (e) {
     var t = e.detail;
     if (t && t.text) GoTax.Toast.show(t.text, t.type);
+  });
+
+  // Flowbite auto-inits once at load; re-init after htmx swaps bring in
+  // new data-* elements (dropdowns, modals, collapses in fragments).
+  document.addEventListener("htmx:afterSwap", function () {
+    if (window.initFlowbite) window.initFlowbite();
   });
 
   /* ─── Formatters ─── */

@@ -9,7 +9,7 @@
 
 Vietnamese tax-compliant General Ledger API. Circular 99/2025/TT-BTC, Decree 123/2020/ND-CP. Multi-tenant, multi-company.
 
-**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + htmx (frontend, CSS framework TBD — was Tailwind, removed)
+**Stack:** Go 1.26.5 · Gin v1.12 · GORM v1.31 (PostgreSQL via pgx v5) · golang-jwt v5 (RS256) · bcrypt · TOTP · golang-migrate v4 · go-playground/validator v10 · maroto/v2 (PDF) · zap · viper · casbin · go-i18n · swaggo/swag · testify · Alpine.js + htmx (frontend; htmx pages: Flowbite Core v4 JS + hand-rolled app.css)
 
 ## Architecture
 
@@ -203,7 +203,11 @@ When adding a new module that uses the validator: register custom validators in 
 
 `/app/*` catch-all (`internal/web/pages.go`): page in template sets → server-render; otherwise `http.ServeFile` from `web/app/*.html` — served fresh from disk per request, so **HTML edits to static pages need no server restart**.
 
-**CSS: vanilla, no framework.** Tailwind v4 removed (Aug 2026). Only `web/static/css/auth.css` (handwritten, used by `/login` pages) remains. All Tailwind utility classes in HTML are now inert — pages are unstyled until a new framework lands. Don't expect utility classes to render.
+**CSS: hand-rolled design system, no framework.** Tailwind v4 removed (Aug 2026); its utility classes in HTML are inert. `web/static/css/app.css` (Aug 2026) is the htmx-page design system: tokens, dark slate sidebar, topbar, dropdowns, buttons, cards, KPI grid, badges, tables, status bars, toasts, responsive breakpoints. All styling via semantic classes (`.badge-posted`, `.kpi`, `.btn-primary`…) — **do not use Tailwind utility classes in htmx templates**. Legacy Alpine pages still use their own CSS (e.g. `coa.css`); only `web/static/css/auth.css` remains from the pre-Tailwind era.
+
+**Flowbite Core (v4):** vendored at `web/static/js/flowbite.min.js` (v4.0.2 — the new framework-agnostic "Core" line; `@flowbite/core` is NOT on npm). Behaviors only (dropdowns, modals, collapses, tooltips, tabs) via `data-*` attributes + auto-init; **no Flowbite CSS classes used** — pages styled by app.css. Global `window.initFlowbite()` re-inits all components (used by app.js `htmx:afterSwap` hook for fragment swaps). Auto-init runs once at script load — components injected by htmx swaps need the re-init hook. Collapse toggles `.hidden` on the target element, NOT a class on the trigger — chevron rotation in app.css uses `.sb-group:has(.sb-links:not(.hidden))`.
+
+**Static assets** served at `/assets/` (→ `web/static/`, `Cache-Control: no-cache` forces revalidation). Script order in base.html: htmx.min.js → flowbite.min.js → app.js. Shell data (`.Shell.*`: Title, NavPath, Username, RoleLabel, AvatarInit, CompanyName, PeriodLabel) built in `internal/web/shell.go`; page data under `.Data.*`.
 
 **UI entry points:**
 - `/app/*` — Main accounting UI. MISA SME 2026 layout: left sidebar, top bar, content area.

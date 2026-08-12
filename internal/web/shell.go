@@ -2,6 +2,7 @@ package web
 
 import (
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,7 @@ type Shell struct {
 	RoleLabel   string
 	AvatarInit  string
 	CompanyName string
+	PeriodLabel string
 }
 
 // BuildShell derives layout data from the gin context (set by PageAuth).
@@ -31,7 +33,13 @@ func BuildShell(c *gin.Context, title, navPath string) Shell {
 		RoleLabel:   roleLabel(role),
 		AvatarInit:  avatarInit(username),
 		CompanyName: "GoTax",
+		PeriodLabel: periodLabel(time.Now()),
 	}
+}
+
+// periodLabel renders the current accounting period, e.g. "Kỳ T08/2026".
+func periodLabel(now time.Time) string {
+	return "Kỳ T" + now.Format("01/2006")
 }
 
 func avatarInit(username string) string {

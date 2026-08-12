@@ -2,6 +2,7 @@ package web
 
 import (
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,16 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 	}
 }
 
+// StatusStat is one row of the dashboard status-distribution card.
+type StatusStat struct {
+	Status     string
+	Label      string
+	Count      int
+	Pct        int
+	BadgeClass string
+	FillClass  string
+}
+
 func dashboardLoad(d Deps) func(c *gin.Context) (any, error) {
 	return func(c *gin.Context) (any, error) {
 		ctx := c.Request.Context()
@@ -51,14 +62,55 @@ func dashboardLoad(d Deps) func(c *gin.Context) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		entries, err := d.Svc.GetEntriesByStatus(ctx, domain.JournalEntryPosted)
+		entries, err := d.Svc.GetAllEntries(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if len(entries) > 10 {
-			entries = entries[:10]
+		if entries == nil {
+			entries = []domain.JournalEntry{}
 		}
-		return gin.H{"Accounts": len(accs), "Entries": len(entries), "Recent": entries}, nil
+		total := len(entries)
+		counts := map[domain.JournalEntryStatus]int{}
+		for _, e := range entries {
+			counts[e.Status]++
+		}
+		// Recent = last 10 POSTED entries, with running totals.
+		var recent []domain.JournalEntry
+		var recentDebit, recentCredit float64
+		for i := len(entries) - 1; i >= 0 && len(recent) < 10; i-- {
+			e := entries[i]
+			if e.Status != domain.JournalEntryPosted {
+				continue
+			}
+			recent = append(recent, e)
+			recentDebit += e.TotalDebit()
+			recentCredit += e.TotalCredit()
+		}
+		order := []StatusStat{
+			{Status: string(domain.JournalEntryDraft), Label: "Nháp", BadgeClass: "badge-draft", FillClass: "s-fill-draft"},
+			{Status: string(domain.JournalEntryReviewing), Label: "Chờ duyệt", BadgeClass: "badge-reviewing", FillClass: "s-fill-reviewing"},
+			{Status: string(domain.JournalEntryApproved), Label: "Đã duyệt", BadgeClass: "badge-approved", FillClass: "s-fill-approved"},
+			{Status: string(domain.JournalEntryPosted), Label: "Đã ghi sổ", BadgeClass: "badge-posted", FillClass: "s-fill-posted"},
+			{Status: string(domain.JournalEntryCancelled), Label: "Hủy", BadgeClass: "badge-cancelled", FillClass: "s-fill-cancelled"},
+		}
+		stats := make([]StatusStat, 0, len(order))
+		for _, s := range order {
+			n := counts[domain.JournalEntryStatus(s.Status)]
+			pct := 0
+			if total > 0 {
+				pct = int(math.Round(float64(n) * 100 / float64(total)))
+			}
+			s.Count, s.Pct = n, pct
+			stats = append(stats, s)
+		}
+		return gin.H{
+			"Accounts":         len(accs),
+			"Entries":          counts[domain.JournalEntryPosted],
+			"StatusStats":      stats,
+			"Recent":           recent,
+			"RecentTotalDebit": recentDebit,
+			"RecentTotalCredit": recentCredit,
+		}, nil
 	}
 }
 

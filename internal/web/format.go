@@ -75,17 +75,27 @@ func fmtDateTime(s any) string {
 // statusBadge renders a colored pill for a journal entry status. Returns
 // template.HTML (trusted — status value is matched against a fixed map).
 func statusBadge(status string) template.HTML {
-	cfg := map[string][2]string{
-		"draft":     {"bg-gray-100 text-gray-700", "Nháp"},
-		"pending":   {"bg-amber-50 text-amber-700", "Chờ duyệt"},
-		"reviewed":  {"bg-blue-50 text-blue-700", "Đã rà soát"},
-		"approved":  {"bg-indigo-50 text-indigo-700", "Đã duyệt"},
-		"posted":    {"bg-green-50 text-green-700", "Đã ghi sổ"},
-		"cancelled": {"bg-red-50 text-red-700", "Hủy"},
+	cls := map[string]string{
+		"draft":     "badge-draft",
+		"reviewing": "badge-reviewing",
+		"approved":  "badge-approved",
+		"posted":    "badge-posted",
+		"cancelled": "badge-cancelled",
 	}
-	classes, label := "bg-gray-100 text-gray-700", status
-	if v, ok := cfg[strings.ToLower(status)]; ok {
-		classes, label = v[0], v[1]
+	labels := map[string]string{
+		"draft":     "Nháp",
+		"reviewing": "Chờ duyệt",
+		"approved":  "Đã duyệt",
+		"posted":    "Đã ghi sổ",
+		"cancelled": "Hủy",
 	}
-	return template.HTML(`<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ` + classes + `">` + label + `</span>`)
+	key := strings.ToLower(status)
+	class, label := cls[key], labels[key]
+	if class == "" {
+		class = "badge-default"
+	}
+	if label == "" {
+		label = status
+	}
+	return template.HTML(`<span class="badge ` + class + `">` + label + `</span>`)
 }

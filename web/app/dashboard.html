@@ -1,88 +1,149 @@
 {{define "content"}}
-      <!-- Summary cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-xs font-medium text-gray-500 mb-1">📋 Tài khoản</p>
-          <p class="text-2xl font-bold text-gray-900">{{.Data.Accounts}}</p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-xs font-medium text-gray-500 mb-1">📝 Chứng từ đã ghi sổ</p>
-          <p class="text-2xl font-bold text-gray-900">{{.Data.Entries}}</p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-xs font-medium text-gray-500 mb-1">📈 Doanh thu</p>
-          <p class="text-2xl font-bold text-gray-900">0 ₫</p>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <p class="text-xs font-medium text-gray-500 mb-1">💰 Phải thu</p>
-          <p class="text-2xl font-bold text-gray-900">0 ₫</p>
-        </div>
-      </div>
+<div class="page-head">
+  <div>
+    <h1>Tổng quan</h1>
+    <p class="ph-sub">Ngày {{today}} · {{.Shell.PeriodLabel}} · {{.Shell.CompanyName}}</p>
+  </div>
+  <div class="ph-actions">
+    <a href="/app/trial-balance.html" class="btn btn-ghost">Báo cáo tài chính</a>
+    <a href="/app/journal-entries.html" class="btn btn-primary">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Thêm chứng từ
+    </a>
+  </div>
+</div>
 
-      <!-- Quick actions -->
-      <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h3 class="text-sm font-semibold text-gray-700 mb-4">Thao tác nhanh</h3>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <a href="/app/journal-entries.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">📝</span>
-            <div><p class="font-medium text-gray-900 text-sm">Chứng từ</p><p class="text-xs text-gray-500">Lập mới</p></div>
-          </a>
-          <a href="/app/sales-invoices.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">🧾</span>
-            <div><p class="font-medium text-gray-900 text-sm">Hóa đơn bán</p><p class="text-xs text-gray-500">Bán hàng</p></div>
-          </a>
-          <a href="/app/purchase-invoices.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">🛒</span>
-            <div><p class="font-medium text-gray-900 text-sm">Hóa đơn mua</p><p class="text-xs text-gray-500">Mua hàng</p></div>
-          </a>
-          <a href="/app/cash-receipts.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">💵</span>
-            <div><p class="font-medium text-gray-900 text-sm">Phiếu thu</p><p class="text-xs text-gray-500">Thu tiền</p></div>
-          </a>
-          <a href="/app/trial-balance.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">📊</span>
-            <div><p class="font-medium text-gray-900 text-sm">BCDS phát sinh</p><p class="text-xs text-gray-500">Báo cáo</p></div>
-          </a>
-          <a href="/payroll/periods.html" class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition">
-            <span class="text-2xl">💰</span>
-            <div><p class="font-medium text-gray-900 text-sm">Tiền lương</p><p class="text-xs text-gray-500">Lương & bảo hiểm</p></div>
-          </a>
-        </div>
-      </div>
+<!-- KPI -->
+<div class="kpi-grid mb-24">
+  <div class="card kpi">
+    <span class="k-ic k-ic-blue">📋</span>
+    <div class="k-body">
+      <p class="k-label">Tài khoản</p>
+      <p class="k-value mono">{{.Data.Accounts}}</p>
+      <p class="k-sub">Hệ thống tài khoản Circular 99/2025</p>
+      <span class="k-delta k-delta-flat">Đang sử dụng</span>
+    </div>
+  </div>
+  <div class="card kpi">
+    <span class="k-ic k-ic-green">📝</span>
+    <div class="k-body">
+      <p class="k-label">Chứng từ đã ghi sổ</p>
+      <p class="k-value mono">{{.Data.Entries}}</p>
+      <p class="k-sub">Đã hạch toán vĩnh viễn</p>
+      <span class="k-delta k-delta-up">↑ Đã duyệt</span>
+    </div>
+  </div>
+  <div class="card kpi">
+    <span class="k-ic k-ic-violet">💹</span>
+    <div class="k-body">
+      <p class="k-label">Phát sinh Nợ · 10 CT gần nhất</p>
+      <p class="k-value mono">{{fmtVND .Data.RecentTotalDebit}}</p>
+      <p class="k-sub">Tổng cộng chứng từ mới nhất</p>
+      <span class="k-delta k-delta-up">↑ Nợ</span>
+    </div>
+  </div>
+  <div class="card kpi">
+    <span class="k-ic k-ic-amber">🏦</span>
+    <div class="k-body">
+      <p class="k-label">Phát sinh Có · 10 CT gần nhất</p>
+      <p class="k-value mono">{{fmtVND .Data.RecentTotalCredit}}</p>
+      <p class="k-sub">Tổng cộng chứng từ mới nhất</p>
+      <span class="k-delta k-delta-up">↑ Có</span>
+    </div>
+  </div>
+</div>
 
-      <!-- Recent entries -->
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700">Chứng từ gần đây</h3>
-          <a href="/app/journal-entries.html" class="text-sm text-blue-700 hover:underline">Xem tất cả →</a>
+<div class="layout-grid layout-2col mb-24">
+  <!-- Status distribution -->
+  <div class="card">
+    <div class="card-head">
+      <h3>Chứng từ theo trạng thái</h3>
+      <a href="/app/journal-entries.html" class="btn btn-sm btn-ghost">Xem tất cả</a>
+    </div>
+    <div class="card-body">
+      {{range .Data.StatusStats}}
+      <div class="stat-row">
+        <div class="s-top">
+          <span class="s-label"><span class="badge {{.BadgeClass}}">{{.Label}}</span></span>
+          <span class="s-val">{{.Count}} <span class="td-muted" style="font-weight:400;font-size:12px">({{.Pct}}%)</span></span>
         </div>
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số CT</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Diễn giải</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
-              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng Nợ</th>
-              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Tổng Có</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Data.Recent}}
-            <tr class="border-b border-gray-100 hover:bg-gray-50">
-              <td class="px-5 py-3 font-medium">{{.EntryNumber}}</td>
-              <td class="px-5 py-3 text-gray-500">{{fmtDate .EntryDate}}</td>
-              <td class="px-5 py-3 text-gray-700 max-w-xs truncate">{{.Description}}</td>
-              <td class="px-5 py-3">{{statusBadge (string .Status)}}</td>
-              <td class="px-5 py-3 text-right font-medium">{{fmtVND .TotalDebit}}</td>
-              <td class="px-5 py-3 text-right font-medium">{{fmtVND .TotalCredit}}</td>
-            </tr>
-            {{else}}
-            <tr>
-              <td colspan="6" class="px-5 py-8 text-center text-gray-400">Chưa có chứng từ nào</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
+        <div class="s-bar"><div class="s-fill {{.FillClass}}" style="width:{{.Pct}}%"></div></div>
       </div>
+      {{else}}
+      <p class="td-muted" style="padding:24px 0;text-align:center">Chưa có chứng từ nào</p>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div class="card">
+    <div class="card-head"><h3>Thao tác nhanh</h3></div>
+    <div class="card-body">
+      <div class="qa-grid">
+        <a href="/app/journal-entries.html" class="qa">
+          <span class="q-ic k-ic-blue">📝</span>
+          <span><span class="q-title" style="display:block">Chứng từ</span><span class="q-sub">Lập mới</span></span>
+        </a>
+        <a href="/app/sales-invoices.html" class="qa">
+          <span class="q-ic k-ic-green">🧾</span>
+          <span><span class="q-title" style="display:block">Hóa đơn bán</span><span class="q-sub">Bán hàng</span></span>
+        </a>
+        <a href="/app/purchase-invoices.html" class="qa">
+          <span class="q-ic k-ic-amber">🛒</span>
+          <span><span class="q-title" style="display:block">Hóa đơn mua</span><span class="q-sub">Mua hàng</span></span>
+        </a>
+        <a href="/app/cash-receipts.html" class="qa">
+          <span class="q-ic k-ic-rose">💵</span>
+          <span><span class="q-title" style="display:block">Phiếu thu</span><span class="q-sub">Thu tiền</span></span>
+        </a>
+        <a href="/app/trial-balance.html" class="qa">
+          <span class="q-ic k-ic-violet">📊</span>
+          <span><span class="q-title" style="display:block">BCĐ phát sinh</span><span class="q-sub">Báo cáo</span></span>
+        </a>
+        <a href="/payroll/periods.html" class="qa">
+          <span class="q-ic k-ic-cyan">💰</span>
+          <span><span class="q-title" style="display:block">Tiền lương</span><span class="q-sub">Lương &amp; BH</span></span>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent entries -->
+<div class="card">
+  <div class="card-head">
+    <h3>Chứng từ ghi sổ gần đây</h3>
+    <a href="/app/journal-entries.html" class="btn btn-sm btn-ghost">Xem tất cả →</a>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Số CT</th>
+          <th>Ngày</th>
+          <th>Diễn giải</th>
+          <th>Trạng thái</th>
+          <th class="num">Tổng Nợ</th>
+          <th class="num">Tổng Có</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Data.Recent}}
+        <tr>
+          <td class="td-mono td-main">{{.EntryNumber}}</td>
+          <td class="td-muted">{{fmtDate .EntryDate}}</td>
+          <td class="td-muted" style="max-width:340px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">{{.Description}}</span></td>
+          <td>{{statusBadge (string .Status)}}</td>
+          <td class="num td-mono">{{fmtVND .TotalDebit}}</td>
+          <td class="num td-mono">{{fmtVND .TotalCredit}}</td>
+        </tr>
+        {{else}}
+        <tr class="empty">
+          <td colspan="6">Chưa có chứng từ nào — bắt đầu bằng cách <a href="/app/journal-entries.html">lập chứng từ đầu tiên</a>.</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
 {{end}}

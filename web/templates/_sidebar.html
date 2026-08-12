@@ -1,50 +1,52 @@
 {{define "sidebar"}}
-<div class="flex flex-col h-full">
-  <div class="px-4 py-4 border-b border-gray-200">
-    <a href="/app/dashboard.html" class="flex items-center gap-2">
-      <span class="text-xl">📊</span>
-      <span class="text-lg font-bold text-blue-700">GoTax</span>
-    </a>
-    <p class="text-xs text-gray-400 mt-1">Circular 99/2025</p>
+<div class="sb-logo">
+  <a href="/app/dashboard.html" style="display:flex;align-items:center;gap:10px">
+    <span class="logo-mark">G</span>
+    <span>
+      <span class="logo-name">GoTax</span><br>
+      <span class="logo-sub">Circular 99/2025</span>
+    </span>
+  </a>
+</div>
+<nav class="sb-nav">
+  {{template "nav-group" dict "Id" "g-overview" "Label" "Tổng quan" "Path" .Shell.NavPath "Items" (list (tup "/app/dashboard.html" "📊" "Dashboard") (tup "/app/notifications.html" "🔔" "Thông báo"))}}
+  {{template "nav-group" dict "Id" "g-system" "Label" "Hệ thống" "Path" .Shell.NavPath "Items" (list (tup "/app/company.html" "🏢" "Công ty") (tup "/app/users.html" "👥" "Người dùng") (tup "/app/audit.html" "📜" "Nhật ký hệ thống"))}}
+  {{template "nav-group" dict "Id" "g-danhmuc" "Label" "Danh mục" "Path" .Shell.NavPath "Items" (list (tup "/app/coa.html" "📋" "Hệ thống tài khoản") (tup "/app/customers.html" "🧑" "Khách hàng") (tup "/app/suppliers.html" "🏭" "Nhà cung cấp") (tup "/app/items.html" "📦" "Hàng hóa") (tup "/app/warehouses.html" "🏬" "Kho"))}}
+  {{template "nav-group" dict "Id" "g-ketoan" "Label" "Kế toán" "Path" .Shell.NavPath "Items" (list (tup "/app/journal-entries.html" "📝" "Chứng từ") (tup "/app/recurring-entries.html" "🔁" "Chứng từ định kỳ") (tup "/app/periods.html" "📅" "Kỳ kế toán") (tup "/app/exchange-rates.html" "💱" "Tỷ giá") (tup "/app/opening-balances.html" "⚖️" "Số dư đầu kỳ") (tup "/app/budget.html" "💰" "Ngân sách") (tup "/app/cost-centers.html" "🏗️" "Trung tâm chi phí"))}}
+  {{template "nav-group" dict "Id" "g-mua" "Label" "Mua hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/purchase-orders.html" "🛒" "Đơn đặt hàng") (tup "/app/grn.html" "📥" "Nhập kho") (tup "/app/purchase-invoices.html" "🧾" "Hóa đơn mua") (tup "/app/ap-aging.html" "📊" "Công nợ phải trả"))}}
+  {{template "nav-group" dict "Id" "g-ban" "Label" "Bán hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/sales-quotations.html" "💼" "Báo giá") (tup "/app/sales-orders.html" "📋" "Đơn hàng") (tup "/app/delivery-notes.html" "🚚" "Xuất kho") (tup "/app/sales-invoices.html" "🧾" "Hóa đơn bán") (tup "/app/ar-aging.html" "📊" "Công nợ phải thu"))}}
+  {{template "nav-group" dict "Id" "g-quy" "Label" "Quỹ / Ngân hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/cash-receipts.html" "💵" "Phiếu thu") (tup "/app/cash-payments.html" "💸" "Phiếu chi") (tup "/app/cash-transfers.html" "🔄" "Chuyển quỹ") (tup "/app/bank-statements.html" "🏦" "Sổ ngân hàng") (tup "/app/payment-orders.html" "📄" "Uy nhiệm chi"))}}
+  {{template "nav-group" dict "Id" "g-kho" "Label" "Kho" "Path" .Shell.NavPath "Items" (list (tup "/app/warehouses.html" "🏬" "Danh sách kho") (tup "/app/warehouse-categories.html" "📁" "Loại hàng hóa") (tup "/app/warehouse-items.html" "📦" "Hàng hóa") (tup "/app/warehouse-balances.html" "📊" "Tồn kho") (tup "/app/warehouse-transfers.html" "🔄" "Chuyển kho") (tup "/app/warehouse-adjustments.html" "📝" "Điều chỉnh") (tup "/app/warehouse-takes.html" "🔍" "Kiểm kê") (tup "/app/warehouse-valuations.html" "💰" "Định giá") (tup "/app/warehouse-transactions.html" "📜" "Lịch sử giao dịch"))}}
+  {{template "nav-group" dict "Id" "g-ts" "Label" "Tài sản / CCDC" "Path" .Shell.NavPath "Items" (list (tup "/app/fixed-assets.html" "🏗️" "Tài sản cố định") (tup "/app/fa-categories.html" "📁" "Nhóm tài sản") (tup "/app/depreciation.html" "📉" "Khấu hao") (tup "/app/ccdc.html" "🔧" "CCDC / Công cụ"))}}
+  {{template "nav-group" dict "Id" "g-luong" "Label" "Tiền lương" "Path" .Shell.NavPath "Items" (list (tup "/payroll/periods.html" "📅" "Kỳ lương") (tup "/payroll/timekeeping.html" "⏰" "Chấm công") (tup "/payroll/payslips.html" "💰" "Phiếu lương") (tup "/payroll/declarations.html" "📋" "Tuyên thuế") (tup "/payroll/config.html" "⚙️" "Cấu hình"))}}
+  {{template "nav-group" dict "Id" "g-thue" "Label" "Thuế" "Path" .Shell.NavPath "Items" (list (tup "/app/tax-einvoices.html" "🧾" "Hóa đơn điện tử") (tup "/app/tax-declarations.html" "📋" "Tờ khai") (tup "/app/tax-payments.html" "💳" "Thanh toán") (tup "/app/tax-reconciliation.html" "🔍" "Đối chiếu") (tup "/app/tax-calendar.html" "📅" "Lịch thuế") (tup "/app/vat-report.html" "📊" "Báo cáo GTGT"))}}
+  {{template "nav-group" dict "Id" "g-baocao" "Label" "Báo cáo" "Path" .Shell.NavPath "Items" (list (tup "/app/financial-analysis.html" "📊" "Phân tích tài chính") (tup "/app/trial-balance.html" "📊" "BCĐ phát sinh") (tup "/app/balance-sheet.html" "📑" "BCĐ kế toán") (tup "/app/income-statement.html" "📈" "Kết quả kinh doanh") (tup "/app/cash-flow.html" "💰" "Lưu chuyển tiền tệ") (tup "/app/cash-book.html" "📒" "Sổ quỹ tiền mặt") (tup "/app/journal-export.html" "📥" "Nhật ký chung") (tup "/app/fixed-asset-register.html" "🏗️" "Sổ TSCĐ") (tup "/app/depreciation-schedule.html" "📉" "Lịch khấu hao"))}}
+  {{template "nav-group" dict "Id" "g-quantri" "Label" "Quản trị" "Path" .Shell.NavPath "Items" (list (tup "/app/system-options.html" "⚙️" "Tùy chọn hệ thống") (tup "/app/numbering-rules.html" "🔢" "Định số chứng từ") (tup "/app/fiscal-years.html" "📅" "Năm tài chính") (tup "/app/report-options.html" "📊" "Tùy chỉnh báo cáo") (tup "/app/backups.html" "💾" "Sao lưu dữ liệu") (tup "/app/contracts.html" "📄" "Hợp đồng"))}}
+</nav>
+<div class="sb-user">
+  <div class="avatar">{{.Shell.AvatarInit}}</div>
+  <div class="u-meta">
+    <p id="user-name">{{.Shell.Username}}</p>
+    <p id="user-role">{{.Shell.RoleLabel}}</p>
   </div>
-  <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-    {{template "nav-group" dict "Label" "Tổng quan" "Path" .Shell.NavPath "Items" (list (tup "/app/dashboard.html" "📊" "Dashboard") (tup "/app/notifications.html" "🔔" "Thông báo"))}}
-    {{template "nav-group" dict "Label" "Hệ thống" "Path" .Shell.NavPath "Items" (list (tup "/app/company.html" "🏢" "Công ty") (tup "/app/users.html" "👥" "Người dùng") (tup "/app/audit.html" "📜" "Nhật ký"))}}
-    {{template "nav-group" dict "Label" "Danh mục" "Path" .Shell.NavPath "Items" (list (tup "/app/coa.html" "📋" "Hệ thống tài khoản") (tup "/app/customers.html" "🧑" "Khách hàng") (tup "/app/suppliers.html" "🏭" "Nhà cung cấp") (tup "/app/items.html" "📦" "Hàng hóa") (tup "/app/warehouses.html" "🏬" "Kho"))}}
-    {{template "nav-group" dict "Label" "Kế toán" "Path" .Shell.NavPath "Items" (list (tup "/app/journal-entries.html" "📝" "Chứng từ") (tup "/app/recurring-entries.html" "🔁" "Chứng từ định kỳ") (tup "/app/periods.html" "📅" "Kỳ kế toán") (tup "/app/exchange-rates.html" "💱" "Tỷ giá") (tup "/app/opening-balances.html" "⚖️" "Số dư đầu kỳ") (tup "/app/budget.html" "💰" "Ngân sách") (tup "/app/cost-centers.html" "🏗️" "Trung tâm chi phí"))}}
-    {{template "nav-group" dict "Label" "Mua hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/purchase-orders.html" "🛒" "Đơn đặt hàng") (tup "/app/grn.html" "📥" "Nhập kho") (tup "/app/purchase-invoices.html" "🧾" "Hóa đơn mua") (tup "/app/ap-aging.html" "📊" "Công nợ phải trả"))}}
-    {{template "nav-group" dict "Label" "Bán hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/sales-quotations.html" "💼" "Báo giá") (tup "/app/sales-orders.html" "📋" "Đơn hàng") (tup "/app/delivery-notes.html" "🚚" "Xuất kho") (tup "/app/sales-invoices.html" "🧾" "Hóa đơn bán") (tup "/app/ar-aging.html" "📊" "Công nợ phải thu"))}}
-    {{template "nav-group" dict "Label" "Quỹ / Ngân hàng" "Path" .Shell.NavPath "Items" (list (tup "/app/cash-receipts.html" "💵" "Phiếu thu") (tup "/app/cash-payments.html" "💸" "Phiếu chi") (tup "/app/cash-transfers.html" "🔄" "Chuyển quỹ") (tup "/app/bank-statements.html" "🏦" "Sổ ngân hàng") (tup "/app/payment-orders.html" "📄" "Uy nhiệm chi"))}}
-    {{template "nav-group" dict "Label" "Kho" "Path" .Shell.NavPath "Items" (list (tup "/app/warehouses.html" "🏬" "Danh sách kho") (tup "/app/warehouse-categories.html" "📁" "Loại hàng hóa") (tup "/app/warehouse-items.html" "📦" "Hàng hóa") (tup "/app/warehouse-balances.html" "📊" "Tồn kho") (tup "/app/warehouse-transfers.html" "🔄" "Chuyển kho") (tup "/app/warehouse-adjustments.html" "📝" "Điều chỉnh") (tup "/app/warehouse-takes.html" "🔍" "Kiểm kê") (tup "/app/warehouse-valuations.html" "💰" "Định giá") (tup "/app/warehouse-transactions.html" "📜" "Lịch sử giao dịch"))}}
-    {{template "nav-group" dict "Label" "Tài sản / CCDC" "Path" .Shell.NavPath "Items" (list (tup "/app/fixed-assets.html" "🏗️" "Tài sản cố định") (tup "/app/fa-categories.html" "📁" "Nhóm tài sản") (tup "/app/depreciation.html" "📉" "Khấu hao") (tup "/app/ccdc.html" "🔧" "CCDC / Công cụ"))}}
-    {{template "nav-group" dict "Label" "Tiền lương" "Path" .Shell.NavPath "Items" (list (tup "/payroll/periods.html" "📅" "Kỳ lương") (tup "/payroll/timekeeping.html" "⏰" "Chấm công") (tup "/payroll/payslips.html" "💰" "Phiếu lương") (tup "/payroll/declarations.html" "📋" "Tuyên thuế") (tup "/payroll/config.html" "⚙️" "Cấu hình"))}}
-    {{template "nav-group" dict "Label" "Thuế" "Path" .Shell.NavPath "Items" (list (tup "/app/tax-einvoices.html" "🧾" "Hóa đơn điện tử") (tup "/app/tax-declarations.html" "📋" "Tờ khai") (tup "/app/tax-payments.html" "💳" "Thanh toán") (tup "/app/tax-reconciliation.html" "🔍" "Đối chiếu") (tup "/app/tax-calendar.html" "📅" "Lịch thuế") (tup "/app/vat-report.html" "📊" "Báo cáo GTGT"))}}
-    {{template "nav-group" dict "Label" "Báo cáo" "Path" .Shell.NavPath "Items" (list (tup "/app/financial-analysis.html" "📊" "Phân tích tài chính") (tup "/app/trial-balance.html" "📊" "BCĐ phát sinh") (tup "/app/balance-sheet.html" "📑" "BCĐ kế toán") (tup "/app/income-statement.html" "📈" "Kết quả kinh doanh") (tup "/app/cash-flow.html" "💰" "Lưu chuyển tiền tệ") (tup "/app/cash-book.html" "📒" "Sổ quỹ tiền mặt") (tup "/app/journal-export.html" "📥" "Nhật ký chung") (tup "/app/fixed-asset-register.html" "🏗️" "Sổ TSCĐ") (tup "/app/depreciation-schedule.html" "📉" "Lịch khấu hao"))}}
-    {{template "nav-group" dict "Label" "Quản trị" "Path" .Shell.NavPath "Items" (list (tup "/app/system-options.html" "⚙️" "Tùy chọn hệ thống") (tup "/app/numbering-rules.html" "🔢" "Định số chứng từ") (tup "/app/fiscal-years.html" "📅" "Năm tài chính") (tup "/app/report-options.html" "📊" "Tùy chỉnh báo cáo") (tup "/app/backups.html" "💾" "Sao lưu dữ liệu") (tup "/app/contracts.html" "📄" "Hợp đồng"))}}
-  </nav>
-  <div class="px-4 py-3 border-t border-gray-200">
-    <div class="flex items-center gap-2">
-      <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-semibold text-blue-700">{{.Shell.AvatarInit}}</div>
-      <div class="flex-1 min-w-0">
-        <p class="text-sm font-medium text-gray-900 truncate">{{.Shell.Username}}</p>
-        <p class="text-xs text-gray-500">{{.Shell.RoleLabel}}</p>
-      </div>
-      <button onclick="GoTax.Auth.logout()" class="text-gray-400 hover:text-gray-600" title="Đăng xuất">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-      </button>
-    </div>
-  </div>
+  <button onclick="GoTax.Auth.logout()" class="u-logout" title="Đăng xuất">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+  </button>
 </div>
 {{end}}
 
 {{define "nav-group"}}
-<div class="mb-1">
-  <p class="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{.Label}}</p>
-  <div class="space-y-0.5">
+{{$active := false}}{{range .Items}}{{if eq $.Path (index . 0)}}{{$active = true}}{{end}}{{end}}
+<div class="sb-group">
+  <button type="button" class="sb-group-label" data-collapse-toggle="{{.Id}}" aria-expanded="{{if $active}}true{{else}}false{{end}}">
+    <span>{{.Label}}</span>
+    <svg class="chev" width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
+  </button>
+  <div id="{{.Id}}" class="sb-links {{if not $active}}hidden{{end}}">
     {{range .Items}}
-    <a href="{{index . 0}}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition {{if eq $.Path (index . 0)}}bg-blue-50 text-blue-700 font-semibold{{else}}text-gray-600 hover:bg-gray-50 hover:text-gray-900{{end}}">
-      <span class="text-base">{{index . 1}}</span>
-      <span>{{index . 2}}</span>
+    <a href="{{index . 0}}" class="sb-link {{if eq $.Path (index . 0)}}active{{end}}">
+      <span class="ic">{{index . 1}}</span>
+      <span class="lbl">{{index . 2}}</span>
     </a>
     {{end}}
   </div>

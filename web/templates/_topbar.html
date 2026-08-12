@@ -1,13 +1,66 @@
 {{define "topbar"}}
-<div class="flex items-center justify-between h-14 px-6 bg-white border-b border-gray-200">
-  <div class="flex items-center gap-3">
-    <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" class="lg:hidden text-gray-500 hover:text-gray-700">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-    </button>
-    <h1 class="text-lg font-semibold text-gray-900">{{.Shell.Title}}</h1>
+<div class="tb-left">
+  <button class="tb-hamburger" onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" aria-label="Mở menu">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+  <h1 class="tb-title">{{.Shell.Title}}</h1>
+</div>
+
+<div class="tb-right">
+  <form class="tb-search" action="/app/journal-entries.html" method="get">
+    <svg class="ic w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+    <input type="search" name="q" placeholder="Tìm chứng từ, đối tượng..." aria-label="Tìm kiếm toàn hệ thống">
+  </form>
+
+  <!-- Kỳ kế toán -->
+  <button type="button" class="tb-btn" style="width:auto;padding:0 14px;gap:7px" data-dropdown-toggle="dd-period" data-dropdown-placement="bottom-end" aria-haspopup="true">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+    <span style="font-size:13px;font-weight:600">{{.Shell.PeriodLabel}}</span>
+  </button>
+  <div id="dd-period" class="dropdown dd-period hidden">
+    <div class="dd-head">Kỳ kế toán hiện tại</div>
+    <a href="/app/dashboard.html?period=month" class="dd-item"><span class="dd-ic">🗓️</span>Tháng này</a>
+    <a href="/app/dashboard.html?period=quarter" class="dd-item"><span class="dd-ic">📅</span>Quý này</a>
+    <a href="/app/dashboard.html?period=year" class="dd-item"><span class="dd-ic">📆</span>Năm nay</a>
+    <div class="dd-sep"></div>
+    <a href="/app/periods.html" class="dd-item"><span class="dd-ic">⚙️</span>Quản lý kỳ kế toán</a>
   </div>
-  <div class="flex items-center gap-4">
-    <span class="text-sm text-gray-500">{{.Shell.CompanyName}}</span>
+
+  <!-- Thông báo -->
+  <button type="button" class="tb-btn" data-dropdown-toggle="dd-notif" data-dropdown-placement="bottom-end" aria-haspopup="true" aria-label="Thông báo">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+    <span class="dot"></span>
+  </button>
+  <div id="dd-notif" class="dropdown dd-notif hidden">
+    <div class="dd-head">Thông báo</div>
+    <a href="/app/notifications.html" class="n-item">
+      <span class="n-ic" style="background:#dcfce7">✅</span>
+      <span><span class="n-title">Đã ghi sổ chứng từ</span><br><span class="n-time">PC0001 · 5 phút trước</span></span>
+    </a>
+    <a href="/app/notifications.html" class="n-item">
+      <span class="n-ic" style="background:#fef3c7">⏳</span>
+      <span><span class="n-title">Chờ duyệt chứng từ</span><br><span class="n-time">PN0003 · 1 giờ trước</span></span>
+    </a>
+    <a href="/app/notifications.html" class="n-item">
+      <span class="n-ic" style="background:#dbeafe">📋</span>
+      <span><span class="n-title">Tờ khai thuế sắp đến hạn</span><br><span class="n-time">Còn 3 ngày</span></span>
+    </a>
+    <div class="dd-sep"></div>
+    <a href="/app/notifications.html" class="dd-item"><span class="dd-ic">🔔</span>Xem tất cả thông báo</a>
+  </div>
+
+  <!-- Người dùng -->
+  <button type="button" class="tb-user" data-dropdown-toggle="dd-user" data-dropdown-placement="bottom-end" aria-haspopup="true">
+    <span class="avatar">{{.Shell.AvatarInit}}</span>
+    <span class="u-name">{{.Shell.Username}}</span>
+    <svg class="w-3.5 h-3.5" style="color:#9ca3af" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+  </button>
+  <div id="dd-user" class="dropdown hidden">
+    <div class="dd-head">{{.Shell.Username}}</div>
+    <a href="/app/company.html" class="dd-item"><span class="dd-ic">🏢</span>Công ty &amp; MST</a>
+    <a href="/app/system-options.html" class="dd-item"><span class="dd-ic">⚙️</span>Cài đặt hệ thống</a>
+    <div class="dd-sep"></div>
+    <a href="#" class="dd-item dd-danger" onclick="event.preventDefault();GoTax.Auth.logout()"><span class="dd-ic">🚪</span>Đăng xuất</a>
   </div>
 </div>
 {{end}}
