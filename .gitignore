@@ -42,3 +42,4 @@ Thumbs.db
 
 # Node (Tailwind CLI only)
 node_modules/
+.playwright-mcp/
