@@ -1,210 +1,65 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Công ty · GoTax</title>
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth-legacy.js"></script>
-  <script src="/assets/js/app-legacy.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen" x-data="companyPage()" x-init="init()">
-
-  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
-
-  <div class="lg:ml-60">
-    <header id="topbar" class="sticky top-0 z-20"></header>
-
-    <main class="p-6">
-      <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
-      </template>
-
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-gray-900">Thông tin công ty</h2>
-        <button @click="save()" :disabled="saving"
-          class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition">
-          <span x-show="!saving">Lưu thay đổi</span>
-          <span x-show="saving">Đang lưu...</span>
-        </button>
+{{define "content"}}
+      <!-- Page header -->
+      <div class="page-head">
+        <div>
+          <h1>Thông tin công ty</h1>
+          <p class="ph-sub">Thông tin pháp lý của doanh nghiệp</p>
+        </div>
       </div>
 
-      <!-- Loading skeleton -->
-      <template x-if="loading">
-        <div class="space-y-6">
-          <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-            <div class="h-5 bg-gray-100 rounded animate-pulse w-40"></div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="h-10 bg-gray-100 rounded animate-pulse"></div>
-              <div class="h-10 bg-gray-100 rounded animate-pulse"></div>
-              <div class="h-10 bg-gray-100 rounded animate-pulse"></div>
-              <div class="h-10 bg-gray-100 rounded animate-pulse"></div>
-            </div>
-          </div>
+      <!-- Company form (htmx swap target) -->
+      <div id="company-form" class="mt-16">{{template "company-form" .}}</div>
+{{end}}
+
+{{define "company-form"}}
+      <div class="card">
+        <div class="card-head">
+          <h3>Thông tin chung</h3>
         </div>
-      </template>
-
-      <!-- Company form -->
-      <template x-if="!loading">
-        <div class="space-y-6">
-          <!-- Basic info -->
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 class="text-sm font-semibold text-gray-700 mb-4 pb-3 border-b border-gray-100">Thông tin chung</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="sm:col-span-2">
-                <label class="block text-xs font-medium text-gray-500 mb-1">Tên công ty <span class="text-red-500">*</span></label>
-                <input type="text" x-model="form.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Công ty TNHH...">
+        <div class="card-body">
+          <form hx-post="/app/company/save" hx-target="#company-form" hx-swap="innerHTML">
+            <div class="form-grid">
+              <div class="f-col span2">
+                <label class="f-label" for="co-legal-vn">Tên công ty (tiếng Việt) <span class="f-req">*</span></label>
+                <input type="text" id="co-legal-vn" name="legal_name_vn" required value="{{.Data.Company.LegalNameVN}}" placeholder="Công ty TNHH...">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Mã số thuế <span class="text-red-500">*</span></label>
-                <input type="text" x-model="form.tax_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0123456789">
+              <div class="f-col span2">
+                <label class="f-label" for="co-legal-en">Tên công ty (tiếng Anh)</label>
+                <input type="text" id="co-legal-en" name="legal_name_en" value="{{.Data.Company.LegalNameEN}}" placeholder="Company Limited...">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Đồng tiền mặc định</label>
-                <select x-model="form.default_currency" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <option value="VND">VND — Việt Nam Đồng</option>
-                  <option value="USD">USD — US Dollar</option>
-                </select>
+              <div class="f-col">
+                <label class="f-label" for="co-tax">Mã số thuế <span class="f-req">*</span></label>
+                <input type="text" id="co-tax" name="tax_code" required value="{{.Data.Company.TaxCode}}" placeholder="0123456789">
               </div>
-              <div class="sm:col-span-2">
-                <label class="block text-xs font-medium text-gray-500 mb-1">Địa chỉ</label>
-                <input type="text" x-model="form.address" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố">
+              <div class="f-col">
+                <label class="f-label" for="co-phone">Điện thoại</label>
+                <input type="tel" id="co-phone" name="phone" value="{{.Data.Company.Phone}}" placeholder="024 1234 5678">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Điện thoại</label>
-                <input type="tel" x-model="form.phone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="024 1234 5678">
+              <div class="f-col span2">
+                <label class="f-label" for="co-address">Địa chỉ đăng ký</label>
+                <input type="text" id="co-address" name="reg_address" value="{{.Data.Company.RegAddress}}" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
-                <input type="email" x-model="form.email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="contact@company.vn">
+              <div class="f-col">
+                <label class="f-label" for="co-email">Email</label>
+                <input type="email" id="co-email" name="email" value="{{.Data.Company.Email}}" placeholder="contact@company.vn">
               </div>
-            </div>
-          </div>
-
-          <!-- Banking info -->
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 class="text-sm font-semibold text-gray-700 mb-4 pb-3 border-b border-gray-100">Thông tin ngân hàng</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Tên ngân hàng</label>
-                <input type="text" x-model="form.bank_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Vietcombank, BIDV, Techcombank...">
+              <div class="f-col">
+                <label class="f-label" for="co-website">Website</label>
+                <input type="text" id="co-website" name="website" value="{{.Data.Company.Website}}" placeholder="https://company.vn">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Số tài khoản</label>
-                <input type="text" x-model="form.bank_account" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="1234 5678 9012">
+              <div class="f-col">
+                <label class="f-label" for="co-rep-name">Người đại diện pháp luật</label>
+                <input type="text" id="co-rep-name" name="legal_rep_name" value="{{.Data.Company.LegalRepName}}" placeholder="Nguyễn Văn A">
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="co-rep-title">Chức danh</label>
+                <input type="text" id="co-rep-title" name="legal_rep_title" value="{{.Data.Company.LegalRepTitle}}" placeholder="Giám đốc, Tổng giám đốc...">
               </div>
             </div>
-          </div>
-
-          <!-- Representative -->
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 class="text-sm font-semibold text-gray-700 mb-4 pb-3 border-b border-gray-100">Người đại diện</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Họ tên</label>
-                <input type="text" x-model="form.representative_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Chức danh</label>
-                <input type="text" x-model="form.representative_title" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Giám đốc, Tổng giám đốc...">
-              </div>
+            <div class="form-foot">
+              <button type="submit" class="btn btn-primary">Lưu thay đổi</button>
             </div>
-          </div>
-
-          <!-- Fiscal year -->
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 class="text-sm font-semibold text-gray-700 mb-4 pb-3 border-b border-gray-100">Năm tài chính</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Tháng bắt đầu năm tài chính</label>
-                <select x-model.number="form.fiscal_year_start" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <template x-for="m in 12" :key="m">
-                    <option :value="m" x-text="'Tháng ' + m"></option>
-                  </template>
-                </select>
-              </div>
-              <div class="flex items-end">
-                <p class="text-xs text-gray-400">Năm tài chính hiện tại: <span class="font-medium text-gray-600" x-text="fiscalYearLabel()"></span></p>
-              </div>
-            </div>
-          </div>
+          </form>
         </div>
-      </template>
-    </main>
-  </div>
-
-<script>
-function companyPage() {
-  return {
-    loading: true,
-    saving: false,
-    company: null,
-    form: {
-      name: "",
-      tax_code: "",
-      address: "",
-      phone: "",
-      email: "",
-      bank_name: "",
-      bank_account: "",
-      fiscal_year_start: 1,
-      default_currency: "VND",
-      representative_name: "",
-      representative_title: "",
-    },
-
-    async init() {
-      mountAppShell("Công ty", "/app/company.html");
-      try {
-        const companies = await apiGet("/companies");
-        const list = Array.isArray(companies) ? companies : (companies?.data || []);
-        if (list.length > 0) {
-          this.company = list[0];
-          Object.keys(this.form).forEach(k => {
-            if (this.company[k] != null) this.form[k] = this.company[k];
-          });
-        }
-      } catch (e) {
-        console.error("company load:", e);
-        $store.app.flashError(e.error || "Không thể tải thông tin công ty");
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    fiscalYearLabel() {
-      const start = this.form.fiscal_year_start || 1;
-      const now = new Date();
-      const year = now.getMonth() + 1 >= start ? now.getFullYear() : now.getFullYear() - 1;
-      return `${year} — ${year + 1}`;
-    },
-
-    async save() {
-      if (!this.form.name) {
-        $store.app.flashError("Tên công ty là bắt buộc");
-        return;
-      }
-      this.saving = true;
-      try {
-        if (this.company?.id) {
-          await apiPut(`/companies/${this.company.id}`, this.form);
-        } else {
-          const created = await apiPost("/companies", this.form);
-          this.company = created;
-        }
-        $store.app.flashSuccess("Đã lưu thông tin công ty");
-      } catch (e) {
-        $store.app.flashError(e.error || "Lỗi lưu thông tin");
-      } finally {
-        this.saving = false;
-      }
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+      </div>
+{{end}}

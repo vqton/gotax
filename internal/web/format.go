@@ -85,6 +85,11 @@ func statusBadge(status string) template.HTML {
 		"active":      "badge-success",
 		"suspended":   "badge-warning",
 		"blacklisted": "badge-error",
+		// Period statuses.
+		"open":    "badge-success",
+		"closing": "badge-warning",
+		"closed":  "badge-default",
+		"locked":  "badge-error",
 	}
 	labels := map[string]string{
 		"draft":     "Nháp",
@@ -96,6 +101,11 @@ func statusBadge(status string) template.HTML {
 		"active":      "Hoạt động",
 		"suspended":   "Tạm ngưng",
 		"blacklisted": "Cấm",
+		// Period statuses.
+		"open":    "Đang mở",
+		"closing": "Đang khóa",
+		"closed":  "Đã khóa",
+		"locked":  "Khóa vĩnh viễn",
 	}
 	key := strings.ToLower(status)
 	class, label := cls[key], labels[key]

@@ -17,6 +17,7 @@ import (
 // Deps bundles the services pages render from.
 type Deps struct {
 	Svc      service.Service
+	Company  service.CompanyService
 	Sale     *service.SaleService
 	Purchase *service.PurchaseService
 }
@@ -30,6 +31,9 @@ func NewPages(d Deps) map[string]Page {
 		"/app/coa.html":             {Title: "Hệ thống tài khoản", NavPath: "/app/coa.html", Load: coaLoad(d)},
 		"/app/customers.html":       {Title: "Khách hàng", NavPath: "/app/customers.html", Load: customersLoad(d)},
 		"/app/suppliers.html":       {Title: "Nhà cung cấp", NavPath: "/app/suppliers.html", Load: suppliersLoad(d)},
+		"/app/company.html":         {Title: "Thông tin công ty", NavPath: "/app/company.html", Load: companyLoad(d)},
+		"/app/exchange-rates.html":  {Title: "Tỷ giá hối đoái", NavPath: "/app/exchange-rates.html", Load: exchangeRatesLoad(d)},
+		"/app/periods.html":         {Title: "Kỳ kế toán", NavPath: "/app/periods.html", Load: periodsLoad(d)},
 	}
 }
 
@@ -61,6 +65,17 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		"/app/suppliers": {
 			"create": s.suppliersCreate(d),
 			"delete": s.suppliersDelete(d),
+		},
+		"/app/company": {
+			"save": s.companySave(d),
+		},
+		"/app/exchange-rates": {
+			"create": s.exchangeRatesCreate(d),
+		},
+		"/app/periods": {
+			"create": s.periodsCreate(d),
+			"close":  s.periodsClose(d),
+			"reopen": s.periodsReopen(d),
 		},
 	}
 }
@@ -124,11 +139,11 @@ func dashboardLoad(d Deps) func(c *gin.Context) (any, error) {
 			stats = append(stats, s)
 		}
 		return gin.H{
-			"Accounts":         len(accs),
-			"Entries":          counts[domain.JournalEntryPosted],
-			"StatusStats":      stats,
-			"Recent":           recent,
-			"RecentTotalDebit": recentDebit,
+			"Accounts":          len(accs),
+			"Entries":           counts[domain.JournalEntryPosted],
+			"StatusStats":       stats,
+			"Recent":            recent,
+			"RecentTotalDebit":  recentDebit,
 			"RecentTotalCredit": recentCredit,
 		}, nil
 	}
@@ -282,6 +297,232 @@ func (s *Server) renderSuppliersTable(c *gin.Context, d Deps) {
 		suppliers = []domain.Supplier{}
 	}
 	s.RenderFragment(c, "suppliers", "suppliers-table", gin.H{"Suppliers": suppliers})
+}
+
+// ── Master data: company / exchange rates / periods ─────────────────────────
+
+func companyLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		company, err := d.Company.GetCompany(c.Request.Context(), pageCompanyID(c))
+		if err != nil {
+			// No company yet → render the empty form so it can be filled in.
+			return gin.H{"Company": domain.Company{ID: pageCompanyID(c)}}, nil
+		}
+		return gin.H{"Company": *company}, nil
+	}
+}
+
+func (s *Server) companySave(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := pageCompanyID(c)
+		company, err := d.Company.GetCompany(c.Request.Context(), id)
+		if err != nil {
+			Toast(c, "error", "Không tìm thấy công ty: "+err.Error())
+			s.renderCompanyForm(c, d)
+			return
+		}
+		// Copy — the memory repo returns its live pointer; mutating it would
+		// corrupt stored data even when validation rejects the save.
+		upd := *company
+		upd.LegalNameVN = strings.TrimSpace(c.PostForm("legal_name_vn"))
+		upd.LegalNameEN = strings.TrimSpace(c.PostForm("legal_name_en"))
+		upd.TaxCode = strings.TrimSpace(c.PostForm("tax_code"))
+		upd.RegAddress = strings.TrimSpace(c.PostForm("reg_address"))
+		upd.Phone = strings.TrimSpace(c.PostForm("phone"))
+		upd.Email = strings.TrimSpace(c.PostForm("email"))
+		upd.Website = strings.TrimSpace(c.PostForm("website"))
+		upd.LegalRepName = strings.TrimSpace(c.PostForm("legal_rep_name"))
+		upd.LegalRepTitle = strings.TrimSpace(c.PostForm("legal_rep_title"))
+		if upd.LegalNameVN == "" || upd.TaxCode == "" {
+			Toast(c, "error", "Tên công ty và mã số thuế là bắt buộc.")
+			s.renderCompanyForm(c, d)
+			return
+		}
+		if err := d.Company.UpdateCompany(c.Request.Context(), &upd); err != nil {
+			log.Printf("company save: %v", err)
+			Toast(c, "error", "Không lưu được thông tin công ty: "+err.Error())
+			s.renderCompanyForm(c, d)
+			return
+		}
+		Toast(c, "success", "Đã lưu thông tin công ty.")
+		s.renderCompanyForm(c, d)
+	}
+}
+
+func (s *Server) renderCompanyForm(c *gin.Context, d Deps) {
+	company, err := d.Company.GetCompany(c.Request.Context(), pageCompanyID(c))
+	if err != nil {
+		company = &domain.Company{ID: pageCompanyID(c)}
+	}
+	s.RenderFragment(c, "company", "company-form", gin.H{"Company": *company})
+}
+
+func exchangeRatesLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		rates, err := d.Svc.ListExchangeRates(c.Request.Context())
+		if err != nil {
+			return nil, err
+		}
+		if rates == nil {
+			rates = []domain.ExchangeRate{}
+		}
+		return gin.H{"Rates": rates}, nil
+	}
+}
+
+func (s *Server) exchangeRatesCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rateDate, err := time.Parse("2006-01-02", c.PostForm("rate_date"))
+		if err != nil {
+			Toast(c, "error", "Ngày tỷ giá không hợp lệ.")
+			s.renderExchangeRatesTable(c, d)
+			return
+		}
+		rate := &domain.ExchangeRate{
+			CurrencyCode: strings.ToUpper(strings.TrimSpace(c.PostForm("currency_code"))),
+			RateDate:     rateDate,
+			Source:       strings.TrimSpace(c.PostForm("source")),
+		}
+		if rate.AverageRate, err = strconv.ParseFloat(c.PostForm("average_rate"), 64); err != nil {
+			Toast(c, "error", "Tỷ giá trung bình không hợp lệ.")
+			s.renderExchangeRatesTable(c, d)
+			return
+		}
+		if v := c.PostForm("buy_rate"); v != "" {
+			if rate.BuyRate, err = strconv.ParseFloat(v, 64); err != nil {
+				Toast(c, "error", "Tỷ giá mua không hợp lệ.")
+				s.renderExchangeRatesTable(c, d)
+				return
+			}
+		}
+		if v := c.PostForm("sell_rate"); v != "" {
+			if rate.SellRate, err = strconv.ParseFloat(v, 64); err != nil {
+				Toast(c, "error", "Tỷ giá bán không hợp lệ.")
+				s.renderExchangeRatesTable(c, d)
+				return
+			}
+		}
+		// CreateExchangeRate runs rate.Validate() (currency 3 chars, avg > 0).
+		if err := d.Svc.CreateExchangeRate(c.Request.Context(), rate); err != nil {
+			log.Printf("create exchange rate: %v", err)
+			Toast(c, "error", "Không tạo được tỷ giá: "+err.Error())
+			s.renderExchangeRatesTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã thêm tỷ giá "+rate.CurrencyCode+".")
+		s.renderExchangeRatesTable(c, d)
+	}
+}
+
+func (s *Server) renderExchangeRatesTable(c *gin.Context, d Deps) {
+	rates, err := d.Svc.ListExchangeRates(c.Request.Context())
+	if err != nil {
+		c.String(500, "load exchange rates failed")
+		return
+	}
+	if rates == nil {
+		rates = []domain.ExchangeRate{}
+	}
+	s.RenderFragment(c, "exchange-rates", "exchange-rates-table", gin.H{"Rates": rates})
+}
+
+func periodsLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		periods, err := d.Svc.GetAllPeriods(c.Request.Context())
+		if err != nil {
+			return nil, err
+		}
+		if periods == nil {
+			periods = []domain.Period{}
+		}
+		sort.Slice(periods, func(i, j int) bool {
+			if periods[i].Year != periods[j].Year {
+				return periods[i].Year > periods[j].Year
+			}
+			return periods[i].Month > periods[j].Month
+		})
+		return gin.H{"Periods": periods}, nil
+	}
+}
+
+func (s *Server) periodsCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		year, err := strconv.Atoi(c.PostForm("year"))
+		if err != nil {
+			Toast(c, "error", "Năm không hợp lệ.")
+			s.renderPeriodsTable(c, d)
+			return
+		}
+		month, err := strconv.Atoi(c.PostForm("month"))
+		if err != nil {
+			Toast(c, "error", "Tháng không hợp lệ.")
+			s.renderPeriodsTable(c, d)
+			return
+		}
+		start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+		period := &domain.Period{
+			Year:      year,
+			Month:     month,
+			StartDate: start,
+			EndDate:   start.AddDate(0, 1, -1),
+			Status:    domain.PeriodOpen,
+		}
+		// CreatePeriod runs period.Validate() (year/month/date/status range).
+		if err := d.Svc.CreatePeriod(c.Request.Context(), period); err != nil {
+			log.Printf("create period: %v", err)
+			Toast(c, "error", "Không tạo được kỳ kế toán: "+err.Error())
+			s.renderPeriodsTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã tạo kỳ kế toán "+strconv.Itoa(month)+"/"+strconv.Itoa(year)+".")
+		s.renderPeriodsTable(c, d)
+	}
+}
+
+// periodStatusAction dispatches close/reopen from hx-vals id.
+func (s *Server) periodStatusAction(d Deps, action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.PostForm("id")
+		if id == "" {
+			Toast(c, "error", "Thiếu mã kỳ kế toán.")
+			s.renderPeriodsTable(c, d)
+			return
+		}
+		var err error
+		if action == "close" {
+			err = d.Svc.ClosePeriod(c.Request.Context(), id)
+		} else {
+			err = d.Svc.ReopenPeriod(c.Request.Context(), id)
+		}
+		if err != nil {
+			log.Printf("period %s %s: %v", action, id, err)
+			Toast(c, "error", "Thao tác thất bại: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã cập nhật kỳ kế toán.")
+		}
+		s.renderPeriodsTable(c, d)
+	}
+}
+
+func (s *Server) periodsClose(d Deps) gin.HandlerFunc  { return s.periodStatusAction(d, "close") }
+func (s *Server) periodsReopen(d Deps) gin.HandlerFunc { return s.periodStatusAction(d, "reopen") }
+
+func (s *Server) renderPeriodsTable(c *gin.Context, d Deps) {
+	periods, err := d.Svc.GetAllPeriods(c.Request.Context())
+	if err != nil {
+		c.String(500, "load periods failed")
+		return
+	}
+	if periods == nil {
+		periods = []domain.Period{}
+	}
+	sort.Slice(periods, func(i, j int) bool {
+		if periods[i].Year != periods[j].Year {
+			return periods[i].Year > periods[j].Year
+		}
+		return periods[i].Month > periods[j].Month
+	})
+	s.RenderFragment(c, "periods", "periods-table", gin.H{"Periods": periods})
 }
 
 // renderCustomersTable re-renders the table fragment after a mutation, keeping
@@ -667,13 +908,13 @@ func coaData(c *gin.Context, d Deps) (gin.H, error) {
 		sc, sl := coaStatusMeta(string(a.Status))
 		rows = append(rows, CoaRow{
 			Code: a.Code, Name: a.Name, Name2: a.Name2, ParentCode: a.ParentCode,
-			LoaiCode:     loaiCode,
-			Type:         string(a.Type),
-			TypeLabel:    tl, TypeName: tn, TypeClass: tc,
-			Normal:       normal, NormalClass: normalClass,
-			DetailBy:     string(a.DetailBy), DetailLabel: coaDetailLabel(a.DetailBy),
-			IsForeign:    a.IsForeign,
-			Status:       string(a.Status), StatusClass: sc, StatusLabel: sl,
+			LoaiCode:  loaiCode,
+			Type:      string(a.Type),
+			TypeLabel: tl, TypeName: tn, TypeClass: tc,
+			Normal: normal, NormalClass: normalClass,
+			DetailBy: string(a.DetailBy), DetailLabel: coaDetailLabel(a.DetailBy),
+			IsForeign: a.IsForeign,
+			Status:    string(a.Status), StatusClass: sc, StatusLabel: sl,
 			FreezeReason: a.FreezeReason,
 			Depth:        depth, HasChildren: hasChildren,
 			IsLoai: depth == 0, LoaiName: a.Name, LoaiCount: subtreeCount(a.Code) + 1,
