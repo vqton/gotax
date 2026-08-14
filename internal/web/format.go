@@ -81,6 +81,10 @@ func statusBadge(status string) template.HTML {
 		"approved":  "badge-approved",
 		"posted":    "badge-posted",
 		"cancelled": "badge-cancelled",
+		// Customer statuses.
+		"active":      "badge-success",
+		"suspended":   "badge-warning",
+		"blacklisted": "badge-error",
 	}
 	labels := map[string]string{
 		"draft":     "Nháp",
@@ -88,6 +92,10 @@ func statusBadge(status string) template.HTML {
 		"approved":  "Đã duyệt",
 		"posted":    "Đã ghi sổ",
 		"cancelled": "Hủy",
+		// Customer statuses.
+		"active":      "Hoạt động",
+		"suspended":   "Tạm ngưng",
+		"blacklisted": "Cấm",
 	}
 	key := strings.ToLower(status)
 	class, label := cls[key], labels[key]

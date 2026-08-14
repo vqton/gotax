@@ -16,7 +16,8 @@ import (
 
 // Deps bundles the services pages render from.
 type Deps struct {
-	Svc service.Service
+	Svc  service.Service
+	Sale *service.SaleService
 }
 
 // NewPages returns the registry of server-rendered pages → loaders.
@@ -26,6 +27,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/users.html":           {Title: "Người dùng", NavPath: "/app/users.html", Load: usersLoad(d)},
 		"/app/journal-entries.html": {Title: "Chứng từ kế toán", NavPath: "/app/journal-entries.html", Load: journalEntriesLoad(d)},
 		"/app/coa.html":             {Title: "Hệ thống tài khoản", NavPath: "/app/coa.html", Load: coaLoad(d)},
+		"/app/customers.html":       {Title: "Khách hàng", NavPath: "/app/customers.html", Load: customersLoad(d)},
 	}
 }
 
@@ -129,6 +131,29 @@ func usersLoad(d Deps) func(c *gin.Context) (any, error) {
 			return nil, err
 		}
 		return gin.H{"Users": users}, nil
+	}
+}
+
+// pageCompanyID resolves the tenant for company-scoped pages. Passed via
+// ?company_id= like the JSON API; falls back to CMP001 to match the legacy
+// app.js default (single-company deployments).
+func pageCompanyID(c *gin.Context) string {
+	if id := c.Query("company_id"); id != "" {
+		return id
+	}
+	return "CMP001"
+}
+
+func customersLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		customers, err := d.Sale.ListCustomers(c.Request.Context(), pageCompanyID(c))
+		if err != nil {
+			return nil, err
+		}
+		if customers == nil {
+			customers = []domain.Customer{}
+		}
+		return gin.H{"Customers": customers}, nil
 	}
 }
 

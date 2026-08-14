@@ -1,236 +1,104 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Khách hàng · GoTax</title>
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth-legacy.js"></script>
-  <script src="/assets/js/app-legacy.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen" x-data="customersPage()" x-init="init()">
-
-  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
-
-  <div class="lg:ml-60">
-    <header id="topbar" class="sticky top-0 z-20"></header>
-    <main class="p-6">
-      <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
-      </template>
-
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-gray-900">Khách hàng</h2>
-        <button @click="openCreate()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Thêm khách hàng
-        </button>
-      </div>
-
-      <!-- Search -->
-      <div class="mb-4">
-        <input type="text" x-model="search" placeholder="Tìm mã, tên, MST, SĐT..." class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500">
-      </div>
-
-      <!-- Table -->
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700">Danh sách khách hàng</h3>
-          <span class="text-xs text-gray-400" x-text="filtered.length + ' khách hàng'"></span>
+{{define "content"}}
+      <!-- Page header -->
+      <div class="page-head">
+        <div>
+          <h1>Khách hàng</h1>
+          <p class="ph-sub">Danh mục khách hàng bán hàng, cung cấp dịch vụ</p>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 border-b border-gray-200">
+        <div class="ph-actions">
+          <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('customer-create').classList.remove('hidden')">＋ Thêm khách hàng</button>
+        </div>
+      </div>
+
+      <!-- Table (htmx swap target) -->
+      <div id="customers-table" class="mt-16">{{template "customers-table" .}}</div>
+
+      <!-- Create modal -->
+      <div id="customer-create" class="modal-overlay hidden">
+        <div class="modal">
+          <div class="modal-head">
+            <h3>Thêm khách hàng mới</h3>
+            <button type="button" class="modal-x" onclick="document.getElementById('customer-create').classList.add('hidden')" aria-label="Đóng">✕</button>
+          </div>
+          <form hx-post="/app/customers/create" hx-target="#customers-table" hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){document.getElementById('customer-create').classList.add('hidden')}">
+            <div class="form-grid">
+              <div class="f-col">
+                <label class="f-label" for="cust-code">Mã khách hàng <span class="f-req">*</span></label>
+                <input type="text" id="cust-code" name="code" required placeholder="KH001">
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="cust-name">Tên khách hàng <span class="f-req">*</span></label>
+                <input type="text" id="cust-name" name="name" required placeholder="Công ty TNHH…">
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="cust-tax">Mã số thuế <span class="f-req">*</span></label>
+                <input type="text" id="cust-tax" name="tax_code" required placeholder="0123456789">
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="cust-phone">Điện thoại</label>
+                <input type="tel" id="cust-phone" name="phone" placeholder="024 1234 5678">
+              </div>
+              <div class="f-col span2">
+                <label class="f-label" for="cust-address">Địa chỉ</label>
+                <input type="text" id="cust-address" name="address" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố">
+              </div>
+              <div class="f-col span2">
+                <label class="f-label" for="cust-email">Email</label>
+                <input type="email" id="cust-email" name="email" placeholder="contact@company.vn">
+              </div>
+            </div>
+            <div class="modal-foot">
+              <button type="button" class="btn btn-ghost" onclick="document.getElementById('customer-create').classList.add('hidden')">Hủy</button>
+              <button type="submit" class="btn btn-primary">Thêm mới</button>
+            </div>
+          </form>
+        </div>
+      </div>
+{{end}}
+
+{{define "customers-table"}}
+      <div class="card">
+        <div class="card-head">
+          <h3>Danh sách khách hàng</h3>
+          <span class="card-count">{{len .Data.Customers}} khách hàng</span>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="tbl">
+            <thead>
               <tr>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Mã KH</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Tên khách hàng</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">MST</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Địa chỉ</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">SĐT</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Email</th>
-                <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
-                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
+                <th>Mã KH</th>
+                <th>Tên khách hàng</th>
+                <th>MST</th>
+                <th>Địa chỉ</th>
+                <th>SĐT</th>
+                <th>Email</th>
+                <th>Trạng thái</th>
+                <th class="num">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="c in filtered" :key="c.id">
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                  <td class="px-5 py-3 font-medium text-blue-700" x-text="c.code"></td>
-                  <td class="px-5 py-3 text-gray-900" x-text="c.name"></td>
-                  <td class="px-5 py-3 text-gray-500" x-text="c.tax_code || '—'"></td>
-                  <td class="px-5 py-3 text-gray-500" x-text="c.address || '—'"></td>
-                  <td class="px-5 py-3 text-gray-500" x-text="c.phone || '—'"></td>
-                  <td class="px-5 py-3 text-gray-500" x-text="c.email || '—'"></td>
-                  <td class="px-5 py-3" x-html="statusBadge(c.status || 'ACTIVE')"></td>
-                  <td class="px-5 py-3 text-right space-x-3">
-                    <button @click="openEdit(c)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sửa</button>
-                    <button @click="deleteItem(c)" class="text-red-600 hover:text-red-800 text-xs font-medium">Xóa</button>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="!filtered.length">
-                <td colspan="8" class="px-5 py-12 text-center text-gray-400">
-                  <span class="text-3xl block mb-2">🧑</span>
-                  Không có khách hàng nào
+              {{range .Data.Customers}}
+              <tr>
+                <td class="td-main td-mono">{{.Code}}</td>
+                <td class="td-main">{{.Name}}</td>
+                <td class="td-mono td-muted">{{.TaxCode}}</td>
+                <td class="td-muted">{{if .Address}}{{.Address}}{{else}}—{{end}}</td>
+                <td class="td-muted">{{if .Phone}}{{.Phone}}{{else}}—{{end}}</td>
+                <td class="td-muted">{{if .Email}}{{.Email}}{{else}}—{{end}}</td>
+                <td>{{statusBadge (printf "%s" .Status)}}</td>
+                <td class="num">
+                  <button type="button" class="btn btn-danger btn-sm" hx-post="/app/customers/delete" hx-vals='{"id":"{{.ID}}"}'
+                    hx-target="#customers-table" hx-swap="innerHTML" hx-confirm="Xóa khách hàng {{.Code}} — {{.Name}}?">Xóa</button>
                 </td>
               </tr>
+              {{else}}
+              <tr class="empty">
+                <td colspan="8">🧑 Chưa có khách hàng nào. Bấm <b>＋ Thêm khách hàng</b> để bắt đầu.</td>
+              </tr>
+              {{end}}
             </tbody>
           </table>
         </div>
       </div>
-    </main>
-  </div>
-
-  <!-- Create/Edit modal -->
-  <template x-if="showModal">
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showModal=false">
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" @click.stop>
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 class="text-lg font-semibold text-gray-900" x-text="editing ? 'Sửa khách hàng' : 'Thêm khách hàng mới'"></h3>
-          <button @click="showModal=false" class="text-gray-400 hover:text-gray-600">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="px-6 py-4 space-y-4">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">Mã khách hàng <span class="text-red-500">*</span></label>
-              <input type="text" x-model="form.code" :disabled="editing" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100" placeholder="KH001">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">Tên khách hàng <span class="text-red-500">*</span></label>
-              <input type="text" x-model="form.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Công ty TNHH...">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">Mã số thuế</label>
-              <input type="text" x-model="form.tax_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="0123456789">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">Điện thoại</label>
-              <input type="tel" x-model="form.phone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="024 1234 5678">
-            </div>
-            <div class="col-span-2">
-              <label class="block text-xs font-medium text-gray-500 mb-1">Địa chỉ</label>
-              <input type="text" x-model="form.address" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố">
-            </div>
-            <div class="col-span-2">
-              <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
-              <input type="email" x-model="form.email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="contact@company.vn">
-            </div>
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
-          <button @click="showModal=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Hủy</button>
-          <button @click="saveItem()" :disabled="saving"
-            class="px-5 py-2 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition">
-            <span x-show="!saving" x-text="editing ? 'Cập nhật' : 'Thêm mới'"></span>
-            <span x-show="saving">Đang lưu...</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <!-- Delete confirmation -->
-  <template x-if="showDeleteConfirm">
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDeleteConfirm=false">
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6" @click.stop>
-        <h3 class="text-lg font-semibold text-gray-900 mb-2">Xác nhận xóa</h3>
-        <p class="text-sm text-gray-600 mb-4">Bạn có chắc chắn muốn xóa khách hàng <span class="font-medium" x-text="deletingItem?.code"></span> — <span class="font-medium" x-text="deletingItem?.name"></span>?</p>
-        <div class="flex justify-end gap-3">
-          <button @click="showDeleteConfirm=false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition">Hủy</button>
-          <button @click="confirmDelete()" class="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">Xóa</button>
-        </div>
-      </div>
-    </div>
-  </template>
-
-<script>
-function customersPage() {
-  return {
-    search: "",
-    showModal: false,
-    showDeleteConfirm: false,
-    editing: false,
-    saving: false,
-    deletingItem: null,
-    items: [],
-    form: { code: "", name: "", tax_code: "", address: "", phone: "", email: "" },
-
-    get filtered() {
-      const q = this.search.toLowerCase();
-      if (!q) return this.items;
-      return this.items.filter(c =>
-        c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) ||
-        (c.tax_code || "").toLowerCase().includes(q) || (c.phone || "").toLowerCase().includes(q)
-      );
-    },
-
-    init() {
-      mountAppShell("Khách hàng", "/app/customers.html");
-      this.items = [
-        { id: "1", code: "KH001", name: "Công ty TNHH Thương mại ABC", tax_code: "0123456789", address: "123 Nguyễn Huệ, Q.1, TP.HCM", phone: "028 3822 1234", email: "contact@abc.vn", status: "ACTIVE" },
-        { id: "2", code: "KH002", name: "Doanh nghiệp tư nhân Lê Minh", tax_code: "0987654321", address: "456 Lê Lợi, Q.3, TP.HCM", phone: "028 3939 5678", email: "leminh@gmail.com", status: "ACTIVE" },
-        { id: "3", code: "KH003", name: "Công ty CP Sản xuất DEF", tax_code: "0345678912", address: "789 Trần Hưng Đạo, Q.5, TP.HCM", phone: "028 3838 9012", email: "info@def.vn", status: "ACTIVE" },
-        { id: "4", code: "KH004", name: "Hộ kinh doanh Hoàng Gia", tax_code: "0567891234", address: "321 Điện Biên Phủ, Q. Bình Thạnh, TP.HCM", phone: "0901 234 567", email: "hoanggia@gmail.com", status: "INACTIVE" },
-        { id: "5", code: "KH005", name: "Công ty TNHH Dịch vụ GHI", tax_code: "0789123456", address: "654 Võ Văn Tần, Q.3, TP.HCM", phone: "028 3930 3456", email: "ghi@ghi.vn", status: "ACTIVE" },
-      ];
-    },
-
-    openCreate() {
-      this.editing = false;
-      this.form = { code: "", name: "", tax_code: "", address: "", phone: "", email: "" };
-      this.showModal = true;
-    },
-
-    openEdit(c) {
-      this.editing = true;
-      this.form = { code: c.code, name: c.name, tax_code: c.tax_code || "", address: c.address || "", phone: c.phone || "", email: c.email || "" };
-      this.showModal = true;
-    },
-
-    async saveItem() {
-      if (!this.form.code || !this.form.name) {
-        $store.app.flashError("Vui lòng nhập mã và tên khách hàng");
-        return;
-      }
-      this.saving = true;
-      try {
-        await new Promise(r => setTimeout(r, 300));
-        if (this.editing) {
-          const idx = this.items.findIndex(i => i.code === this.form.code);
-          if (idx >= 0) Object.assign(this.items[idx], this.form);
-          $store.app.flashSuccess("Đã cập nhật khách hàng");
-        } else {
-          this.items.push({ ...this.form, id: String(Date.now()), status: "ACTIVE" });
-          $store.app.flashSuccess("Đã thêm khách hàng mới");
-        }
-        this.showModal = false;
-      } catch (e) {
-        $store.app.flashError(e.error || "Lỗi lưu khách hàng");
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    deleteItem(c) {
-      this.deletingItem = c;
-      this.showDeleteConfirm = true;
-    },
-
-    confirmDelete() {
-      if (!this.deletingItem) return;
-      this.items = this.items.filter(i => i.code !== this.deletingItem.code);
-      this.showDeleteConfirm = false;
-      this.deletingItem = null;
-      $store.app.flashSuccess("Đã xóa khách hàng");
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+{{end}}
