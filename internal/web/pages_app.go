@@ -37,6 +37,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/cash-receipts.html":   {Title: "Phiếu thu", NavPath: "/app/cash-receipts.html", Load: cashReceiptsLoad(d)},
 		"/app/cash-payments.html":   {Title: "Phiếu chi", NavPath: "/app/cash-payments.html", Load: cashPaymentsLoad(d)},
 		"/app/cash-transfers.html":  {Title: "Chuyển quỹ", NavPath: "/app/cash-transfers.html", Load: cashTransfersLoad(d)},
+		"/app/cash-book.html":       {Title: "Sổ quỹ tiền mặt", NavPath: "/app/cash-book.html", Load: cashBookLoad(d)},
 	}
 }
 
@@ -94,6 +95,9 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		},
 		"/app/cash-transfers": {
 			"create": s.cashTransfersCreate(d),
+		},
+		"/app/cash-book": {
+			"filter": s.cashBookFilter(d),
 		},
 	}
 }
@@ -1322,4 +1326,70 @@ func (s *Server) renderCashTransfersTable(c *gin.Context, d Deps) {
 		transfers = []domain.CashTransfer{}
 	}
 	s.RenderFragment(c, "cash-transfers", "cash-transfers-table", gin.H{"Transfers": transfers})
+}
+
+// ─── Cash Book Report ─────────────────────────────────────────────
+
+func cashBookFilters(c *gin.Context) (accountID, currency, fromDate, toDate string) {
+	accountID = strings.TrimSpace(c.PostForm("account_id"))
+	currency = strings.TrimSpace(c.PostForm("currency"))
+	fromDate = strings.TrimSpace(c.PostForm("from_date"))
+	toDate = strings.TrimSpace(c.PostForm("to_date"))
+	if accountID == "" {
+		accountID = c.Query("account_id")
+	}
+	if currency == "" {
+		currency = c.Query("currency")
+	}
+	if fromDate == "" {
+		fromDate = c.Query("from_date")
+	}
+	if toDate == "" {
+		toDate = c.Query("to_date")
+	}
+	if accountID == "" {
+		accountID = "1111"
+	}
+	if currency == "" {
+		currency = "VND"
+	}
+	if fromDate == "" || toDate == "" {
+		now := time.Now()
+		fromDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local).Format("2006-01-02")
+		toDate = time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.Local).Format("2006-01-02")
+	}
+	return accountID, currency, fromDate, toDate
+}
+
+func (s *Server) renderCashBook(c *gin.Context, d Deps) {
+	accountID, currency, fromDate, toDate := cashBookFilters(c)
+	book, err := d.Svc.GetCashBook(c.Request.Context(), pageCompanyID(c), currency, accountID, fromDate, toDate)
+	if err != nil {
+		c.String(500, "load cash book failed")
+		return
+	}
+	if book.Entries == nil {
+		book.Entries = []domain.CashBookEntry{}
+	}
+	s.RenderFragment(c, "cash-book", "cash-book-report", gin.H{"Book": book})
+}
+
+func cashBookLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		accountID, currency, fromDate, toDate := cashBookFilters(c)
+		book, err := d.Svc.GetCashBook(c.Request.Context(), pageCompanyID(c), currency, accountID, fromDate, toDate)
+		if err != nil {
+			return nil, err
+		}
+		if book.Entries == nil {
+			book.Entries = []domain.CashBookEntry{}
+		}
+		return gin.H{"Book": book}, nil
+	}
+}
+
+func (s *Server) cashBookFilter(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		s.renderCashBook(c, d)
+	}
 }

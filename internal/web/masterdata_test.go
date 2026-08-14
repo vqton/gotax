@@ -46,7 +46,7 @@ func setupSvc(t *testing.T) (*gin.Engine, service.CompanyService, *repository.Me
 	companySvc := service.NewCompanyService(repository.NewMemoryCompanyRepo())
 	deps := Deps{Svc: svc, Company: companySvc}
 
-	srv, err := NewServer([]string{"company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "legacy"})
+	srv, err := NewServer([]string{"company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "legacy"})
 	require.NoError(t, err)
 
 	r := gin.New()

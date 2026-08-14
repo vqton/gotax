@@ -580,13 +580,13 @@ func (r *PGCashRepo) GetCashBook(ctx context.Context, companyID, currency, accou
 	var rows []cbRow
 	err = r.db.WithContext(ctx).Raw(`
 		SELECT voucher_date, 'RECEIPT' AS voucher_type, voucher_no, reason,
-		       amount_vnd, 0 AS payment_amount, id
+		       amount_vnd AS receipt_amount, 0 AS payment_amount, id
 		FROM cash_receipts
 		WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED'
 		  AND voucher_date >= ? AND voucher_date <= ?
 		UNION ALL
 		SELECT voucher_date, 'PAYMENT', voucher_no, reason,
-		       0, amount_vnd, id
+		       0 AS receipt_amount, amount_vnd AS payment_amount, id
 		FROM cash_payments
 		WHERE company_id = ? AND currency = ? AND cash_account_id = ? AND status = 'POSTED'
 		  AND voucher_date >= ? AND voucher_date <= ?

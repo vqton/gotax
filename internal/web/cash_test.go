@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -462,4 +463,54 @@ func TestCashTransfersCreateValidationError(t *testing.T) {
 	transfers, err := cashRepo.ListTransfers(context.Background(), "CMP001")
 	require.NoError(t, err)
 	assert.Empty(t, transfers)
+}
+
+// ─── Cash Book Report ─────────────────────────────────────────────
+
+func TestCashBookPageRenderAndFilter(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+
+	// Posted docs within the current month (default filter period).
+	now := time.Now()
+	in := now.Format("2006-01-02")
+	rcpt := &domain.CashReceipt{
+		ID: "CR-SEED-BOOK", CompanyID: "CMP001", VoucherNo: "R-2026-0099",
+		VoucherDate: in, CashAccountID: "1111", Currency: "VND", ExchangeRate: 1,
+		Amount: 5000000, AmountVND: 5000000, DebitAccountID: "1111", CreditAccountID: "5111",
+		Reason: "Thu tiền bán hàng", Status: domain.CashPosted,
+	}
+	require.NoError(t, cashRepo.CreateReceipt(context.Background(), rcpt))
+	pay := &domain.CashPayment{
+		ID: "CP-SEED-BOOK", CompanyID: "CMP001", VoucherNo: "P-2026-0099",
+		VoucherDate: in, CashAccountID: "1111", Currency: "VND", ExchangeRate: 1,
+		Amount: 2000000, AmountVND: 2000000, DebitAccountID: "3311", CreditAccountID: "1111",
+		Reason: "Chi thanh toán NCC", Status: domain.CashPosted,
+	}
+	require.NoError(t, cashRepo.CreatePayment(context.Background(), pay))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/cash-book.html?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Sổ quỹ tiền mặt")
+	assert.Contains(t, body, "5.000.000") // total receipts
+	assert.Contains(t, body, "2.000.000") // total payments
+	assert.Contains(t, body, "3.000.000") // closing balance
+	assert.Contains(t, body, "R-2026-0099")
+	assert.NotContains(t, body, "x-data")
+
+	// Filter action re-renders the report fragment with explicit dates.
+	params := url.Values{
+		"company_id": {"CMP001"}, "account_id": {"1111"},
+		"currency": {"VND"}, "from_date": {"2026-08-01"}, "to_date": {"2026-08-31"},
+	}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/app/cash-book/filter?"+params.Encode(), strings.NewReader(params.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body = w.Body.String()
+	assert.Contains(t, body, "Số dư đầu kỳ")
+	assert.Contains(t, body, "5.000.000")
 }
