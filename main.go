@@ -312,11 +312,11 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisH := handler.NewFinancialAnalysisHandler(finAnalysisSvc)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisH, authMW)
 	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
-		webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "customers", "suppliers", "company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "cash-flow", "legacy"})
+		webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "customers", "suppliers", "company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "cash-flow", "journal-export", "legacy"})
 		if err != nil {
 			zap.L().Fatal("init web templates", zap.Error(err))
 		}
-		webDeps := web.Deps{Svc: svc, Company: companySvc, Sale: saleSvc, Purchase: purchaseSvc}
+		webDeps := web.Deps{Svc: svc, Company: companySvc, Sale: saleSvc, Purchase: purchaseSvc, Export: exportSvc}
 		webSrv.RegisterPages(r, web.NewPages(webDeps), webSrv.NewActions(webDeps))
 		r.Run(cfg.ServerPort)
 		return
@@ -480,11 +480,11 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisHMem := handler.NewFinancialAnalysisHandler(finAnalysisSvcMem)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisHMem, authMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
-	webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "customers", "suppliers", "company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "cash-flow", "legacy"})
+	webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "customers", "suppliers", "company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "cash-flow", "journal-export", "legacy"})
 	if err != nil {
 		zap.L().Fatal("init web templates", zap.Error(err))
 	}
-	webDeps := web.Deps{Svc: svc, Company: companySvc, Sale: saleSvc, Purchase: purchaseSvc}
+	webDeps := web.Deps{Svc: svc, Company: companySvc, Sale: saleSvc, Purchase: purchaseSvc, Export: exportSvc}
 	webSrv.RegisterPages(r, web.NewPages(webDeps), webSrv.NewActions(webDeps))
 	r.Run(cfg.ServerPort)
 }

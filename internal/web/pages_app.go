@@ -1,8 +1,10 @@
 package web
 
 import (
+	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +22,7 @@ type Deps struct {
 	Company  service.CompanyService
 	Sale     *service.SaleService
 	Purchase *service.PurchaseService
+	Export   *service.ExportService
 }
 
 // NewPages returns the registry of server-rendered pages → loaders.
@@ -39,6 +42,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/cash-transfers.html":  {Title: "Chuyển quỹ", NavPath: "/app/cash-transfers.html", Load: cashTransfersLoad(d)},
 		"/app/cash-book.html":       {Title: "Sổ quỹ tiền mặt", NavPath: "/app/cash-book.html", Load: cashBookLoad(d)},
 		"/app/cash-flow.html":       {Title: "Lưu chuyển tiền tệ", NavPath: "/app/cash-flow.html", Load: cashFlowLoad(d)},
+		"/app/journal-export.html":  {Title: "Nhật ký chung", NavPath: "/app/journal-export.html", Load: journalExportLoad(d)},
 	}
 }
 
@@ -102,6 +106,9 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		},
 		"/app/cash-flow": {
 			"filter": s.cashFlowFilter(d),
+		},
+		"/app/journal-export": {
+			"download": s.journalExportDownload(d),
 		},
 	}
 }
@@ -1444,5 +1451,44 @@ func cashFlowLoad(d Deps) func(c *gin.Context) (any, error) {
 func (s *Server) cashFlowFilter(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s.renderCashFlow(c, d)
+	}
+}
+
+func journalExportFilters(c *gin.Context) (year, month int) {
+	year, _ = strconv.Atoi(strings.TrimSpace(c.PostForm("year")))
+	if year == 0 {
+		year, _ = strconv.Atoi(c.Query("year"))
+	}
+	month, _ = strconv.Atoi(strings.TrimSpace(c.PostForm("month")))
+	if month == 0 {
+		month, _ = strconv.Atoi(c.Query("month"))
+	}
+	if year == 0 {
+		year = time.Now().Year()
+	}
+	if month < 1 || month > 12 {
+		month = int(time.Now().Month())
+	}
+	return year, month
+}
+
+func (s *Server) journalExportDownload(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		year, month := journalExportFilters(c)
+		data, err := d.Export.ExportJournalEntries(c.Request.Context(), pageCompanyID(c), year, month)
+		if err != nil {
+			c.String(500, "export failed")
+			return
+		}
+		c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=chung-tu-%d-%02d.xlsx", year, month))
+		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
+	}
+}
+
+func journalExportLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		year, month := journalExportFilters(c)
+		return gin.H{"Year": year, "Month": month}, nil
 	}
 }
