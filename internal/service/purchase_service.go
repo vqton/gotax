@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
+
+	"github.com/google/uuid"
+
 	"gotax/internal/domain"
 	"gotax/internal/einvoice"
 	"gotax/internal/validate"
-	"time"
 )
 
 // APGLService posts purchase documents to the GL journal.
@@ -62,6 +65,12 @@ func NewPurchaseService(
 // ─── Supplier ───────────────────────────────────────────────────────────
 
 func (s *PurchaseService) CreateSupplier(ctx context.Context, sup *domain.Supplier) error {
+	// PG suppliers.id is TEXT PRIMARY KEY with no DB default — without an
+	// explicit ID the row is created with id='' and by-id lookups miss it
+	// (same defect as customers, fixed in sale service).
+	if sup.ID == "" {
+		sup.ID = uuid.NewString()
+	}
 	existing, _ := s.supRepo.GetSupplierByCode(ctx, sup.CompanyID, sup.Code)
 	if existing != nil {
 		return domain.ErrSupplierCodeExists

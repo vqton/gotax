@@ -16,8 +16,9 @@ import (
 
 // Deps bundles the services pages render from.
 type Deps struct {
-	Svc  service.Service
-	Sale *service.SaleService
+	Svc      service.Service
+	Sale     *service.SaleService
+	Purchase *service.PurchaseService
 }
 
 // NewPages returns the registry of server-rendered pages → loaders.
@@ -28,6 +29,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/journal-entries.html": {Title: "Chứng từ kế toán", NavPath: "/app/journal-entries.html", Load: journalEntriesLoad(d)},
 		"/app/coa.html":             {Title: "Hệ thống tài khoản", NavPath: "/app/coa.html", Load: coaLoad(d)},
 		"/app/customers.html":       {Title: "Khách hàng", NavPath: "/app/customers.html", Load: customersLoad(d)},
+		"/app/suppliers.html":       {Title: "Nhà cung cấp", NavPath: "/app/suppliers.html", Load: suppliersLoad(d)},
 	}
 }
 
@@ -55,6 +57,10 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		"/app/customers": {
 			"create": s.customersCreate(d),
 			"delete": s.customersDelete(d),
+		},
+		"/app/suppliers": {
+			"create": s.suppliersCreate(d),
+			"delete": s.suppliersDelete(d),
 		},
 	}
 }
@@ -201,6 +207,81 @@ func (s *Server) customersDelete(d Deps) gin.HandlerFunc {
 		Toast(c, "success", "Đã xóa khách hàng.")
 		s.renderCustomersTable(c, d)
 	}
+}
+
+// ── Suppliers ────────────────────────────────────────────────────────────────
+
+func suppliersLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		suppliers, _, err := d.Purchase.ListSuppliers(c.Request.Context(), pageCompanyID(c), 0, 0)
+		if err != nil {
+			return nil, err
+		}
+		if suppliers == nil {
+			suppliers = []domain.Supplier{}
+		}
+		return gin.H{"Suppliers": suppliers}, nil
+	}
+}
+
+func (s *Server) suppliersCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sup := &domain.Supplier{
+			CompanyID: pageCompanyID(c),
+			Code:      c.PostForm("code"),
+			Name:      c.PostForm("name"),
+			TaxCode:   c.PostForm("tax_code"),
+			Address:   c.PostForm("address"),
+			Phone:     c.PostForm("phone"),
+			Email:     c.PostForm("email"),
+			Currency:  "VND",
+		}
+		// Service does not validate Supplier — check required fields here.
+		if sup.Code == "" || sup.Name == "" || sup.TaxCode == "" {
+			Toast(c, "error", "Vui lòng nhập mã, tên và mã số thuế nhà cung cấp.")
+			s.renderSuppliersTable(c, d)
+			return
+		}
+		if err := d.Purchase.CreateSupplier(c.Request.Context(), sup); err != nil {
+			log.Printf("create supplier: %v", err)
+			Toast(c, "error", "Không tạo được nhà cung cấp: "+err.Error())
+			s.renderSuppliersTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã thêm nhà cung cấp mới.")
+		s.renderSuppliersTable(c, d)
+	}
+}
+
+func (s *Server) suppliersDelete(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.PostForm("id")
+		if id == "" {
+			Toast(c, "error", "Thiếu mã nhà cung cấp.")
+			s.renderSuppliersTable(c, d)
+			return
+		}
+		if err := d.Purchase.DeleteSupplier(c.Request.Context(), id); err != nil {
+			log.Printf("delete supplier: %v", err)
+			Toast(c, "error", "Không xóa được nhà cung cấp: "+err.Error())
+			s.renderSuppliersTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã xóa nhà cung cấp.")
+		s.renderSuppliersTable(c, d)
+	}
+}
+
+func (s *Server) renderSuppliersTable(c *gin.Context, d Deps) {
+	suppliers, _, err := d.Purchase.ListSuppliers(c.Request.Context(), pageCompanyID(c), 0, 0)
+	if err != nil {
+		c.String(500, "load suppliers failed")
+		return
+	}
+	if suppliers == nil {
+		suppliers = []domain.Supplier{}
+	}
+	s.RenderFragment(c, "suppliers", "suppliers-table", gin.H{"Suppliers": suppliers})
 }
 
 // renderCustomersTable re-renders the table fragment after a mutation, keeping
