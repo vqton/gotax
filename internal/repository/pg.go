@@ -136,10 +136,13 @@ func (r *PGJournalRepo) Create(ctx context.Context, e *domain.JournalEntry) erro
 		}
 	}
 	m.Lines = lines
+	if m.ID == "" {
+		m.ID = fmt.Sprintf("JE-%d", time.Now().UnixNano()/1e6)
+	}
 	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
 		return err
 	}
-	e.ID = fmt.Sprintf("JE-%d", m.ID)
+	e.ID = m.ID
 	e.CreatedAt = m.CreatedAt
 	return nil
 }
@@ -349,7 +352,8 @@ func (r *PGPeriodRepo) GetByID(ctx context.Context, id string) (*domain.Period, 
 }
 
 func (r *PGPeriodRepo) GetByYearMonth(ctx context.Context, year, month int) (*domain.Period, error) {
-	return r.GetByID(ctx, fmt.Sprintf("P-%d-%02d", year, month))
+	// Service mints period IDs as P-YYYYMM (no dash) — match that format.
+	return r.GetByID(ctx, fmt.Sprintf("P-%04d%02d", year, month))
 }
 
 func (r *PGPeriodRepo) GetAll(ctx context.Context) ([]domain.Period, error) {

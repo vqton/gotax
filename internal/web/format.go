@@ -90,6 +90,9 @@ func statusBadge(status string) template.HTML {
 		"closing": "badge-warning",
 		"closed":  "badge-default",
 		"locked":  "badge-error",
+		// Cash document statuses.
+		"submitted": "badge-reviewing",
+		"rejected":  "badge-error",
 	}
 	labels := map[string]string{
 		"draft":     "Nháp",
@@ -106,6 +109,9 @@ func statusBadge(status string) template.HTML {
 		"closing": "Đang khóa",
 		"closed":  "Đã khóa",
 		"locked":  "Khóa vĩnh viễn",
+		// Cash document statuses (DRAFT/SUBMITTED/APPROVED/REJECTED/POSTED).
+		"submitted": "Chờ duyệt",
+		"rejected":  "Từ chối",
 	}
 	key := strings.ToLower(status)
 	class, label := cls[key], labels[key]

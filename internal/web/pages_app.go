@@ -34,6 +34,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/company.html":         {Title: "Thông tin công ty", NavPath: "/app/company.html", Load: companyLoad(d)},
 		"/app/exchange-rates.html":  {Title: "Tỷ giá hối đoái", NavPath: "/app/exchange-rates.html", Load: exchangeRatesLoad(d)},
 		"/app/periods.html":         {Title: "Kỳ kế toán", NavPath: "/app/periods.html", Load: periodsLoad(d)},
+		"/app/cash-receipts.html":   {Title: "Phiếu thu", NavPath: "/app/cash-receipts.html", Load: cashReceiptsLoad(d)},
 	}
 }
 
@@ -76,6 +77,12 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"create": s.periodsCreate(d),
 			"close":  s.periodsClose(d),
 			"reopen": s.periodsReopen(d),
+		},
+		"/app/cash-receipts": {
+			"create": s.cashReceiptsCreate(d),
+			"submit": s.cashReceiptStatus(d, "submit"),
+			"approve": s.cashReceiptStatus(d, "approve"),
+			"post":   s.cashReceiptStatus(d, "post"),
 		},
 	}
 }
@@ -1036,4 +1043,104 @@ func (s *Server) coaUnfreeze(d Deps) gin.HandlerFunc {
 		}
 		s.renderCoaGrid(c, d)
 	}
+}
+
+// ─── Cash receipts ─────────────────────────────────────────────────
+
+func cashReceiptsLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		receipts, total, err := d.Svc.ListCashReceipts(c.Request.Context(), domain.CashReceiptFilter{CompanyID: pageCompanyID(c)})
+		if err != nil {
+			return nil, err
+		}
+		if receipts == nil {
+			receipts = []domain.CashReceipt{}
+		}
+		return gin.H{"Receipts": receipts, "Total": total}, nil
+	}
+}
+
+func (s *Server) cashReceiptsCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		voucherDate := strings.TrimSpace(c.PostForm("voucher_date"))
+		if _, err := time.Parse("2006-01-02", voucherDate); err != nil {
+			Toast(c, "error", "Ngày lập phiếu không hợp lệ.")
+			s.renderCashReceiptsTable(c, d)
+			return
+		}
+		amount, err := strconv.ParseFloat(c.PostForm("amount"), 64)
+		if err != nil || amount <= 0 {
+			Toast(c, "error", "Số tiền không hợp lệ.")
+			s.renderCashReceiptsTable(c, d)
+			return
+		}
+		// Legacy page mirrors credit_account_id onto debit_account_id.
+		credit := strings.TrimSpace(c.PostForm("credit_account_id"))
+		debit := strings.TrimSpace(c.PostForm("debit_account_id"))
+		if credit == "" {
+			credit = debit
+		}
+		receiptType := domain.ReceiptType(c.PostForm("receipt_type"))
+		if receiptType == "" {
+			receiptType = domain.ReceiptCustomerPayment
+		}
+		r := &domain.CashReceipt{
+			CompanyID:       pageCompanyID(c),
+			VoucherDate:     voucherDate,
+			CashAccountID:   strings.TrimSpace(c.PostForm("cash_account_id")),
+			CounterpartName: strings.TrimSpace(c.PostForm("counterpart_name")),
+			CounterpartType: domain.CounterpartCustomer,
+			Currency:        "VND",
+			ExchangeRate:    1,
+			Amount:          amount,
+			DebitAccountID:  debit,
+			CreditAccountID: credit,
+			Reason:          strings.TrimSpace(c.PostForm("reason")),
+			ReceiptType:     receiptType,
+		}
+		// CreateCashReceipt runs r.Validate() + voucher numbering.
+		if err := d.Svc.CreateCashReceipt(c.Request.Context(), r); err != nil {
+			log.Printf("create cash receipt: %v", err)
+			Toast(c, "error", "Không tạo được phiếu thu: "+err.Error())
+			s.renderCashReceiptsTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã tạo phiếu thu "+r.VoucherNo+".")
+		s.renderCashReceiptsTable(c, d)
+	}
+}
+
+func (s *Server) cashReceiptStatus(d Deps, action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.PostForm("id")
+		ctx := c.Request.Context()
+		var err error
+		switch action {
+		case "submit":
+			err = d.Svc.SubmitCashReceipt(ctx, id, c.GetString("user_id"))
+		case "approve":
+			err = d.Svc.ApproveCashReceipt(ctx, id, c.GetString("user_id"))
+		case "post":
+			err = d.Svc.PostCashReceipt(ctx, id, c.GetString("user_id"))
+		}
+		if err != nil {
+			log.Printf("cash receipt %s %s: %v", action, id, err)
+			Toast(c, "error", "Thao tác thất bại: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã cập nhật trạng thái phiếu thu.")
+		}
+		s.renderCashReceiptsTable(c, d)
+	}
+}
+
+func (s *Server) renderCashReceiptsTable(c *gin.Context, d Deps) {
+	receipts, total, err := d.Svc.ListCashReceipts(c.Request.Context(), domain.CashReceiptFilter{CompanyID: pageCompanyID(c)})
+	if err != nil {
+		c.String(500, "load cash receipts failed")
+		return
+	}
+	if receipts == nil {
+		receipts = []domain.CashReceipt{}
+	}
+	s.RenderFragment(c, "cash-receipts", "cash-receipts-table", gin.H{"Receipts": receipts, "Total": total})
 }

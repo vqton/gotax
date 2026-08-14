@@ -1,90 +1,35 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phiếu thu · GoTax</title>
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth-legacy.js"></script>
-  <script src="/assets/js/app-legacy.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen" x-data="cashReceipts()" x-init="init()">
-
-  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
-
-  <div class="lg:ml-60">
-    <header id="topbar" class="sticky top-0 z-20"></header>
-
-    <main class="p-6">
-      <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
-      </template>
-
-      <div class="flex items-center justify-between mb-6">
+{{define "content"}}
+      <!-- Page header -->
+      <div class="page-head">
         <div>
-          <h2 class="text-xl font-bold text-gray-900">Danh sách phiếu thu</h2>
-          <p class="text-sm text-gray-500 mt-1" x-text="'Tổng: ' + (total || 0) + ' phiếu thu'"></p>
+          <h1>Phiếu thu</h1>
+          <p class="ph-sub">Thu tiền mặt, quản lý phiếu thu theo từng ngày</p>
         </div>
-        <button @click="showForm = true; resetForm()" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Lập phiếu thu
-        </button>
+        <div class="ph-actions">
+          <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('receipt-create').classList.remove('hidden')">＋ Lập phiếu thu</button>
+        </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Số PT</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Ngày</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Diễn giải</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Thu từ</th>
-              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Số tiền</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Trạng thái</th>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="r in items" :key="r.id">
-              <tr class="border-b border-gray-100 hover:bg-gray-50">
-                <td class="px-5 py-3 font-medium" x-text="r.voucher_no"></td>
-                <td class="px-5 py-3 text-gray-500" x-text="fmtDate(r.voucher_date)"></td>
-                <td class="px-5 py-3 text-gray-700 max-w-xs truncate" x-text="r.reason"></td>
-                <td class="px-5 py-3 text-gray-700" x-text="r.counterpart_name || r.counterpart_id || '—'"></td>
-                <td class="px-5 py-3 text-right font-medium" x-text="fmtVND(r.amount)"></td>
-                <td class="px-5 py-3" x-html="statusBadge(r.status)"></td>
-                <td class="px-5 py-3">
-                  <button x-show="r.status === 'DRAFT'" @click="post(r)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Ghi sổ</button>
-                </td>
-              </tr>
-            </template>
-            <tr x-show="!items.length && !loading">
-              <td colspan="7" class="px-5 py-8 text-center text-gray-400">Chưa có phiếu thu nào</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Table (htmx swap target) -->
+      <div id="cash-receipts-table" class="mt-16">{{template "cash-receipts-table" .}}</div>
 
-      <div x-show="showForm" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" x-transition>
-        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg" @click.outside="showForm = false">
-          <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-gray-900">Lập phiếu thu</h3>
-            <button @click="showForm = false" class="text-gray-400 hover:text-gray-600">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
+      <!-- Create modal -->
+      <div id="receipt-create" class="modal-overlay hidden">
+        <div class="modal">
+          <div class="modal-head">
+            <h3>Lập phiếu thu</h3>
+            <button type="button" class="modal-x" onclick="document.getElementById('receipt-create').classList.add('hidden')" aria-label="Đóng">✕</button>
           </div>
-          <form @submit.prevent="create()" class="px-6 py-4 space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày lập</label>
-                <input type="date" x-model="form.voucher_date" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <form hx-post="/app/cash-receipts/create" hx-target="#cash-receipts-table" hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){document.getElementById('receipt-create').classList.add('hidden')}">
+            <div class="form-grid">
+              <div class="f-col">
+                <label class="f-label" for="rcpt-date">Ngày lập <span class="f-req">*</span></label>
+                <input type="date" id="rcpt-date" name="voucher_date" required>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Loại phiếu</label>
-                <select x-model="form.receipt_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="f-col">
+                <label class="f-label" for="rcpt-type">Loại phiếu</label>
+                <select id="rcpt-type" name="receipt_type">
                   <option value="CUSTOMER_PAYMENT">Thu từ khách hàng</option>
                   <option value="LOAN_RECOVERY">Thu hồi nợ vay</option>
                   <option value="BANK_WITHDRAWAL">Rút tiền từ NH</option>
@@ -93,132 +38,84 @@
                   <option value="OTHER">Khác</option>
                 </select>
               </div>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Diễn giải</label>
-              <input type="text" x-model="form.reason" required placeholder="Nhập diễn giải" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Thu từ (đối tượng)</label>
-                <input type="text" x-model="form.counterpart_name" placeholder="Tên đối tượng" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="f-col f-col-full">
+                <label class="f-label" for="rcpt-reason">Diễn giải <span class="f-req">*</span></label>
+                <input type="text" id="rcpt-reason" name="reason" required placeholder="Nhập diễn giải">
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Số tiền</label>
-                <input type="number" x-model.number="form.amount" required min="1" step="1" placeholder="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="f-col">
+                <label class="f-label" for="rcpt-counterpart">Thu từ (đối tượng)</label>
+                <input type="text" id="rcpt-counterpart" name="counterpart_name" placeholder="Tên đối tượng">
               </div>
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Tài khoản tiền mặt</label>
-                <input type="text" x-model="form.cash_account_id" required placeholder="VD: 1111" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="f-col">
+                <label class="f-label" for="rcpt-amount">Số tiền <span class="f-req">*</span></label>
+                <input type="number" id="rcpt-amount" name="amount" min="1" step="1" required placeholder="0">
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Tài khoản đối ứng</label>
-                <input type="text" x-model="form.debit_account_id" required placeholder="VD: 1311" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="f-col">
+                <label class="f-label" for="rcpt-cash">Tài khoản tiền mặt <span class="f-req">*</span></label>
+                <input type="text" id="rcpt-cash" name="cash_account_id" required placeholder="VD: 1111">
+              </div>
+              <div class="f-col">
+                <label class="f-label" for="rcpt-debit">Tài khoản đối ứng <span class="f-req">*</span></label>
+                <input type="text" id="rcpt-debit" name="debit_account_id" required placeholder="VD: 1311">
               </div>
             </div>
-            <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-              <button type="button" @click="showForm = false" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition">Hủy</button>
-              <button type="submit" :disabled="saving" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
-                <span x-show="!saving">Tạo phiếu thu</span>
-                <span x-show="saving">Đang lưu...</span>
-              </button>
+            <div class="modal-foot">
+              <button type="button" class="btn btn-ghost" onclick="document.getElementById('receipt-create').classList.add('hidden')">Hủy</button>
+              <button type="submit" class="btn btn-primary">Tạo phiếu thu</button>
             </div>
           </form>
         </div>
       </div>
-    </main>
-  </div>
+{{end}}
 
-<script>
-function cashReceipts() {
-  return {
-    items: [],
-    total: 0,
-    loading: false,
-    showForm: false,
-    saving: false,
-    form: {
-      voucher_date: new Date().toISOString().slice(0, 10),
-      receipt_type: "CUSTOMER_PAYMENT",
-      reason: "",
-      counterpart_name: "",
-      amount: 0,
-      cash_account_id: "",
-      debit_account_id: "",
-      credit_account_id: "",
-      currency: "VND",
-      exchange_rate: 1,
-      counterpart_type: "CUSTOMER",
-    },
-
-    async init() {
-      mountAppShell("Phiếu thu", "/app/cash-receipts.html");
-      await this.load();
-    },
-
-    async load() {
-      this.loading = true;
-      try {
-        const cid = App.companyId();
-        const res = await apiGet(`/cash/receipts?company_id=${cid}`);
-        this.items = res.data || [];
-        this.total = res.total || 0;
-      } catch (e) {
-        console.error("load receipts:", e);
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    resetForm() {
-      this.form = {
-        voucher_date: new Date().toISOString().slice(0, 10),
-        receipt_type: "CUSTOMER_PAYMENT",
-        reason: "",
-        counterpart_name: "",
-        amount: 0,
-        cash_account_id: "",
-        debit_account_id: "",
-        credit_account_id: "",
-        currency: "VND",
-        exchange_rate: 1,
-        counterpart_type: "CUSTOMER",
-      };
-    },
-
-    async create() {
-      this.saving = true;
-      try {
-        const cid = App.companyId();
-        this.form.company_id = cid;
-        this.form.credit_account_id = this.form.debit_account_id;
-        await apiPost(`/cash/receipts?company_id=${cid}`, this.form);
-        this.showForm = false;
-        $store.app.flashSuccess("Tạo phiếu thu thành công");
-        await this.load();
-      } catch (e) {
-        $store.app.flashError(e.error || "Lỗi tạo phiếu thu");
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    async post(r) {
-      if (!App.confirm("Ghi sổ phiếu thu " + r.voucher_no + "?")) return;
-      try {
-        const cid = App.companyId();
-        await apiFetch(`/cash/receipts/${r.id}/post?company_id=${cid}`, { method: "POST" });
-        $store.app.flashSuccess("Đã ghi sổ phiếu thu " + r.voucher_no);
-        await this.load();
-      } catch (e) {
-        $store.app.flashError(e.error || "Lỗi ghi sổ");
-      }
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+{{define "cash-receipts-table"}}
+      <div class="card">
+        <div class="card-head">
+          <h3>Danh sách phiếu thu</h3>
+          <span class="card-count">{{.Data.Total}} phiếu thu</span>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Số PT</th>
+                <th>Ngày</th>
+                <th>Diễn giải</th>
+                <th>Thu từ</th>
+                <th class="num">Số tiền</th>
+                <th>Trạng thái</th>
+                <th class="num">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Data.Receipts}}
+              <tr>
+                <td class="td-main td-mono">{{.VoucherNo}}</td>
+                <td class="td-muted">{{fmtDate .VoucherDate}}</td>
+                <td class="td-muted maxw-truncate">{{.Reason}}</td>
+                <td class="td-muted">{{if .CounterpartName}}{{.CounterpartName}}{{else if .CounterpartID}}{{.CounterpartID}}{{else}}—{{end}}</td>
+                <td class="num td-main">{{fmtVND .Amount}}</td>
+                <td>{{statusBadge (printf "%s" .Status)}}</td>
+                <td class="num">
+                  {{if eq (printf "%s" .Status) "DRAFT"}}
+                  <button type="button" class="btn btn-ghost btn-sm" hx-post="/app/cash-receipts/submit" hx-vals='{"id":"{{.ID}}"}'
+                    hx-target="#cash-receipts-table" hx-swap="innerHTML" hx-confirm="Gửi duyệt phiếu thu {{.VoucherNo}}?">Gửi duyệt</button>
+                  {{else if eq (printf "%s" .Status) "SUBMITTED"}}
+                  <button type="button" class="btn btn-ghost btn-sm" hx-post="/app/cash-receipts/approve" hx-vals='{"id":"{{.ID}}"}'
+                    hx-target="#cash-receipts-table" hx-swap="innerHTML" hx-confirm="Duyệt phiếu thu {{.VoucherNo}}?">Duyệt</button>
+                  {{else if eq (printf "%s" .Status) "APPROVED"}}
+                  <button type="button" class="btn btn-ghost btn-sm" hx-post="/app/cash-receipts/post" hx-vals='{"id":"{{.ID}}"}'
+                    hx-target="#cash-receipts-table" hx-swap="innerHTML" hx-confirm="Ghi sổ phiếu thu {{.VoucherNo}}?">Ghi sổ</button>
+                  {{else}}—{{end}}
+                </td>
+              </tr>
+              {{else}}
+              <tr class="empty">
+                <td colspan="7">💰 Chưa có phiếu thu nào. Bấm <b>＋ Lập phiếu thu</b> để bắt đầu.</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+{{end}}

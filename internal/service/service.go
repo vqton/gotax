@@ -1498,11 +1498,15 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 		rate = 1
 	}
 	entry := &domain.JournalEntry{
-		EntryDate:    entryDate,
-		Description:  r.Reason,
-		CurrencyCode: r.Currency,
-		ExchangeRate: rate,
-		VoucherType:  domain.VoucherTypeReceipt,
+		CompanyID:     r.CompanyID,
+		CreatedBy:     userID,
+		Status:        domain.JournalEntryDraft,
+		EntryDate:     entryDate,
+		AccountingDate: entryDate,
+		Description:   r.Reason,
+		CurrencyCode:  r.Currency,
+		ExchangeRate:  rate,
+		VoucherType:   domain.VoucherTypeReceipt,
 		Lines: []domain.JournalLine{
 			{AccountCode: r.CashAccountID, DebitAmount: r.AmountVND},
 			{AccountCode: r.CreditAccountID, CreditAmount: r.AmountVND},
@@ -1510,6 +1514,14 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 	}
 	if p, err := s.periods.GetByYearMonth(ctx, entryDate.Year(), int(entryDate.Month())); err == nil && p != nil {
 		entry.PeriodID = p.ID
+	}
+	// Sequential entry number within the period, same scheme as CreateEntry.
+	if entry.PeriodID != "" {
+		if p, err := s.periods.GetByID(ctx, entry.PeriodID); err == nil && p != nil {
+			if es, err := s.journals.GetByPeriod(ctx, p.ID); err == nil {
+				entry.EntryNumber = fmt.Sprintf("%d%02d-%03d", p.Year, p.Month, len(es)+1)
+			}
+		}
 	}
 	if err := entry.Validate(); err != nil {
 		return err
