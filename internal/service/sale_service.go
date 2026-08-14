@@ -5,6 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"gotax/internal/domain"
 )
 
@@ -46,6 +48,12 @@ func NewSaleService(
 func (s *SaleService) CreateCustomer(ctx context.Context, c *domain.Customer) error {
 	if err := c.Validate(); err != nil {
 		return err
+	}
+	// PG customers.id has no DB-side default (VARCHAR(36) PK); without an
+	// explicit ID the row is created with id='' and every by-id lookup
+	// (delete/update/receipt FK) silently misses it.
+	if c.ID == "" {
+		c.ID = uuid.NewString()
 	}
 	existing, _ := s.custRepo.GetCustomerByCode(ctx, c.CompanyID, c.Code)
 	if existing != nil {

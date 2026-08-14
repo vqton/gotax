@@ -109,6 +109,9 @@ func TestCustomersCreateAction(t *testing.T) {
 	require.Len(t, custs, 1)
 	assert.Equal(t, "KH-NEW", custs[0].Code)
 	assert.Equal(t, "new@co.vn", custs[0].Email)
+	// Regresses: PG customers.id has no DB default — service must mint an ID
+	// or delete/update by id silently no-ops (empty PK).
+	assert.NotEmpty(t, custs[0].ID)
 }
 
 func TestCustomersCreateActionValidationError(t *testing.T) {
