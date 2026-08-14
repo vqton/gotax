@@ -1021,7 +1021,7 @@ func TestCreateCashTransfer(t *testing.T) {
 		Amount: 10000000, Currency: "VND", ExchangeRate: 1,
 		Reason: "Rut tien NH ve quy", TransferType: domain.TransferBankWithdrawal,
 	}
-	err := svc.CreateCashTransfer(ctx, tf)
+	err := svc.CreateCashTransfer(ctx, tf, "user-1")
 	require.NoError(t, err)
 	assert.NotEmpty(t, tf.ID)
 }

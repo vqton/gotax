@@ -360,3 +360,106 @@ func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.CashDraft, payment.Status)
 }
+
+// ─── Cash Transfers ───────────────────────────────────────────────
+
+func TestCashTransfersPageRender(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+	seedTransfer(t, cashRepo)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/cash-transfers.html?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Chuyển quỹ")
+	assert.Contains(t, body, "TRF-SEED-1")
+	assert.Contains(t, body, "10.000.000")
+	assert.NotContains(t, body, "x-data")
+}
+
+func seedTransfer(t *testing.T, cashRepo interface{ CreateTransfer(context.Context, *domain.CashTransfer) error }) *domain.CashTransfer {
+	t.Helper()
+	tf := &domain.CashTransfer{
+		ID:            "TRF-SEED-1",
+		CompanyID:     "CMP001",
+		TransferDate:  "2026-08-05",
+		FromAccountID: "1121",
+		ToAccountID:   "1111",
+		Amount:        10000000,
+		Currency:      "VND",
+		ExchangeRate:  1,
+		Reason:        "Rút tiền NH về quỹ",
+		TransferType:  domain.TransferBankWithdrawal,
+		Status:        domain.CashPosted,
+	}
+	require.NoError(t, cashRepo.CreateTransfer(context.Background(), tf))
+	return tf
+}
+
+func TestCashTransfersCreateAction(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+
+	form := url.Values{
+		"transfer_date":     {"2026-08-06"},
+		"from_account_id":   {"1121"},
+		"to_account_id":     {"1111"},
+		"amount":            {"5000000"},
+		"reason":            {"Chuyển quỹ tiền mặt"},
+		"transfer_type":     {"BANK_WITHDRAWAL"},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/cash-transfers/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "5.000.000")
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+
+	transfers, err := cashRepo.ListTransfers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	require.Len(t, transfers, 1)
+	assert.Equal(t, domain.CashPosted, transfers[0].Status)
+
+	// Transfer creates receipt + payment vouchers (both posted, same journal).
+	receipts, _, err := cashRepo.ListReceipts(context.Background(), domain.CashReceiptFilter{CompanyID: "CMP001"})
+	require.NoError(t, err)
+	require.Len(t, receipts, 1)
+	assert.Equal(t, "1111", receipts[0].CashAccountID)
+	assert.Equal(t, domain.CashPosted, receipts[0].Status)
+	assert.NotEmpty(t, receipts[0].VoucherNo)
+	assert.NotEmpty(t, receipts[0].GLJournalID)
+
+	payments, _, err := cashRepo.ListPayments(context.Background(), domain.CashPaymentFilter{CompanyID: "CMP001"})
+	require.NoError(t, err)
+	require.Len(t, payments, 1)
+	assert.Equal(t, "1121", payments[0].CashAccountID)
+	assert.Equal(t, domain.CashPosted, payments[0].Status)
+	assert.NotEmpty(t, payments[0].VoucherNo)
+	assert.Equal(t, receipts[0].GLJournalID, payments[0].GLJournalID)
+}
+
+func TestCashTransfersCreateValidationError(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+
+	form := url.Values{
+		"transfer_date":   {"2026-08-06"},
+		"from_account_id": {"1121"},
+		"to_account_id":   {"1111"},
+		"amount":          {"0"}, // invalid: must be > 0
+		"reason":          {"Chuyển quỹ"},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/cash-transfers/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "error")
+	transfers, err := cashRepo.ListTransfers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	assert.Empty(t, transfers)
+}

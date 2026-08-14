@@ -166,7 +166,7 @@ type Service interface {
 	RejectCashPayment(ctx context.Context, id, reviewerID string) error
 	PostCashPayment(ctx context.Context, id, userID string) error
 
-	CreateCashTransfer(ctx context.Context, t *domain.CashTransfer) error
+	CreateCashTransfer(ctx context.Context, t *domain.CashTransfer, userID string) error
 	GetCashTransfers(ctx context.Context, companyID string) ([]domain.CashTransfer, error)
 
 	GetCashBook(ctx context.Context, companyID, currency, accountID, fromDate, toDate string) (*domain.CashBook, error)
@@ -1716,7 +1716,7 @@ func (s *service) PostCashPayment(ctx context.Context, id, userID string) error 
 
 // ─── Cash Transfers ─────────────────────────────────────────────────
 
-func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer) error {
+func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer, userID string) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
@@ -1729,9 +1729,23 @@ func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer
 	nowStr := now.Format("2006-01-02 15:04:05")
 	amountVND := t.Amount * rate
 
-	// create receipt voucher
+	year := now.Format("2006")
+	if len(t.TransferDate) >= 4 {
+		year = t.TransferDate[:4]
+	}
+
+	// create receipt voucher (sequential per year, same scheme as CreateCashReceipt)
+	lastR, err := s.cash.LastReceiptNo(ctx, t.CompanyID, year)
+	seqR := 1
+	if err == nil && lastR != "" {
+		if parts := strings.Split(lastR, "-"); len(parts) > 0 {
+			seqR, _ = strconv.Atoi(parts[len(parts)-1])
+			seqR++
+		}
+	}
 	receipt := &domain.CashReceipt{
 		CompanyID:       t.CompanyID,
+		VoucherNo:       fmt.Sprintf("R-%s-%04d", year, seqR),
 		VoucherDate:     t.TransferDate,
 		CashAccountID:   t.ToAccountID,
 		Currency:        t.Currency,
@@ -1749,9 +1763,18 @@ func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer
 		return err
 	}
 
-	// create payment voucher
+	// create payment voucher (sequential per year, same scheme as CreateCashPayment)
+	lastP, err := s.cash.LastPaymentNo(ctx, t.CompanyID, year)
+	seqP := 1
+	if err == nil && lastP != "" {
+		if parts := strings.Split(lastP, "-"); len(parts) > 0 {
+			seqP, _ = strconv.Atoi(parts[len(parts)-1])
+			seqP++
+		}
+	}
 	payment := &domain.CashPayment{
 		CompanyID:       t.CompanyID,
+		VoucherNo:       fmt.Sprintf("P-%s-%04d", year, seqP),
 		VoucherDate:     t.TransferDate,
 		CashAccountID:   t.FromAccountID,
 		Currency:        t.Currency,
@@ -1772,16 +1795,21 @@ func (s *service) CreateCashTransfer(ctx context.Context, t *domain.CashTransfer
 	// create single journal entry for the transfer
 	entryDate, _ := time.Parse("2006-01-02", t.TransferDate)
 	entry := &domain.JournalEntry{
-		EntryDate:    entryDate,
-		Description:  t.Reason,
-		CurrencyCode: t.Currency,
-		ExchangeRate: rate,
-		VoucherType:  domain.VoucherTypeOther,
+		CompanyID:     t.CompanyID,
+		CreatedBy:     userID,
+		Status:        domain.JournalEntryDraft,
+		EntryDate:     entryDate,
+		AccountingDate: entryDate,
+		Description:   t.Reason,
+		CurrencyCode:  t.Currency,
+		ExchangeRate:  rate,
+		VoucherType:   domain.VoucherTypeOther,
 		Lines: []domain.JournalLine{
 			{AccountCode: t.ToAccountID, DebitAmount: amountVND},
 			{AccountCode: t.FromAccountID, CreditAmount: amountVND},
 		},
 	}
+	s.attachPeriodAndNumber(ctx, entry)
 	if err := entry.Validate(); err != nil {
 		return err
 	}

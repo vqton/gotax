@@ -36,6 +36,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/periods.html":         {Title: "Kỳ kế toán", NavPath: "/app/periods.html", Load: periodsLoad(d)},
 		"/app/cash-receipts.html":   {Title: "Phiếu thu", NavPath: "/app/cash-receipts.html", Load: cashReceiptsLoad(d)},
 		"/app/cash-payments.html":   {Title: "Phiếu chi", NavPath: "/app/cash-payments.html", Load: cashPaymentsLoad(d)},
+		"/app/cash-transfers.html":  {Title: "Chuyển quỹ", NavPath: "/app/cash-transfers.html", Load: cashTransfersLoad(d)},
 	}
 }
 
@@ -90,6 +91,9 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"submit": s.cashPaymentStatus(d, "submit"),
 			"approve": s.cashPaymentStatus(d, "approve"),
 			"post":   s.cashPaymentStatus(d, "post"),
+		},
+		"/app/cash-transfers": {
+			"create": s.cashTransfersCreate(d),
 		},
 	}
 }
@@ -1250,4 +1254,72 @@ func (s *Server) renderCashPaymentsTable(c *gin.Context, d Deps) {
 		payments = []domain.CashPayment{}
 	}
 	s.RenderFragment(c, "cash-payments", "cash-payments-table", gin.H{"Payments": payments, "Total": total})
+}
+
+// ─── Cash Transfers ───────────────────────────────────────────────
+
+func cashTransfersLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		transfers, err := d.Svc.GetCashTransfers(c.Request.Context(), pageCompanyID(c))
+		if err != nil {
+			return nil, err
+		}
+		if transfers == nil {
+			transfers = []domain.CashTransfer{}
+		}
+		return gin.H{"Transfers": transfers}, nil
+	}
+}
+
+func (s *Server) cashTransfersCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		transferDate := strings.TrimSpace(c.PostForm("transfer_date"))
+		if _, err := time.Parse("2006-01-02", transferDate); err != nil {
+			Toast(c, "error", "Ngày chuyển không hợp lệ.")
+			s.renderCashTransfersTable(c, d)
+			return
+		}
+		amount, err := strconv.ParseFloat(c.PostForm("amount"), 64)
+		if err != nil || amount <= 0 {
+			Toast(c, "error", "Số tiền không hợp lệ.")
+			s.renderCashTransfersTable(c, d)
+			return
+		}
+		transferType := domain.TransferType(c.PostForm("transfer_type"))
+		if transferType == "" {
+			transferType = domain.TransferBankWithdrawal
+		}
+		t := &domain.CashTransfer{
+			CompanyID:     pageCompanyID(c),
+			TransferDate:  transferDate,
+			FromAccountID: strings.TrimSpace(c.PostForm("from_account_id")),
+			ToAccountID:   strings.TrimSpace(c.PostForm("to_account_id")),
+			Amount:        amount,
+			Currency:      "VND",
+			ExchangeRate:  1,
+			Reason:        strings.TrimSpace(c.PostForm("reason")),
+			TransferType:  transferType,
+		}
+		// CreateCashTransfer mints vouchers R-/P- + journal entry, posts all.
+		if err := d.Svc.CreateCashTransfer(c.Request.Context(), t, c.GetString("user_id")); err != nil {
+			log.Printf("create cash transfer: %v", err)
+			Toast(c, "error", "Không tạo được lệnh chuyển quỹ: "+err.Error())
+			s.renderCashTransfersTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã tạo lệnh chuyển quỹ "+t.ID+".")
+		s.renderCashTransfersTable(c, d)
+	}
+}
+
+func (s *Server) renderCashTransfersTable(c *gin.Context, d Deps) {
+	transfers, err := d.Svc.GetCashTransfers(c.Request.Context(), pageCompanyID(c))
+	if err != nil {
+		c.String(500, "load cash transfers failed")
+		return
+	}
+	if transfers == nil {
+		transfers = []domain.CashTransfer{}
+	}
+	s.RenderFragment(c, "cash-transfers", "cash-transfers-table", gin.H{"Transfers": transfers})
 }

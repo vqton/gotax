@@ -330,7 +330,7 @@ func (ch *CashHandler) CreateCashTransfer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := ch.svc.CreateCashTransfer(c.Request.Context(), &req); err != nil {
+	if err := ch.svc.CreateCashTransfer(c.Request.Context(), &req, c.GetString("user_id")); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
