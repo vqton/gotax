@@ -84,6 +84,15 @@ func (s *Server) RegisterPages(r *gin.Engine, pages map[string]Page, actions map
 			s.Render(c, key, shell, data)
 			return
 		}
+		// Unconverted Alpine pages are lifted into the shared shell so they
+		// get the real sidebar/topbar/user data instead of their own JS shell.
+		if strings.HasSuffix(path, ".html") {
+			if lp, err := loadLegacy("web/app" + c.Param("filepath")); err == nil {
+				shell := BuildShell(c, lp.Title, path)
+				s.Render(c, "legacy", shell, lp)
+				return
+			}
+		}
 		http.ServeFile(c.Writer, c.Request, "web/app"+c.Param("filepath"))
 	})
 	for path, m := range actions {

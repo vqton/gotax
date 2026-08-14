@@ -42,7 +42,13 @@ func NewServer(pages []string) (*Server, error) {
 	}
 	s := &Server{sets: map[string]*template.Template{}}
 	for _, p := range pages {
-		files := append(append([]string{}, partials...), pageFile(p))
+		base := partials[0]
+		if p == "legacy" {
+			// Legacy pages share the shell but load the Alpine script stack.
+			base = filepath.Join(baseDir, "base-legacy.html")
+		}
+		files := append([]string{base}, partials[1:]...)
+		files = append(files, pageFile(p))
 		if _, err := os.Stat(files[len(files)-1]); err != nil {
 			return nil, fmt.Errorf("page %s: %w", p, err)
 		}
@@ -56,6 +62,9 @@ func NewServer(pages []string) (*Server, error) {
 }
 
 func pageFile(page string) string {
+	if page == "legacy" {
+		return filepath.Join(baseDir, "legacy.html")
+	}
 	if strings.HasPrefix(page, "payroll-") {
 		return filepath.Join(payDir, strings.TrimPrefix(page, "payroll-")+".html")
 	}

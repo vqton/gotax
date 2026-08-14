@@ -312,7 +312,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisH := handler.NewFinancialAnalysisHandler(finAnalysisSvc)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisH, authMW)
 	zap.L().Info("GoTax GL server (PG) starting", zap.String("port", cfg.ServerPort))
-		webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa"})
+		webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "legacy"})
 		if err != nil {
 			zap.L().Fatal("init web templates", zap.Error(err))
 		}
@@ -480,7 +480,7 @@ r.GET("/reset-password", func(c *gin.Context) {
 	finAnalysisHMem := handler.NewFinancialAnalysisHandler(finAnalysisSvcMem)
 	handler.RegisterFinancialAnalysisRoutes(r, finAnalysisHMem, authMW)
 	zap.L().Info("GoTax GL server (CA) starting", zap.String("port", cfg.ServerPort))
-	webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa"})
+	webSrv, err := web.NewServer([]string{"dashboard", "users", "journal-entries", "coa", "legacy"})
 	if err != nil {
 		zap.L().Fatal("init web templates", zap.Error(err))
 	}

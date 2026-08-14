@@ -214,6 +214,9 @@ function topbarHTML(title) {
 function mountAppShell(title, activePath) {
   const sidebar = document.getElementById("sidebar");
   const topbar = document.getElementById("topbar");
+  // Server-rendered shell (base-legacy.html) already provides sidebar+topbar
+  // with real user data — do not overwrite it.
+  if (sidebar && sidebar.dataset.serverShell) return;
   if (sidebar) sidebar.innerHTML = sidebarHTML(activePath);
   if (topbar) topbar.innerHTML = topbarHTML(title);
 
