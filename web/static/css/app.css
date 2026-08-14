@@ -185,7 +185,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 .tb-search input:focus { border-color: var(--fb-primary); background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
-.tb-search .ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--fb-faint); pointer-events: none; }
+.tb-search .ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--fb-faint); pointer-events: none; width: 16px; height: 16px; }
 
 .tb-btn {
   position: relative;
@@ -413,11 +413,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width
 
 .qa-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
-@media (max-width: 1279px) { .qa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 640px)  { .qa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .qa {
   display: flex; align-items: center; gap: 12px;

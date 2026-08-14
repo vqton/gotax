@@ -34,7 +34,7 @@ internal/service/           →  business rules, validation, orchestration. Pure
   - year_end_service.go     →  year-end close (Revenue/Expense → 421, carry-forward, TT200→TT99 mapping)
   - print_service.go        →  PDF generation (Phiếu thu/chi TT99 format)
 internal/validate/          →  go-playground/validator singleton + custom validators
-internal/web/               →  htmx server-rendered pages (dashboard/users/journal-entries/coa) + legacy-page shell wrapper + /app/* catch-all
+internal/web/               →  htmx server-rendered pages (10 converted: dashboard, users, journal-entries, coa, company, exchange-rates, periods, customers, suppliers, cash-receipts) + legacy-page shell wrapper + /app/* catch-all
 internal/xmldsig/           →  XML digital signature (RSA, for e-invoice)
 ```
 
@@ -135,7 +135,7 @@ Same pattern across all module handlers. **Not** `c.GetString("company_id")`.
 
 Auth middleware on all groups except auth endpoints.
 
-**Web pages** (GET `/app/*`, auth-gated via internal/web catch-all): `dashboard`, `users`, `journal-entries`, `coa` are htmx server-rendered; every other file in `web/app/*.html` (e.g. `customers.html`) is lifted into the shared server shell (`base-legacy.html`) with its Alpine content intact. See Frontend.
+**Web pages** (GET `/app/*`, auth-gated via internal/web catch-all): htmx server-rendered = `dashboard`, `users`, `journal-entries`, `coa`, `company`, `exchange-rates`, `periods`, `customers`, `suppliers`, `cash-receipts`; every other file in `web/app/*.html` (e.g. `items.html`) is lifted into the shared server shell (`base-legacy.html`) with its Alpine content intact. See Frontend.
 
 ## Commands
 
@@ -161,10 +161,11 @@ No Makefile, no Dockerfile, no linter config. Lint: `go vet`.
 - Domain tests: struct validation tests.
 - Adding a service method → add to service + both repos + handler + test. No mock setup needed.
 - `go test -count=1 ./...` before commit.
+- **Web page tests** (`internal/web/*_test.go`): `setupSvc(t)` (masterdata_test.go) returns `(*gin.Engine, service.CompanyService, *MemoryPeriodRepo, *MemoryExchangeRateRepo, *MemoryCashRepo)` — add the module's memory repo as next return value when a new page needs it. `auth.SetJWTSecret("web-test-secret")` runs inside setupSvc. `TestMain` (web_test.go) chdirs `../..` so templates resolve — tests run from repo root only. Call `r.Use(...)` **before** `RegisterPages`.
 
 ## Migration System
 
-44 versioned pairs in `migrations/` (000001–000045, **000026 skipped**). **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000045_tt99_coa_loai2`.
+45 versioned pairs in `migrations/` (000001–000046, **000026 skipped**). **Versioned** (`000001_title.up.sql` + `000001_title.down.sql`) → auto-discovered by golang-migrate and auto-run on PG startup. Current latest: `000046_journal_company_varchar` (aligns `journal_entries.company_id` to VARCHAR(20); down is destructive).
 
 **Legacy** (`.sql` only, no version prefix) — UNUSED. Do not reference: `002_gl_schema_circular99.sql`, `003_company_schema.sql`, `003_cash_schema.sql`, `004_bank_module.sql`, `004_advance_schema.sql`, `006_sale_schema.sql`, `007_warehouse_schema.sql`. Also `001_gl_schema.sql.deprecated` — do not touch.
 
@@ -200,7 +201,7 @@ When adding a new module that uses the validator: register custom validators in 
 
 **Two rendering stacks, no build step:**
 
-1. **htmx server-rendered** (newer, `internal/web/`): converted pages render Go templates from `web/templates/` (base + `_sidebar` + `_topbar` partials, parsed per-page at startup). Mutations via explicit POST routes + htmx fragment swaps. Currently `dashboard`, `users`, `journal-entries`, `coa`. Adding a page = template in `web/app/<page>.html` (defines "content" block) + `Load` func in `internal/web/pages_app.go` + add to `web.NewServer([...])` list in **both** main.go branches.
+1. **htmx server-rendered** (newer, `internal/web/`): converted pages render Go templates from `web/templates/` (base + `_sidebar` + `_topbar` partials, parsed per-page at startup). Mutations via explicit POST routes + htmx fragment swaps. Currently `dashboard`, `users`, `journal-entries`, `coa`, `company`, `exchange-rates`, `periods`, `customers`, `suppliers`, `cash-receipts`. Adding a page = template in `web/app/<page>.html` (defines "content" block) + `Load` func in `internal/web/pages_app.go` + add to `web.NewServer([...])` list in **both** main.go branches.
 2. **Alpine.js legacy** (everything else, e.g. `customers.html`): Alpine `x-data` page content served INSIDE the shared server shell (`base-legacy.html`, one extra "legacy" template set). Extraction in `internal/web/legacy.go` (x/net/html): body attrs + content lifted, page's own `<aside id="sidebar">` / `<header id="topbar">` and `<div class="lg:ml-60"><main>` wrappers dropped (server shell replaces them). API via `apiGet`/`apiPost`/`apiPut`/`apiDelete` (JWT refresh). `mountAppShell` in `app-legacy.js` is a guarded no-op (`data-server-shell` marker) when the server shell is present. Legacy script stack: alpine.min.js → auth-legacy.js → components.js → app-legacy.js → flowbite.min.js → app.js.
 
 `/app/*` catch-all (`internal/web/pages.go`): page in template sets → server-render; else `.html` file → `loadLegacy` lifts it into the "legacy" shell render; anything else → `http.ServeFile`. Legacy files read fresh from disk per request, so **HTML edits to static pages need no server restart**. The "legacy" template set must stay in `web.NewServer([...])` lists in **both** main.go branches.
@@ -243,7 +244,11 @@ When adding a new module that uses the validator: register custom validators in 
 - **Migration idempotency**: Always use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` in migrations. Legacy `.sql` files (002-007) may have been run manually against PG, creating tables outside migration tracking. Without `IF NOT EXISTS`, golang-migrate fails with `relation already exists`.
 - **SQLite rejected**: Schema deeply PG-specific (`pgcrypto`, `gen_random_uuid()`, `TIMESTAMPTZ`, `plpgsql` triggers, `SUBSTRING FROM` regex, `GREATEST()`). 20+ raw SQL queries in PG repos. In-memory backend already covers dev/test.
 - **No LINQ library needed**: Standard `for` loops + `slices.SortFunc` sufficient. Don't add collection libraries unless profiling shows bottleneck.
-- **Server start**: `setsid nohup go run . & disown` — plain `nohup &` dies when the launching shell/command times out (process group killed). Templates resolve relative to cwd → start from repo root. Needs `JWT_SECRET` (+ `DATABASE_URL` for PG branch).
+- **Server start**: `setsid nohup go run . & disown` — plain `nohup &` dies when the launching shell/command times out (process group killed). Templates resolve relative to cwd → start from repo root. Needs `JWT_SECRET` (+ `DATABASE_URL` for PG branch). Rebuild: `go build -o /tmp/opencode/gotax-bin .` — **`pkill -x gotax` does NOT kill a binary named `gotax-bin`**; kill by PID (`pgrep -f gotax-bin`). Server restart regenerates RSA keys → **re-login required** (session dies).
+- **HX-Trigger toast headers must be pure ASCII**: browsers decode response headers as ISO-8859-1, so raw UTF-8 in `HX-Trigger` arrives mojibake'd ("Đã" → "ÄÃ£"). Always use `Toast()` (internal/web/web.go) — it JSON-escapes non-ASCII as `\uXXXX` (rune-wise). Never hand-roll an HX-Trigger header with Vietnamese.
+- **GORM models must match migration columns exactly** — two PG paths broke this way (CompanyGORM phantom `name/address/city/is_active`; JournalEntryGORM phantom `updated_at` + uint PKs vs VARCHAR). Before touching any PG path, diff the GORM model against the table's migration. `journal_entries` specifics: id VARCHAR(20) PK (repo mints `JE-<ms>`, ≤20 chars), `journal_lines.id` = `gen_random_uuid()`, nullable uuid FK columns (`created_by`/`reviewed_by`/`approved_by`) need `gorm:"default:null"` so empty strings are omitted.
+- **Period IDs are `P-YYYYMM` (no dash)** — service mints it and PG `GetByYearMonth` must match (was `P-YYYY-MM`, silently never found a period → FK errors on journal insert).
+- **Cash document lifecycle**: DRAFT→SUBMITTED→APPROVED→POSTED (REJECTED→DRAFT). Posting requires APPROVED — legacy page posted from DRAFT (was broken); htmx page renders one action button per status (submit/approve/post). Same state machine pattern applies to other modules via `ValidTransition`.
 - **COA structure**: accounts = 9 loại (1-char grouping headers, NOT postable), cấp 1 = 3-digit. `NormalBalance` derived, not stored: ASSET/EXPENSE→DEBIT, else CREDIT. 221 accounts, 71 cấp 1. Service guards: `CreateAccount` requires parent exists, `UpdateAccount` runs `Validate()`, `DeleteAccount` blocked when account used in POSTED entries (`GetAccountUsage().EntryCount`).
 - **Playwright (this host)**: `chrome` channel uninstallable on Kali — symlink cached chromium: `ln -sf ~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome /opt/google/chrome/chrome`. Screenshots must live under repo root (`.playwright-mcp/` allowed, `/tmp` denied).
 

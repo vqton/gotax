@@ -69,7 +69,7 @@ func seedReceipt(t *testing.T, cashRepo interface {
 }
 
 func TestCashReceiptsPageRender(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -85,7 +85,7 @@ func TestCashReceiptsPageRender(t *testing.T) {
 }
 
 func TestCashReceiptsCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-02"},
@@ -118,7 +118,7 @@ func TestCashReceiptsCreateAction(t *testing.T) {
 }
 
 func TestCashReceiptsCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-02"},
@@ -140,7 +140,7 @@ func TestCashReceiptsCreateValidationError(t *testing.T) {
 }
 
 func TestCashReceiptsLifecycleActions(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	post := func(action string) *httptest.ResponseRecorder {
@@ -177,7 +177,7 @@ func TestCashReceiptsLifecycleActions(t *testing.T) {
 }
 
 func TestCashReceiptsPostFromDraftRejected(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	// Posting straight from DRAFT is an invalid transition — error toast.
@@ -222,7 +222,7 @@ func seedPayment(t *testing.T, cashRepo interface {
 }
 
 func TestCashPaymentsPageRender(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -238,7 +238,7 @@ func TestCashPaymentsPageRender(t *testing.T) {
 }
 
 func TestCashPaymentsCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-04"},
@@ -271,7 +271,7 @@ func TestCashPaymentsCreateAction(t *testing.T) {
 }
 
 func TestCashPaymentsCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-04"},
@@ -293,7 +293,7 @@ func TestCashPaymentsCreateValidationError(t *testing.T) {
 }
 
 func TestCashPaymentsLifecycleActions(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 	// Fund the cash account: posting a payment requires sufficient balance.
 	fund := &domain.CashReceipt{
@@ -350,7 +350,7 @@ func TestCashPaymentsLifecycleActions(t *testing.T) {
 }
 
 func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 
 	// Posting straight from DRAFT is an invalid transition — error toast.
@@ -369,7 +369,7 @@ func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
 // ─── Cash Transfers ───────────────────────────────────────────────
 
 func TestCashTransfersPageRender(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 	seedTransfer(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -406,7 +406,7 @@ func seedTransfer(t *testing.T, cashRepo interface {
 }
 
 func TestCashTransfersCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"transfer_date":   {"2026-08-06"},
@@ -450,7 +450,7 @@ func TestCashTransfersCreateAction(t *testing.T) {
 }
 
 func TestCashTransfersCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"transfer_date":   {"2026-08-06"},
@@ -474,7 +474,7 @@ func TestCashTransfersCreateValidationError(t *testing.T) {
 // ─── Cash Book Report ─────────────────────────────────────────────
 
 func TestCashBookPageRenderAndFilter(t *testing.T) {
-	r, _, _, _, cashRepo, _ := setupSvc(t)
+	r, _, _, _, cashRepo, _, _ := setupSvc(t)
 
 	// Posted docs within the current month (default filter period).
 	now := time.Now()
@@ -522,7 +522,7 @@ func TestCashBookPageRenderAndFilter(t *testing.T) {
 }
 
 func TestCashFlowPageRenderAndFilter(t *testing.T) {
-	r, _, perRepo, _, _, jeRepo := setupSvc(t)
+	r, _, perRepo, _, _, jeRepo, _ := setupSvc(t)
 
 	// Period + one posted entry touching cash (operating inflow).
 	now := time.Now()

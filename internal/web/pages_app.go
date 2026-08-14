@@ -43,6 +43,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/cash-book.html":       {Title: "Sổ quỹ tiền mặt", NavPath: "/app/cash-book.html", Load: cashBookLoad(d)},
 		"/app/cash-flow.html":       {Title: "Lưu chuyển tiền tệ", NavPath: "/app/cash-flow.html", Load: cashFlowLoad(d)},
 		"/app/journal-export.html":  {Title: "Nhật ký chung", NavPath: "/app/journal-export.html", Load: journalExportLoad(d)},
+		"/app/trial-balance.html":   {Title: "BCĐ phát sinh", NavPath: "/app/trial-balance.html", Load: trialBalanceLoad(d)},
 	}
 }
 
@@ -109,6 +110,9 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		},
 		"/app/journal-export": {
 			"download": s.journalExportDownload(d),
+		},
+		"/app/trial-balance": {
+			"filter": s.trialBalanceFilter(d),
 		},
 	}
 }
@@ -1490,5 +1494,89 @@ func journalExportLoad(d Deps) func(c *gin.Context) (any, error) {
 	return func(c *gin.Context) (any, error) {
 		year, month := journalExportFilters(c)
 		return gin.H{"Year": year, "Month": month}, nil
+	}
+}
+
+type trialBalanceRow struct {
+	Code, Name               string
+	OpenDebit, OpenCredit    float64
+	TurnoverDebit, TurnoverCredit float64
+	ClosingDebit, ClosingCredit   float64
+}
+
+func trialBalanceRows(balances []domain.AccountBalance, names map[string]string) ([]trialBalanceRow, trialBalanceRow) {
+	rows := make([]trialBalanceRow, 0, len(balances))
+	var totals trialBalanceRow
+	for _, b := range balances {
+		closingDebit, closingCredit := b.ClosingBalance, 0.0
+		if closingDebit < 0 {
+			closingCredit = -closingDebit
+			closingDebit = 0
+		}
+		row := trialBalanceRow{
+			Code: b.AccountCode, Name: names[b.AccountCode],
+			OpenDebit: b.OpenBalanceDebit, OpenCredit: b.OpenBalanceCredit,
+			TurnoverDebit: b.PeriodDebit, TurnoverCredit: b.PeriodCredit,
+			ClosingDebit: closingDebit, ClosingCredit: closingCredit,
+		}
+		rows = append(rows, row)
+		totals.OpenDebit += row.OpenDebit
+		totals.OpenCredit += row.OpenCredit
+		totals.TurnoverDebit += row.TurnoverDebit
+		totals.TurnoverCredit += row.TurnoverCredit
+		totals.ClosingDebit += row.ClosingDebit
+		totals.ClosingCredit += row.ClosingCredit
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Code < rows[j].Code })
+	return rows, totals
+}
+
+func (s *Server) renderTrialBalance(c *gin.Context, d Deps) {
+	year, month := journalExportFilters(c)
+	balances, err := d.Svc.TrialBalance(c.Request.Context(), year, month)
+	if err != nil {
+		c.String(500, "load trial balance failed")
+		return
+	}
+	names, err := accountNames(c, d)
+	if err != nil {
+		c.String(500, "load accounts failed")
+		return
+	}
+	rows, totals := trialBalanceRows(balances, names)
+	s.RenderFragment(c, "trial-balance", "trial-balance-report", gin.H{"Year": year, "Month": month, "Rows": rows, "Totals": totals})
+}
+
+func accountNames(c *gin.Context, d Deps) (map[string]string, error) {
+	accs, err := d.Svc.GetAllAccounts(c.Request.Context(), false)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(accs))
+	for _, a := range accs {
+		names[a.Code] = a.Name
+	}
+	return names, nil
+}
+
+func trialBalanceLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		year, month := journalExportFilters(c)
+		balances, err := d.Svc.TrialBalance(c.Request.Context(), year, month)
+		if err != nil {
+			return nil, err
+		}
+		names, err := accountNames(c, d)
+		if err != nil {
+			return nil, err
+		}
+		rows, totals := trialBalanceRows(balances, names)
+		return gin.H{"Year": year, "Month": month, "Rows": rows, "Totals": totals}, nil
+	}
+}
+
+func (s *Server) trialBalanceFilter(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		s.renderTrialBalance(c, d)
 	}
 }

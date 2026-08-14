@@ -37,7 +37,7 @@ func seedReportData(t *testing.T, perRepo *repository.MemoryPeriodRepo, jeRepo *
 }
 
 func TestJournalExportPageRender(t *testing.T) {
-	r, _, _, _, _, _ := setupSvc(t)
+	r, _, _, _, _, _, _ := setupSvc(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/app/journal-export.html?company_id=CMP001", nil)
@@ -53,7 +53,7 @@ func TestJournalExportPageRender(t *testing.T) {
 }
 
 func TestJournalExportDownloadAction(t *testing.T) {
-	r, _, perRepo, _, _, jeRepo := setupSvc(t)
+	r, _, perRepo, _, _, jeRepo, _ := setupSvc(t)
 	seedReportData(t, perRepo, jeRepo)
 
 	params := strings.NewReader("year=2026&month=8")
@@ -66,4 +66,36 @@ func TestJournalExportDownloadAction(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "chung-tu-2026-08.xlsx")
 	// Valid xlsx is a zip archive.
 	assert.Equal(t, "PK", w.Body.String()[:2])
+}
+
+func TestTrialBalancePageRenderAndFilter(t *testing.T) {
+	r, _, perRepo, _, _, jeRepo, accRepo := setupSvc(t)
+	seedReportData(t, perRepo, jeRepo)
+	accRepo.Create(context.Background(), &domain.Account{Code: "1111", Name: "Tiền mặt", Type: domain.AccountTypeAsset})
+	accRepo.Create(context.Background(), &domain.Account{Code: "5111", Name: "Doanh thu bán hàng", Type: domain.AccountTypeRevenue})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/trial-balance.html?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Bảng cân đối phát sinh")
+	assert.Contains(t, body, "1111")
+	assert.Contains(t, body, "5111")
+	assert.Contains(t, body, "Tiền mặt")
+	assert.Contains(t, body, "Doanh thu bán hàng")
+	assert.Contains(t, body, "5.000.000")
+	assert.Contains(t, body, "Tổng cộng")
+	assert.NotContains(t, body, "x-data")
+
+	// Filter action re-renders the report fragment.
+	params := strings.NewReader("year=2026&month=8")
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/app/trial-balance/filter", params)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body = w.Body.String()
+	assert.Contains(t, body, "Tháng 8/2026")
+	assert.Contains(t, body, "5.000.000")
 }
