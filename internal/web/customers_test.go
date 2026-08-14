@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -78,4 +80,50 @@ func TestCustomersPageRender(t *testing.T) {
 	assert.Contains(t, body, "Công ty kiểm thử XYZ")
 	// Converted pages must not carry Alpine directives anymore.
 	assert.NotContains(t, body, "x-data")
+}
+
+func TestCustomersCreateAction(t *testing.T) {
+	s := setupCustomers(t)
+
+	form := url.Values{
+		"code":    {"KH-NEW"},
+		"name":    {"Công ty mới"},
+		"tax_code": {"0987654321"},
+		"phone":   {"0900 000 000"},
+		"email":   {"new@co.vn"},
+		"address": {"Hà Nội"},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/customers/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	// Fragment re-render shows the new row.
+	assert.Contains(t, body, "KH-NEW")
+	assert.Contains(t, body, "Công ty mới")
+	// Repo state actually changed (not client-only like the old Alpine page).
+	custs, err := s.repo.ListCustomers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	require.Len(t, custs, 1)
+	assert.Equal(t, "KH-NEW", custs[0].Code)
+	assert.Equal(t, "new@co.vn", custs[0].Email)
+}
+
+func TestCustomersCreateActionValidationError(t *testing.T) {
+	s := setupCustomers(t)
+
+	form := url.Values{"code": {"KH-BAD"}} // missing name + tax_code
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/customers/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	// Error surfaced as toast trigger, not a crash.
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "error")
+	custs, err := s.repo.ListCustomers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	assert.Empty(t, custs)
 }

@@ -52,6 +52,9 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"freeze":   s.coaFreeze(d),
 			"unfreeze": s.coaUnfreeze(d),
 		},
+		"/app/customers": {
+			"create": s.customersCreate(d),
+		},
 	}
 }
 
@@ -155,6 +158,43 @@ func customersLoad(d Deps) func(c *gin.Context) (any, error) {
 		}
 		return gin.H{"Customers": customers}, nil
 	}
+}
+
+func (s *Server) customersCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cust := &domain.Customer{
+			CompanyID: pageCompanyID(c),
+			Code:      c.PostForm("code"),
+			Name:      c.PostForm("name"),
+			TaxCode:   c.PostForm("tax_code"),
+			Address:   c.PostForm("address"),
+			Phone:     c.PostForm("phone"),
+			Email:     c.PostForm("email"),
+			Currency:  "VND",
+		}
+		if err := d.Sale.CreateCustomer(c.Request.Context(), cust); err != nil {
+			log.Printf("create customer: %v", err)
+			Toast(c, "error", "Không tạo được khách hàng: "+err.Error())
+			s.renderCustomersTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã thêm khách hàng mới.")
+		s.renderCustomersTable(c, d)
+	}
+}
+
+// renderCustomersTable re-renders the table fragment after a mutation, keeping
+// the modal + filters (which live outside the fragment) untouched.
+func (s *Server) renderCustomersTable(c *gin.Context, d Deps) {
+	customers, err := d.Sale.ListCustomers(c.Request.Context(), pageCompanyID(c))
+	if err != nil {
+		c.String(500, "load customers failed")
+		return
+	}
+	if customers == nil {
+		customers = []domain.Customer{}
+	}
+	s.RenderFragment(c, "customers", "customers-table", gin.H{"Customers": customers})
 }
 
 func (s *Server) usersCreate(d Deps) gin.HandlerFunc {
