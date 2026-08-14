@@ -21,7 +21,7 @@ import (
 
 // setupSvc wires the core service facade (periods, exchange rates, cash)
 // on in-memory repos, plus the company service.
-func setupSvc(t *testing.T) (*gin.Engine, service.CompanyService, *repository.MemoryPeriodRepo, *repository.MemoryExchangeRateRepo, *repository.MemoryCashRepo) {
+func setupSvc(t *testing.T) (*gin.Engine, service.CompanyService, *repository.MemoryPeriodRepo, *repository.MemoryExchangeRateRepo, *repository.MemoryCashRepo, *repository.MemoryJournalRepo) {
 	t.Helper()
 	auth.SetJWTSecret("web-test-secret")
 
@@ -46,7 +46,7 @@ func setupSvc(t *testing.T) (*gin.Engine, service.CompanyService, *repository.Me
 	companySvc := service.NewCompanyService(repository.NewMemoryCompanyRepo())
 	deps := Deps{Svc: svc, Company: companySvc}
 
-	srv, err := NewServer([]string{"company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "legacy"})
+	srv, err := NewServer([]string{"company", "exchange-rates", "periods", "cash-receipts", "cash-payments", "cash-transfers", "cash-book", "cash-flow", "legacy"})
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -59,22 +59,22 @@ func setupSvc(t *testing.T) (*gin.Engine, service.CompanyService, *repository.Me
 	})
 	srv.RegisterPages(r, NewPages(deps), srv.NewActions(deps))
 
-	return r, companySvc, perRepo, rateRepo, cashRepo
+	return r, companySvc, perRepo, rateRepo, cashRepo, jeRepo
 }
 
 func TestCompanyPageRenderAndSave(t *testing.T) {
-	r, companySvc, _, _, _ := setupSvc(t)
+	r, companySvc, _, _, _, _ := setupSvc(t)
 	companySvc.CreateCompany(context.Background(), &domain.Company{
-		ID:           "CMP001",
-		LegalForm:    domain.LegalFormLLC1Member,
+		ID:               "CMP001",
+		LegalForm:        domain.LegalFormLLC1Member,
 		AccountingRegime: domain.RegimeTT99,
-		LegalNameVN:  "Công ty TNHH Kế toán GOTAX",
-		TaxCode:      "0100000001",
-		RegAddress:   "Số 1 Tràng Tiền, Hoàn Kiếm, Hà Nội",
-		Phone:        "024 0000 0001",
-		Email:        "info@gotax.vn",
-		LegalRepName: "Nguyễn Văn A",
-		LegalRepTitle: "Giám đốc",
+		LegalNameVN:      "Công ty TNHH Kế toán GOTAX",
+		TaxCode:          "0100000001",
+		RegAddress:       "Số 1 Tràng Tiền, Hoàn Kiếm, Hà Nội",
+		Phone:            "024 0000 0001",
+		Email:            "info@gotax.vn",
+		LegalRepName:     "Nguyễn Văn A",
+		LegalRepTitle:    "Giám đốc",
 	})
 
 	w := httptest.NewRecorder()
@@ -107,7 +107,7 @@ func TestCompanyPageRenderAndSave(t *testing.T) {
 }
 
 func TestCompanyPageSaveMissingFields(t *testing.T) {
-	r, companySvc, _, _, _ := setupSvc(t)
+	r, companySvc, _, _, _, _ := setupSvc(t)
 	companySvc.CreateCompany(context.Background(), &domain.Company{
 		ID: "CMP001", LegalNameVN: "Công ty TNHH A", TaxCode: "0100000001",
 		LegalForm: domain.LegalFormLLC1Member, AccountingRegime: domain.RegimeTT99,
@@ -126,7 +126,7 @@ func TestCompanyPageSaveMissingFields(t *testing.T) {
 }
 
 func TestExchangeRatesPageRenderAndCreate(t *testing.T) {
-	r, _, _, rateRepo, _ := setupSvc(t)
+	r, _, _, rateRepo, _, _ := setupSvc(t)
 	rateRepo.Create(context.Background(), &domain.ExchangeRate{
 		CurrencyCode: "USD", RateDate: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 		BuyRate: 25400, SellRate: 25500, AverageRate: 25450,
@@ -172,7 +172,7 @@ func TestExchangeRatesPageRenderAndCreate(t *testing.T) {
 }
 
 func TestExchangeRatesCreateValidationError(t *testing.T) {
-	r, _, _, rateRepo, _ := setupSvc(t)
+	r, _, _, rateRepo, _, _ := setupSvc(t)
 
 	form := url.Values{
 		"currency_code": {"USD"},
@@ -191,7 +191,7 @@ func TestExchangeRatesCreateValidationError(t *testing.T) {
 }
 
 func TestPeriodsPageRenderAndCreate(t *testing.T) {
-	r, _, perRepo, _, _ := setupSvc(t)
+	r, _, perRepo, _, _, _ := setupSvc(t)
 	perRepo.Create(context.Background(), &domain.Period{
 		Year: 2026, Month: 7, Status: domain.PeriodOpen,
 		StartDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -225,7 +225,7 @@ func TestPeriodsPageRenderAndCreate(t *testing.T) {
 }
 
 func TestPeriodsCreateValidationError(t *testing.T) {
-	r, _, perRepo, _, _ := setupSvc(t)
+	r, _, perRepo, _, _, _ := setupSvc(t)
 
 	// invalid month → facade Validate() rejects
 	form := url.Values{"year": {"2026"}, "month": {"13"}}
@@ -241,7 +241,7 @@ func TestPeriodsCreateValidationError(t *testing.T) {
 }
 
 func TestPeriodsCloseAndReopen(t *testing.T) {
-	r, _, perRepo, _, _ := setupSvc(t)
+	r, _, perRepo, _, _, _ := setupSvc(t)
 	perRepo.Create(context.Background(), &domain.Period{
 		ID: "P202608", Year: 2026, Month: 8, Status: domain.PeriodOpen,
 		StartDate: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
@@ -272,7 +272,7 @@ func TestPeriodsCloseAndReopen(t *testing.T) {
 }
 
 func TestPeriodsCloseValidationError(t *testing.T) {
-	r, _, _, _, _ := setupSvc(t)
+	r, _, _, _, _, _ := setupSvc(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/app/periods/close",

@@ -157,6 +157,13 @@ var funcs = template.FuncMap{
 	},
 	"fmtDate":     fmtDate,
 	"fmtDateTime": fmtDateTime,
+	"yearRange": func() []int {
+		y := time.Now().Year()
+		return []int{y - 2, y - 1, y}
+	},
+	"monthRange": func() []int {
+		return []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	},
 	"today": func() string {
 		return time.Now().Format("2006-01-02")
 	},

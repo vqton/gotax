@@ -1,244 +1,129 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lưu chuyển tiền tệ · GoTax</title>
-  <script defer src="/assets/js/alpine.min.js"></script>
-  <script src="/assets/js/auth-legacy.js"></script>
-  <script src="/assets/js/app-legacy.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen" x-data="comp()" x-init="init()">
-
-  <aside id="sidebar" class="fixed inset-y-0 left-0 w-60 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform"></aside>
-
-  <div class="lg:ml-60">
-    <header id="topbar" class="sticky top-0 z-20"></header>
-
-    <main class="p-6">
-      <template x-if="$store.app.success">
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" x-text="$store.app.success"></div>
-      </template>
-      <template x-if="$store.app.error">
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800" x-text="$store.app.error"></div>
-      </template>
-
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-gray-900">Lưu chuyển tiền tệ</h2>
-        <button @click="printPage()" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition">🖨️ In báo cáo</button>
-      </div>
-
-      <!-- Filters -->
-      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-wrap items-end gap-4">
+{{define "content"}}
+      <div class="page-head">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Năm</label>
-          <select x-model="year" @change="onFilterChange()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
-            <option value="2024">2024</option>
-          </select>
+          <h1>Lưu chuyển tiền tệ</h1>
+          <p class="ph-sub">Báo cáo lưu chuyển tiền tệ theo kỳ — hoạt động kinh doanh, đầu tư, tài chính</p>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Tháng</label>
-          <select x-model="month" @change="onFilterChange()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-            <option value="0">Cả năm</option>
-            <option value="1">Tháng 1</option>
-            <option value="2">Tháng 2</option>
-            <option value="3">Tháng 3</option>
-            <option value="4">Tháng 4</option>
-            <option value="5">Tháng 5</option>
-            <option value="6">Tháng 6</option>
-            <option value="7">Tháng 7</option>
-            <option value="8">Tháng 8</option>
-            <option value="9">Tháng 9</option>
-            <option value="10">Tháng 10</option>
-            <option value="11">Tháng 11</option>
-            <option value="12">Tháng 12</option>
-          </select>
+        <div class="ph-actions">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="window.print()">🖨 In báo cáo</button>
         </div>
       </div>
 
-      <!-- Report header -->
-      <div class="text-center mb-6">
-        <p class="text-lg font-bold text-gray-900">BẢNG LƯU CHUYỂN TIỀN TỆ</p>
-        <p class="text-sm text-gray-500" x-text="'Kỳ: ' + periodLabel()"></p>
+      <div id="cash-flow-report">{{template "cash-flow-report" .}}</div>
+{{end}}
+
+{{define "cash-flow-report"}}
+      <form class="filters-row" hx-post="/app/cash-flow/filter" hx-target="#cash-flow-report" hx-swap="innerHTML">
+        <div class="f-col">
+          <label class="f-label">Năm</label>
+          <select name="year" class="form-input">
+            {{ range $y := yearRange }}
+            <option value="{{ $y }}" {{ if eq $.Data.Year $y }}selected{{ end }}>{{ $y }}</option>
+            {{ end }}
+          </select>
+        </div>
+        <div class="f-col">
+          <label class="f-label">Tháng</label>
+          <select name="month" class="form-input">
+            {{ range $m := monthRange }}
+            <option value="{{ $m }}" {{ if eq $.Data.Month $m }}selected{{ end }}>Tháng {{ $m }}</option>
+            {{ end }}
+          </select>
+        </div>
+        <div class="f-col">
+          <button type="submit" class="btn btn-primary">Xem báo cáo</button>
+        </div>
+      </form>
+
+      <div class="card mt-16">
+        <div class="card-body">
+          <div class="text-center pt-4 pb-6">
+            <p class="text-lg font-bold text-gray-900">BẢNG LƯU CHUYỂN TIỀN TỆ</p>
+            <p class="text-sm text-gray-500">Kỳ: Tháng {{ printf "%d" .Data.Month }}/{{ printf "%d" .Data.Year }}</p>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="text-left px-5 py-2.5 font-semibold text-gray-600 w-[55%]">Chỉ tiêu</th>
+                <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Năm nay</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="bg-blue-50 border-t border-b border-blue-100">
+                <td class="px-5 py-2.5 font-bold text-blue-900" colspan="2">I. Lưu chuyển tiền từ hoạt động kinh doanh</td>
+              </tr>
+              {{ range .Data.Result.Operating.Inflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-gray-900">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              {{ range .Data.Result.Operating.Outflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-red-600">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
+                <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng I. Lưu chuyển tiền từ HĐ kinh doanh</td>
+                <td class="px-5 py-2.5 text-right text-blue-700">{{ fmtVND .Data.Result.Operating.Net }}</td>
+              </tr>
+
+              <tr class="bg-purple-50 border-t border-b border-purple-100">
+                <td class="px-5 py-2.5 font-bold text-purple-900" colspan="2">II. Lưu chuyển tiền từ hoạt động đầu tư</td>
+              </tr>
+              {{ range .Data.Result.Investing.Inflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-gray-900">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              {{ range .Data.Result.Investing.Outflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-red-600">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
+                <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng II. Lưu chuyển tiền từ HĐ đầu tư</td>
+                <td class="px-5 py-2.5 text-right text-purple-700">{{ fmtVND .Data.Result.Investing.Net }}</td>
+              </tr>
+
+              <tr class="bg-amber-50 border-t border-b border-amber-100">
+                <td class="px-5 py-2.5 font-bold text-amber-900" colspan="2">III. Lưu chuyển tiền từ hoạt động tài chính</td>
+              </tr>
+              {{ range .Data.Result.Financing.Inflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-gray-900">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              {{ range .Data.Result.Financing.Outflows }}
+              <tr class="border-b border-gray-100">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">{{ if .Description }}{{ .Description }}{{ else }}{{ .AccountCode }}{{ end }}</td>
+                <td class="px-5 py-2.5 text-right font-medium text-red-600">{{ fmtVND .Amount }}</td>
+              </tr>
+              {{ end }}
+              <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
+                <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng III. Lưu chuyển tiền từ HĐ tài chính</td>
+                <td class="px-5 py-2.5 text-right text-amber-700">{{ fmtVND .Data.Result.Financing.Net }}</td>
+              </tr>
+
+              <tr class="bg-gray-100 border-t-2 border-b-2 border-gray-300 font-bold">
+                <td class="px-5 py-3 text-gray-900">Tăng (giảm) ròng tiền và tương đương tiền</td>
+                <td class="px-5 py-3 text-right text-lg text-green-700">{{ fmtVND .Data.Result.NetChange }}</td>
+              </tr>
+              <tr class="border-b border-gray-200">
+                <td class="px-5 py-2.5 pl-10 text-gray-700">Tiền và tương đương tiền đầu kỳ</td>
+                <td class="px-5 py-2.5 text-right font-medium text-gray-900">{{ fmtVND .Data.Result.OpeningCash }}</td>
+              </tr>
+              <tr class="bg-gray-50 border-t-2 border-gray-300 font-bold">
+                <td class="px-5 py-3 text-gray-900">Tiền và tương đương tiền cuối kỳ</td>
+                <td class="px-5 py-3 text-right text-lg text-blue-700">{{ fmtVND .Data.Result.ClosingCash }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="mt-4 text-xs text-gray-400 text-right">Đơn vị: Đồng (VND). Báo cáo mẫu theo Thông tư 133/2016/TT-BTC.</p>
+        </div>
       </div>
-
-      <!-- Cash flow statement -->
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th class="text-left px-5 py-2.5 font-semibold text-gray-600 w-[55%]">Chỉ tiêu</th>
-              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Năm nay</th>
-              <th class="text-right px-5 py-2.5 font-semibold text-gray-600">Năm trước</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- I. Hoạt động kinh doanh -->
-            <tr class="bg-blue-50 border-t border-b border-blue-100">
-              <td class="px-5 py-2.5 font-bold text-blue-900" colspan="3">I. Lưu chuyển tiền từ hoạt động kinh doanh</td>
-            </tr>
-            <template x-for="item in sections.operating" :key="item.label">
-              <tr class="border-b border-gray-100">
-                <td class="px-5 py-2.5 pl-10 text-gray-700" x-text="item.label"></td>
-                <td class="px-5 py-2.5 text-right font-medium" :class="item.current >= 0 ? 'text-gray-900' : 'text-red-600'" x-text="fmtVND(item.current)"></td>
-                <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(item.previous)"></td>
-              </tr>
-            </template>
-            <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
-              <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng I. Lưu chuyển tiền từ HĐ kinh doanh</td>
-              <td class="px-5 py-2.5 text-right text-blue-700" x-text="fmtVND(subtotal('operating'))"></td>
-              <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(subtotalPrev('operating'))"></td>
-            </tr>
-
-            <!-- II. Hoạt động đầu tư -->
-            <tr class="bg-purple-50 border-t border-b border-purple-100">
-              <td class="px-5 py-2.5 font-bold text-purple-900" colspan="3">II. Lưu chuyển tiền từ hoạt động đầu tư</td>
-            </tr>
-            <template x-for="item in sections.investing" :key="item.label">
-              <tr class="border-b border-gray-100">
-                <td class="px-5 py-2.5 pl-10 text-gray-700" x-text="item.label"></td>
-                <td class="px-5 py-2.5 text-right font-medium" :class="item.current >= 0 ? 'text-gray-900' : 'text-red-600'" x-text="fmtVND(item.current)"></td>
-                <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(item.previous)"></td>
-              </tr>
-            </template>
-            <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
-              <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng II. Lưu chuyển tiền từ HĐ đầu tư</td>
-              <td class="px-5 py-2.5 text-right text-purple-700" x-text="fmtVND(subtotal('investing'))"></td>
-              <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(subtotalPrev('investing'))"></td>
-            </tr>
-
-            <!-- III. Hoạt động tài chính -->
-            <tr class="bg-amber-50 border-t border-b border-amber-100">
-              <td class="px-5 py-2.5 font-bold text-amber-900" colspan="3">III. Lưu chuyển tiền từ hoạt động tài chính</td>
-            </tr>
-            <template x-for="item in sections.financing" :key="item.label">
-              <tr class="border-b border-gray-100">
-                <td class="px-5 py-2.5 pl-10 text-gray-700" x-text="item.label"></td>
-                <td class="px-5 py-2.5 text-right font-medium" :class="item.current >= 0 ? 'text-gray-900' : 'text-red-600'" x-text="fmtVND(item.current)"></td>
-                <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(item.previous)"></td>
-              </tr>
-            </template>
-            <tr class="bg-gray-50 border-t-2 border-b border-gray-200 font-bold">
-              <td class="px-5 py-2.5 pl-5 text-gray-900">Tổng III. Lưu chuyển tiền từ HĐ tài chính</td>
-              <td class="px-5 py-2.5 text-right text-amber-700" x-text="fmtVND(subtotal('financing'))"></td>
-              <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(subtotalPrev('financing'))"></td>
-            </tr>
-
-            <!-- Grand totals -->
-            <tr class="bg-gray-100 border-t-2 border-b-2 border-gray-300 font-bold">
-              <td class="px-5 py-3 text-gray-900">Tăng (giảm) ròng tiền và tương đương tiền</td>
-              <td class="px-5 py-3 text-right text-lg" :class="grandTotal() >= 0 ? 'text-green-700' : 'text-red-600'" x-text="fmtVND(grandTotal())"></td>
-              <td class="px-5 py-3 text-right text-gray-500" x-text="fmtVND(grandTotalPrev())"></td>
-            </tr>
-            <tr class="border-b border-gray-200">
-              <td class="px-5 py-2.5 pl-10 text-gray-700">Tiền và tương đương tiền đầu kỳ</td>
-              <td class="px-5 py-2.5 text-right font-medium text-gray-900" x-text="fmtVND(openingCash)"></td>
-              <td class="px-5 py-2.5 text-right text-gray-500" x-text="fmtVND(openingCashPrev)"></td>
-            </tr>
-            <tr class="bg-gray-50 border-t-2 border-gray-300 font-bold">
-              <td class="px-5 py-3 text-gray-900">Tiền và tương đương tiền cuối kỳ</td>
-              <td class="px-5 py-3 text-right text-lg text-blue-700" x-text="fmtVND(closingCash())"></td>
-              <td class="px-5 py-3 text-right text-gray-500" x-text="fmtVND(closingCashPrev())"></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p class="mt-4 text-xs text-gray-400 text-right">Đơn vị: Đồng (VND). Báo cáo mẫu theo Thông tư 133/2016/TT-BTC.</p>
-    </main>
-  </div>
-
-<script>
-function comp() {
-  return {
-    year: "2026",
-    month: "0",
-    openingCash: 0,
-    openingCashPrev: 0,
-    sections: {
-      operating: [],
-      investing: [],
-      financing: [],
-    },
-
-    async init() {
-      mountAppShell("Lưu chuyển tiền tệ", "/app/cash-flow.html");
-      await this.loadData();
-    },
-
-    async loadData() {
-      const y = this.year;
-      const m = this.month === "0" ? 1 : parseInt(this.month);
-      const companyId = this.getCompanyId();
-      try {
-        const data = await apiGet(`/api/v1/reports/cash-flow?company_id=${companyId}&year=${y}&month=${m}`);
-        this.openingCash = data.opening_cash || 0;
-        this.sections.operating = this.buildSection(data.operating);
-        this.sections.investing = this.buildSection(data.investing);
-        this.sections.financing = this.buildSection(data.financing);
-      } catch (e) {
-        $store.app.error = "Không thể tải dữ liệu lưu chuyển tiền tệ: " + e.message;
-      }
-    },
-
-    buildSection(section) {
-      if (!section) return [];
-      const items = [];
-      for (const inflow of (section.inflows || [])) {
-        items.push({ label: inflow.description || inflow.account_code, current: inflow.amount, previous: 0 });
-      }
-      for (const outflow of (section.outflows || [])) {
-        items.push({ label: outflow.description || outflow.account_code, current: -outflow.amount, previous: 0 });
-      }
-      return items;
-    },
-
-    getCompanyId() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("company_id") || "";
-    },
-
-    async onFilterChange() {
-      await this.loadData();
-    },
-
-    periodLabel() {
-      if (this.month === "0") return `Năm ${this.year}`;
-      return `Tháng ${this.month}/${this.year}`;
-    },
-
-    subtotal(key) {
-      return this.sections[key].reduce((s, i) => s + i.current, 0);
-    },
-
-    subtotalPrev(key) {
-      return this.sections[key].reduce((s, i) => s + i.previous, 0);
-    },
-
-    grandTotal() {
-      return this.subtotal("operating") + this.subtotal("investing") + this.subtotal("financing");
-    },
-
-    grandTotalPrev() {
-      return this.subtotalPrev("operating") + this.subtotalPrev("investing") + this.subtotalPrev("financing");
-    },
-
-    closingCash() {
-      return this.openingCash + this.grandTotal();
-    },
-
-    closingCashPrev() {
-      return this.openingCashPrev + this.grandTotalPrev();
-    },
-
-    printPage() {
-      window.print();
-    },
-  };
-}
-</script>
-
-</body>
-</html>
+{{end}}

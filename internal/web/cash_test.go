@@ -42,7 +42,9 @@ func TestToastHeaderASCII(t *testing.T) {
 	assert.Equal(t, "Đã tạo phiếu thu R-2026-0001.", payload.Toast.Text)
 }
 
-func seedReceipt(t *testing.T, cashRepo interface{ CreateReceipt(context.Context, *domain.CashReceipt) error }) *domain.CashReceipt {
+func seedReceipt(t *testing.T, cashRepo interface {
+	CreateReceipt(context.Context, *domain.CashReceipt) error
+}) *domain.CashReceipt {
 	t.Helper()
 	r := &domain.CashReceipt{
 		ID:              "CR-SEED-1",
@@ -67,7 +69,7 @@ func seedReceipt(t *testing.T, cashRepo interface{ CreateReceipt(context.Context
 }
 
 func TestCashReceiptsPageRender(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -83,7 +85,7 @@ func TestCashReceiptsPageRender(t *testing.T) {
 }
 
 func TestCashReceiptsCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-02"},
@@ -116,7 +118,7 @@ func TestCashReceiptsCreateAction(t *testing.T) {
 }
 
 func TestCashReceiptsCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-02"},
@@ -138,7 +140,7 @@ func TestCashReceiptsCreateValidationError(t *testing.T) {
 }
 
 func TestCashReceiptsLifecycleActions(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	post := func(action string) *httptest.ResponseRecorder {
@@ -175,7 +177,7 @@ func TestCashReceiptsLifecycleActions(t *testing.T) {
 }
 
 func TestCashReceiptsPostFromDraftRejected(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedReceipt(t, cashRepo)
 
 	// Posting straight from DRAFT is an invalid transition — error toast.
@@ -193,7 +195,9 @@ func TestCashReceiptsPostFromDraftRejected(t *testing.T) {
 
 // ─── Cash Payments ─────────────────────────────────────────────────
 
-func seedPayment(t *testing.T, cashRepo interface{ CreatePayment(context.Context, *domain.CashPayment) error }) *domain.CashPayment {
+func seedPayment(t *testing.T, cashRepo interface {
+	CreatePayment(context.Context, *domain.CashPayment) error
+}) *domain.CashPayment {
 	t.Helper()
 	p := &domain.CashPayment{
 		ID:              "CP-SEED-1",
@@ -218,7 +222,7 @@ func seedPayment(t *testing.T, cashRepo interface{ CreatePayment(context.Context
 }
 
 func TestCashPaymentsPageRender(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -234,7 +238,7 @@ func TestCashPaymentsPageRender(t *testing.T) {
 }
 
 func TestCashPaymentsCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-04"},
@@ -267,7 +271,7 @@ func TestCashPaymentsCreateAction(t *testing.T) {
 }
 
 func TestCashPaymentsCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
 		"voucher_date":     {"2026-08-04"},
@@ -289,7 +293,7 @@ func TestCashPaymentsCreateValidationError(t *testing.T) {
 }
 
 func TestCashPaymentsLifecycleActions(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 	// Fund the cash account: posting a payment requires sufficient balance.
 	fund := &domain.CashReceipt{
@@ -346,7 +350,7 @@ func TestCashPaymentsLifecycleActions(t *testing.T) {
 }
 
 func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedPayment(t, cashRepo)
 
 	// Posting straight from DRAFT is an invalid transition — error toast.
@@ -365,7 +369,7 @@ func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
 // ─── Cash Transfers ───────────────────────────────────────────────
 
 func TestCashTransfersPageRender(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 	seedTransfer(t, cashRepo)
 
 	w := httptest.NewRecorder()
@@ -380,7 +384,9 @@ func TestCashTransfersPageRender(t *testing.T) {
 	assert.NotContains(t, body, "x-data")
 }
 
-func seedTransfer(t *testing.T, cashRepo interface{ CreateTransfer(context.Context, *domain.CashTransfer) error }) *domain.CashTransfer {
+func seedTransfer(t *testing.T, cashRepo interface {
+	CreateTransfer(context.Context, *domain.CashTransfer) error
+}) *domain.CashTransfer {
 	t.Helper()
 	tf := &domain.CashTransfer{
 		ID:            "TRF-SEED-1",
@@ -400,15 +406,15 @@ func seedTransfer(t *testing.T, cashRepo interface{ CreateTransfer(context.Conte
 }
 
 func TestCashTransfersCreateAction(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
-		"transfer_date":     {"2026-08-06"},
-		"from_account_id":   {"1121"},
-		"to_account_id":     {"1111"},
-		"amount":            {"5000000"},
-		"reason":            {"Chuyển quỹ tiền mặt"},
-		"transfer_type":     {"BANK_WITHDRAWAL"},
+		"transfer_date":   {"2026-08-06"},
+		"from_account_id": {"1121"},
+		"to_account_id":   {"1111"},
+		"amount":          {"5000000"},
+		"reason":          {"Chuyển quỹ tiền mặt"},
+		"transfer_type":   {"BANK_WITHDRAWAL"},
 	}
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/app/cash-transfers/create?company_id=CMP001", strings.NewReader(form.Encode()))
@@ -444,7 +450,7 @@ func TestCashTransfersCreateAction(t *testing.T) {
 }
 
 func TestCashTransfersCreateValidationError(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	form := url.Values{
 		"transfer_date":   {"2026-08-06"},
@@ -468,7 +474,7 @@ func TestCashTransfersCreateValidationError(t *testing.T) {
 // ─── Cash Book Report ─────────────────────────────────────────────
 
 func TestCashBookPageRenderAndFilter(t *testing.T) {
-	r, _, _, _, cashRepo := setupSvc(t)
+	r, _, _, _, cashRepo, _ := setupSvc(t)
 
 	// Posted docs within the current month (default filter period).
 	now := time.Now()
@@ -512,5 +518,50 @@ func TestCashBookPageRenderAndFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	body = w.Body.String()
 	assert.Contains(t, body, "Số dư đầu kỳ")
+	assert.Contains(t, body, "5.000.000")
+}
+
+func TestCashFlowPageRenderAndFilter(t *testing.T) {
+	r, _, perRepo, _, _, jeRepo := setupSvc(t)
+
+	// Period + one posted entry touching cash (operating inflow).
+	now := time.Now()
+	perRepo.Create(context.Background(), &domain.Period{
+		ID: "P-202608", Year: now.Year(), Month: int(now.Month()),
+		StartDate: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(now.Year(), now.Month(), 28, 0, 0, 0, 0, time.UTC),
+		Status:    domain.PeriodOpen,
+	})
+	require.NoError(t, jeRepo.Create(context.Background(), &domain.JournalEntry{
+		ID: "je-cashflow", CompanyID: "CMP001", VoucherType: domain.VoucherTypeOther,
+		EntryDate: time.Date(now.Year(), now.Month(), 5, 0, 0, 0, 0, time.UTC),
+		PeriodID:  "P-202608", Status: domain.JournalEntryPosted,
+		Lines: []domain.JournalLine{
+			{LineNumber: 1, AccountCode: "1111", DebitAmount: 5000000},
+			{LineNumber: 2, AccountCode: "5111", CreditAmount: 5000000},
+		},
+	}))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/cash-flow.html?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Lưu chuyển tiền tệ")
+	assert.Contains(t, body, "BẢNG LƯU CHUYỂN TIỀN TỆ")
+	assert.Contains(t, body, "I. Lưu chuyển tiền từ hoạt động kinh doanh")
+	assert.Contains(t, body, "5.000.000") // operating inflow
+	assert.Contains(t, body, "Tăng (giảm) ròng tiền và tương đương tiền")
+	assert.NotContains(t, body, "x-data")
+
+	// Filter action re-renders with explicit year/month.
+	params := url.Values{"year": {"2026"}, "month": {"8"}}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/app/cash-flow/filter?"+params.Encode(), strings.NewReader(params.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body = w.Body.String()
+	assert.Contains(t, body, "Kỳ: Tháng 8/2026")
 	assert.Contains(t, body, "5.000.000")
 }

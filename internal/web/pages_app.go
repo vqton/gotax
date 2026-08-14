@@ -38,6 +38,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/cash-payments.html":   {Title: "Phiếu chi", NavPath: "/app/cash-payments.html", Load: cashPaymentsLoad(d)},
 		"/app/cash-transfers.html":  {Title: "Chuyển quỹ", NavPath: "/app/cash-transfers.html", Load: cashTransfersLoad(d)},
 		"/app/cash-book.html":       {Title: "Sổ quỹ tiền mặt", NavPath: "/app/cash-book.html", Load: cashBookLoad(d)},
+		"/app/cash-flow.html":       {Title: "Lưu chuyển tiền tệ", NavPath: "/app/cash-flow.html", Load: cashFlowLoad(d)},
 	}
 }
 
@@ -82,22 +83,25 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"reopen": s.periodsReopen(d),
 		},
 		"/app/cash-receipts": {
-			"create": s.cashReceiptsCreate(d),
-			"submit": s.cashReceiptStatus(d, "submit"),
+			"create":  s.cashReceiptsCreate(d),
+			"submit":  s.cashReceiptStatus(d, "submit"),
 			"approve": s.cashReceiptStatus(d, "approve"),
-			"post":   s.cashReceiptStatus(d, "post"),
+			"post":    s.cashReceiptStatus(d, "post"),
 		},
 		"/app/cash-payments": {
-			"create": s.cashPaymentsCreate(d),
-			"submit": s.cashPaymentStatus(d, "submit"),
+			"create":  s.cashPaymentsCreate(d),
+			"submit":  s.cashPaymentStatus(d, "submit"),
 			"approve": s.cashPaymentStatus(d, "approve"),
-			"post":   s.cashPaymentStatus(d, "post"),
+			"post":    s.cashPaymentStatus(d, "post"),
 		},
 		"/app/cash-transfers": {
 			"create": s.cashTransfersCreate(d),
 		},
 		"/app/cash-book": {
 			"filter": s.cashBookFilter(d),
+		},
+		"/app/cash-flow": {
+			"filter": s.cashFlowFilter(d),
 		},
 	}
 }
@@ -1391,5 +1395,54 @@ func cashBookLoad(d Deps) func(c *gin.Context) (any, error) {
 func (s *Server) cashBookFilter(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s.renderCashBook(c, d)
+	}
+}
+
+func cashFlowFilters(c *gin.Context) (year, month int) {
+	year, _ = strconv.Atoi(strings.TrimSpace(c.PostForm("year")))
+	if year == 0 {
+		year, _ = strconv.Atoi(c.Query("year"))
+	}
+	month, _ = strconv.Atoi(strings.TrimSpace(c.PostForm("month")))
+	if month == 0 {
+		month, _ = strconv.Atoi(c.Query("month"))
+	}
+	if year == 0 {
+		year = time.Now().Year()
+	}
+	if month < 1 || month > 12 {
+		month = int(time.Now().Month())
+	}
+	return year, month
+}
+
+func (s *Server) renderCashFlow(c *gin.Context, d Deps) {
+	year, month := cashFlowFilters(c)
+	result, err := d.Svc.CashFlowStatement(c.Request.Context(), pageCompanyID(c), year, month)
+	if err != nil {
+		c.String(500, "load cash flow statement failed")
+		return
+	}
+	s.RenderFragment(c, "cash-flow", "cash-flow-report", gin.H{
+		"Year":   year,
+		"Month":  month,
+		"Result": result,
+	})
+}
+
+func cashFlowLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		year, month := cashFlowFilters(c)
+		result, err := d.Svc.CashFlowStatement(c.Request.Context(), pageCompanyID(c), year, month)
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{"Year": year, "Month": month, "Result": result}, nil
+	}
+}
+
+func (s *Server) cashFlowFilter(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		s.renderCashFlow(c, d)
 	}
 }
