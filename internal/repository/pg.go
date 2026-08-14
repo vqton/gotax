@@ -159,7 +159,9 @@ func (r *PGJournalRepo) GetByID(ctx context.Context, id string) (*domain.Journal
 
 func (r *PGJournalRepo) GetByPeriod(ctx context.Context, periodID string) ([]domain.JournalEntry, error) {
 	var models []domain.JournalEntryGORM
-	if err := r.db.WithContext(ctx).Where("period_id = ?", periodID).Order("entry_date").Find(&models).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Lines", func(db *gorm.DB) *gorm.DB {
+		return db.Order("line_number")
+	}).Where("period_id = ?", periodID).Order("entry_date").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return gormJournalEntriesToDomain(models), nil
@@ -198,16 +200,26 @@ func (r *PGJournalRepo) GetAll(ctx context.Context) ([]domain.JournalEntry, erro
 }
 
 func (r *PGJournalRepo) UpdateStatus(ctx context.Context, id string, status domain.JournalEntryStatus) error {
-	return r.db.WithContext(ctx).Model(&domain.JournalEntryGORM{}).Where("CAST(id AS TEXT) = ?", id).Or("entry_number = ?", id).Update("status", string(status)).Error
+	updates := map[string]interface{}{"status": string(status)}
+	// chk_posted_status requires posted_at when transitioning to POSTED.
+	if status == domain.JournalEntryPosted {
+		updates["posted_at"] = time.Now()
+	}
+	return r.db.WithContext(ctx).Model(&domain.JournalEntryGORM{}).Where("CAST(id AS TEXT) = ?", id).Or("entry_number = ?", id).Updates(updates).Error
 }
 
 func (r *PGJournalRepo) Update(ctx context.Context, e *domain.JournalEntry) error {
-	return r.db.WithContext(ctx).Model(&domain.JournalEntryGORM{}).Where("entry_number = ?", e.EntryNumber).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"voucher_type": string(e.VoucherType), "entry_date": e.EntryDate,
 		"accounting_date": e.AccountingDate, "period_id": e.PeriodID,
 		"description": e.Description, "status": string(e.Status),
 		"currency_code": e.CurrencyCode, "exchange_rate": e.ExchangeRate,
-	}).Error
+	}
+	// chk_posted_status requires posted_at when transitioning to POSTED.
+	if e.Status == domain.JournalEntryPosted {
+		updates["posted_at"] = e.PostedAt
+	}
+	return r.db.WithContext(ctx).Model(&domain.JournalEntryGORM{}).Where("entry_number = ?", e.EntryNumber).Updates(updates).Error
 }
 
 func (r *PGJournalRepo) Approve(ctx context.Context, id, approvedBy string) error {
