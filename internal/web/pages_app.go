@@ -54,6 +54,7 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 		},
 		"/app/customers": {
 			"create": s.customersCreate(d),
+			"delete": s.customersDelete(d),
 		},
 	}
 }
@@ -179,6 +180,25 @@ func (s *Server) customersCreate(d Deps) gin.HandlerFunc {
 			return
 		}
 		Toast(c, "success", "Đã thêm khách hàng mới.")
+		s.renderCustomersTable(c, d)
+	}
+}
+
+func (s *Server) customersDelete(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.PostForm("id")
+		if id == "" {
+			Toast(c, "error", "Thiếu mã khách hàng.")
+			s.renderCustomersTable(c, d)
+			return
+		}
+		if err := d.Sale.DeleteCustomer(c.Request.Context(), id); err != nil {
+			log.Printf("delete customer: %v", err)
+			Toast(c, "error", "Không xóa được khách hàng: "+err.Error())
+			s.renderCustomersTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã xóa khách hàng.")
 		s.renderCustomersTable(c, d)
 	}
 }

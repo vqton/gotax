@@ -127,3 +127,36 @@ func TestCustomersCreateActionValidationError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, custs)
 }
+
+func TestCustomersDeleteAction(t *testing.T) {
+	s := setupCustomers(t)
+	s.seedCustomer(t, "KH-DEL", "Công ty xóa")
+	custs, err := s.repo.ListCustomers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	require.Len(t, custs, 1)
+	id := custs[0].ID
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/customers/delete?company_id=CMP001", strings.NewReader("id="+id))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+	assert.NotContains(t, w.Body.String(), "KH-DEL")
+	custs, err = s.repo.ListCustomers(context.Background(), "CMP001")
+	require.NoError(t, err)
+	assert.Empty(t, custs)
+}
+
+func TestCustomersDeleteActionMissingID(t *testing.T) {
+	s := setupCustomers(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/customers/delete?company_id=CMP001", strings.NewReader("id=nope"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "error")
+}
