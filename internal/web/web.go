@@ -5,6 +5,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -104,8 +105,32 @@ func (s *Server) RenderFragment(c *gin.Context, page, frag string, data any) {
 
 // Toast sets the HX-Trigger header so the client shows a toast after an htmx
 // mutation. Must be set before writing the response body.
+//
+// The header is JSON with non-ASCII escaped as \uXXXX: browsers decode
+// response headers as ISO-8859-1, so raw UTF-8 in the header would arrive
+// mojibake'd ("Đã" → "ÄÃ£") before htmx JSON.parses it.
 func Toast(c *gin.Context, typ, text string) {
-	c.Header("HX-Trigger", fmt.Sprintf(`{"toast":{"type":%q,"text":%q}}`, typ, text))
+	c.Header("HX-Trigger", asciiJSON(map[string]any{
+		"toast": map[string]any{"type": typ, "text": text},
+	}))
+}
+
+// asciiJSON marshals v and escapes every non-ASCII rune as \uXXXX. Browsers
+// decode response headers as ISO-8859-1, so raw UTF-8 in a header arrives
+// mojibake'd ("Đã" → "ÄÃ£") before htmx JSON.parses it. Escaping by rune
+// (not byte) keeps multi-byte characters round-trippable: Đ (U+0110) must
+// become \u0110, not \u00c4\u0090.
+func asciiJSON(v any) string {
+	b, _ := json.Marshal(v)
+	var sb strings.Builder
+	for _, r := range string(b) {
+		if r < 0x80 {
+			sb.WriteRune(r)
+		} else {
+			fmt.Fprintf(&sb, `\u%04x`, r)
+		}
+	}
+	return sb.String()
 }
 
 // ErrPageLoad is wrapped by page loaders when data gathering fails.

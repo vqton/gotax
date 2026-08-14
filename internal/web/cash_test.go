@@ -2,17 +2,44 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"gotax/internal/domain"
 )
+
+// TestToastHeaderASCII guards against header mojibake: browsers decode
+// response headers as ISO-8859-1, so HX-Trigger must be pure ASCII JSON with
+// non-ASCII escaped as \uXXXX. The text must JSON.parse back to proper UTF-8.
+func TestToastHeaderASCII(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	Toast(c, "success", "Đã tạo phiếu thu R-2026-0001.")
+
+	header := c.Writer.Header().Get("HX-Trigger")
+	require.NotEmpty(t, header)
+	for _, b := range []byte(header) {
+		if b > 127 {
+			t.Fatalf("HX-Trigger header contains non-ASCII byte %#x: %s", b, header)
+		}
+	}
+	var payload struct {
+		Toast struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"toast"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(header), &payload))
+	assert.Equal(t, "success", payload.Toast.Type)
+	assert.Equal(t, "Đã tạo phiếu thu R-2026-0001.", payload.Toast.Text)
+}
 
 func seedReceipt(t *testing.T, cashRepo interface{ CreateReceipt(context.Context, *domain.CashReceipt) error }) *domain.CashReceipt {
 	t.Helper()
