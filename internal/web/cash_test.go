@@ -189,3 +189,174 @@ func TestCashReceiptsPostFromDraftRejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.CashDraft, receipt.Status)
 }
+
+// ─── Cash Payments ─────────────────────────────────────────────────
+
+func seedPayment(t *testing.T, cashRepo interface{ CreatePayment(context.Context, *domain.CashPayment) error }) *domain.CashPayment {
+	t.Helper()
+	p := &domain.CashPayment{
+		ID:              "CP-SEED-1",
+		CompanyID:       "CMP001",
+		VoucherNo:       "P-2026-0001",
+		VoucherDate:     "2026-08-03",
+		CashAccountID:   "1111",
+		PayeeName:       "Công ty ABC",
+		PayeeType:       domain.CounterpartSupplier,
+		Currency:        "VND",
+		ExchangeRate:    1,
+		Amount:          3000000,
+		AmountVND:       3000000,
+		DebitAccountID:  "3311",
+		CreditAccountID: "1111",
+		Reason:          "Thanh toán tiền hàng cho nhà cung cấp",
+		PaymentType:     domain.PaymentSupplier,
+		Status:          domain.CashDraft,
+	}
+	require.NoError(t, cashRepo.CreatePayment(context.Background(), p))
+	return p
+}
+
+func TestCashPaymentsPageRender(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+	seedPayment(t, cashRepo)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/cash-payments.html?company_id=CMP001", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "Phiếu chi")
+	assert.Contains(t, body, "P-2026-0001")
+	assert.Contains(t, body, "3.000.000")
+	assert.NotContains(t, body, "x-data")
+}
+
+func TestCashPaymentsCreateAction(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+
+	form := url.Values{
+		"voucher_date":     {"2026-08-04"},
+		"payment_type":     {"SUPPLIER"},
+		"reason":           {"Chi thanh toán NCC"},
+		"payee_name":       {"Công ty XYZ"},
+		"amount":           {"1500000"},
+		"cash_account_id":  {"1111"},
+		"debit_account_id": {"3311"},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/cash-payments/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "P-2026-0001")
+	assert.Contains(t, body, "1.500.000")
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+
+	payments, _, err := cashRepo.ListPayments(context.Background(), domain.CashPaymentFilter{CompanyID: "CMP001"})
+	require.NoError(t, err)
+	require.Len(t, payments, 1)
+	assert.Equal(t, "P-2026-0001", payments[0].VoucherNo)
+	assert.Equal(t, domain.CashDraft, payments[0].Status)
+	assert.NotEmpty(t, payments[0].ID)
+	// credit mirrors debit (legacy behavior) so Validate passes.
+	assert.Equal(t, "3311", payments[0].CreditAccountID)
+}
+
+func TestCashPaymentsCreateValidationError(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+
+	form := url.Values{
+		"voucher_date":     {"2026-08-04"},
+		"reason":           {"Chi tiền"},
+		"amount":           {"0"}, // invalid: must be > 0
+		"cash_account_id":  {"1111"},
+		"debit_account_id": {"3311"},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/cash-payments/create?company_id=CMP001", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "error")
+	payments, _, err := cashRepo.ListPayments(context.Background(), domain.CashPaymentFilter{CompanyID: "CMP001"})
+	require.NoError(t, err)
+	assert.Empty(t, payments)
+}
+
+func TestCashPaymentsLifecycleActions(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+	seedPayment(t, cashRepo)
+	// Fund the cash account: posting a payment requires sufficient balance.
+	fund := &domain.CashReceipt{
+		ID:              "CR-SEED-FUND",
+		CompanyID:       "CMP001",
+		VoucherNo:       "R-2026-0002",
+		VoucherDate:     "2026-08-01",
+		CashAccountID:   "1111",
+		CounterpartName: "Công ty ABC",
+		CounterpartType: domain.CounterpartCustomer,
+		Currency:        "VND",
+		ExchangeRate:    1,
+		Amount:          5000000,
+		AmountVND:       5000000,
+		DebitAccountID:  "1111",
+		CreditAccountID: "1311",
+		Reason:          "Quỹ đầu kỳ",
+		ReceiptType:     domain.ReceiptCustomerPayment,
+		Status:          domain.CashPosted,
+	}
+	require.NoError(t, cashRepo.CreateReceipt(context.Background(), fund))
+
+	post := func(action string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/app/cash-payments/"+action+"?company_id=CMP001", strings.NewReader("id=CP-SEED-1"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	// DRAFT → submit
+	w := post("submit")
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+	payment, err := cashRepo.GetPayment(context.Background(), "CP-SEED-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.CashSubmitted, payment.Status)
+
+	// SUBMITTED → approve
+	w = post("approve")
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+	payment, err = cashRepo.GetPayment(context.Background(), "CP-SEED-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.CashApproved, payment.Status)
+
+	// APPROVED → post (creates GL journal entry)
+	w = post("post")
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "success")
+	payment, err = cashRepo.GetPayment(context.Background(), "CP-SEED-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.CashPosted, payment.Status)
+	assert.NotEmpty(t, payment.PostedAt)
+	assert.NotEmpty(t, payment.GLJournalID)
+}
+
+func TestCashPaymentsPostFromDraftRejected(t *testing.T) {
+	r, _, _, _, cashRepo := setupSvc(t)
+	seedPayment(t, cashRepo)
+
+	// Posting straight from DRAFT is an invalid transition — error toast.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/cash-payments/post?company_id=CMP001", strings.NewReader("id=CP-SEED-1"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("HX-Trigger"), "error")
+
+	payment, err := cashRepo.GetPayment(context.Background(), "CP-SEED-1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.CashDraft, payment.Status)
+}

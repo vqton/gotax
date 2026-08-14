@@ -505,7 +505,7 @@ func (r *PGCashRepo) LastPaymentNo(ctx context.Context, companyID, year string) 
 	var last string
 	err := r.db.WithContext(ctx).Raw(
 		`SELECT voucher_no FROM cash_payments
-		 WHERE company_id = ? AND voucher_date LIKE ? || '%'
+		 WHERE company_id = ? AND EXTRACT(YEAR FROM voucher_date) = CAST(? AS INT)
 		 ORDER BY voucher_no DESC LIMIT 1`, companyID, year).Scan(&last).Error
 	if err != nil {
 		return "", nil

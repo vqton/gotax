@@ -35,6 +35,7 @@ func NewPages(d Deps) map[string]Page {
 		"/app/exchange-rates.html":  {Title: "Tỷ giá hối đoái", NavPath: "/app/exchange-rates.html", Load: exchangeRatesLoad(d)},
 		"/app/periods.html":         {Title: "Kỳ kế toán", NavPath: "/app/periods.html", Load: periodsLoad(d)},
 		"/app/cash-receipts.html":   {Title: "Phiếu thu", NavPath: "/app/cash-receipts.html", Load: cashReceiptsLoad(d)},
+		"/app/cash-payments.html":   {Title: "Phiếu chi", NavPath: "/app/cash-payments.html", Load: cashPaymentsLoad(d)},
 	}
 }
 
@@ -83,6 +84,12 @@ func (s *Server) NewActions(d Deps) map[string]map[string]gin.HandlerFunc {
 			"submit": s.cashReceiptStatus(d, "submit"),
 			"approve": s.cashReceiptStatus(d, "approve"),
 			"post":   s.cashReceiptStatus(d, "post"),
+		},
+		"/app/cash-payments": {
+			"create": s.cashPaymentsCreate(d),
+			"submit": s.cashPaymentStatus(d, "submit"),
+			"approve": s.cashPaymentStatus(d, "approve"),
+			"post":   s.cashPaymentStatus(d, "post"),
 		},
 	}
 }
@@ -1143,4 +1150,104 @@ func (s *Server) renderCashReceiptsTable(c *gin.Context, d Deps) {
 		receipts = []domain.CashReceipt{}
 	}
 	s.RenderFragment(c, "cash-receipts", "cash-receipts-table", gin.H{"Receipts": receipts, "Total": total})
+}
+
+// ─── Cash Payments ─────────────────────────────────────────────────
+
+func cashPaymentsLoad(d Deps) func(c *gin.Context) (any, error) {
+	return func(c *gin.Context) (any, error) {
+		payments, total, err := d.Svc.ListCashPayments(c.Request.Context(), domain.CashPaymentFilter{CompanyID: pageCompanyID(c)})
+		if err != nil {
+			return nil, err
+		}
+		if payments == nil {
+			payments = []domain.CashPayment{}
+		}
+		return gin.H{"Payments": payments, "Total": total}, nil
+	}
+}
+
+func (s *Server) cashPaymentsCreate(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		voucherDate := strings.TrimSpace(c.PostForm("voucher_date"))
+		if _, err := time.Parse("2006-01-02", voucherDate); err != nil {
+			Toast(c, "error", "Ngày lập phiếu không hợp lệ.")
+			s.renderCashPaymentsTable(c, d)
+			return
+		}
+		amount, err := strconv.ParseFloat(c.PostForm("amount"), 64)
+		if err != nil || amount <= 0 {
+			Toast(c, "error", "Số tiền không hợp lệ.")
+			s.renderCashPaymentsTable(c, d)
+			return
+		}
+		// Legacy page mirrors debit_account_id onto credit_account_id.
+		credit := strings.TrimSpace(c.PostForm("credit_account_id"))
+		debit := strings.TrimSpace(c.PostForm("debit_account_id"))
+		if credit == "" {
+			credit = debit
+		}
+		paymentType := domain.PaymentType(c.PostForm("payment_type"))
+		if paymentType == "" {
+			paymentType = domain.PaymentSupplier
+		}
+		p := &domain.CashPayment{
+			CompanyID:       pageCompanyID(c),
+			VoucherDate:     voucherDate,
+			CashAccountID:   strings.TrimSpace(c.PostForm("cash_account_id")),
+			PayeeName:       strings.TrimSpace(c.PostForm("payee_name")),
+			PayeeType:       domain.CounterpartSupplier,
+			Currency:        "VND",
+			ExchangeRate:    1,
+			Amount:          amount,
+			DebitAccountID:  debit,
+			CreditAccountID: credit,
+			Reason:          strings.TrimSpace(c.PostForm("reason")),
+			PaymentType:     paymentType,
+		}
+		// CreateCashPayment runs p.Validate() + voucher numbering.
+		if err := d.Svc.CreateCashPayment(c.Request.Context(), p); err != nil {
+			log.Printf("create cash payment: %v", err)
+			Toast(c, "error", "Không tạo được phiếu chi: "+err.Error())
+			s.renderCashPaymentsTable(c, d)
+			return
+		}
+		Toast(c, "success", "Đã tạo phiếu chi "+p.VoucherNo+".")
+		s.renderCashPaymentsTable(c, d)
+	}
+}
+
+func (s *Server) cashPaymentStatus(d Deps, action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.PostForm("id")
+		ctx := c.Request.Context()
+		var err error
+		switch action {
+		case "submit":
+			err = d.Svc.SubmitCashPayment(ctx, id, c.GetString("user_id"))
+		case "approve":
+			err = d.Svc.ApproveCashPayment(ctx, id, c.GetString("user_id"))
+		case "post":
+			err = d.Svc.PostCashPayment(ctx, id, c.GetString("user_id"))
+		}
+		if err != nil {
+			log.Printf("cash payment %s %s: %v", action, id, err)
+			Toast(c, "error", "Thao tác thất bại: "+err.Error())
+		} else {
+			Toast(c, "success", "Đã cập nhật trạng thái phiếu chi.")
+		}
+		s.renderCashPaymentsTable(c, d)
+	}
+}
+
+func (s *Server) renderCashPaymentsTable(c *gin.Context, d Deps) {
+	payments, total, err := d.Svc.ListCashPayments(c.Request.Context(), domain.CashPaymentFilter{CompanyID: pageCompanyID(c)})
+	if err != nil {
+		c.String(500, "load cash payments failed")
+		return
+	}
+	if payments == nil {
+		payments = []domain.CashPayment{}
+	}
+	s.RenderFragment(c, "cash-payments", "cash-payments-table", gin.H{"Payments": payments, "Total": total})
 }

@@ -1512,17 +1512,7 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 			{AccountCode: r.CreditAccountID, CreditAmount: r.AmountVND},
 		},
 	}
-	if p, err := s.periods.GetByYearMonth(ctx, entryDate.Year(), int(entryDate.Month())); err == nil && p != nil {
-		entry.PeriodID = p.ID
-	}
-	// Sequential entry number within the period, same scheme as CreateEntry.
-	if entry.PeriodID != "" {
-		if p, err := s.periods.GetByID(ctx, entry.PeriodID); err == nil && p != nil {
-			if es, err := s.journals.GetByPeriod(ctx, p.ID); err == nil {
-				entry.EntryNumber = fmt.Sprintf("%d%02d-%03d", p.Year, p.Month, len(es)+1)
-			}
-		}
-	}
+	s.attachPeriodAndNumber(ctx, entry)
 	if err := entry.Validate(); err != nil {
 		return err
 	}
@@ -1537,6 +1527,24 @@ func (s *service) PostCashReceipt(ctx context.Context, id, userID string) error 
 	r.GLJournalID = entry.ID
 	r.UpdatedAt = nowStr
 	return s.cash.UpdateReceipt(ctx, r)
+}
+
+// attachPeriodAndNumber attaches the entry to the open period for its entry
+// date (if none set) and assigns a sequential entry number within that period,
+// same scheme as CreateEntry. Shared by posting flows (cash receipts/payments).
+func (s *service) attachPeriodAndNumber(ctx context.Context, entry *domain.JournalEntry) {
+	if entry.PeriodID == "" {
+		if p, err := s.periods.GetByYearMonth(ctx, entry.EntryDate.Year(), int(entry.EntryDate.Month())); err == nil && p != nil {
+			entry.PeriodID = p.ID
+		}
+	}
+	if entry.PeriodID != "" {
+		if p, err := s.periods.GetByID(ctx, entry.PeriodID); err == nil && p != nil {
+			if es, err := s.journals.GetByPeriod(ctx, p.ID); err == nil {
+				entry.EntryNumber = fmt.Sprintf("%d%02d-%03d", p.Year, p.Month, len(es)+1)
+			}
+		}
+	}
 }
 
 // ─── Cash Payments ──────────────────────────────────────────────────
@@ -1675,19 +1683,21 @@ func (s *service) PostCashPayment(ctx context.Context, id, userID string) error 
 		rate = 1
 	}
 	entry := &domain.JournalEntry{
-		EntryDate:    entryDate,
-		Description:  p.Reason,
-		CurrencyCode: p.Currency,
-		ExchangeRate: rate,
-		VoucherType:  domain.VoucherTypePayment,
+		CompanyID:     p.CompanyID,
+		CreatedBy:     userID,
+		Status:        domain.JournalEntryDraft,
+		EntryDate:     entryDate,
+		AccountingDate: entryDate,
+		Description:   p.Reason,
+		CurrencyCode:  p.Currency,
+		ExchangeRate:  rate,
+		VoucherType:   domain.VoucherTypePayment,
 		Lines: []domain.JournalLine{
 			{AccountCode: p.DebitAccountID, DebitAmount: p.AmountVND},
 			{AccountCode: p.CashAccountID, CreditAmount: p.AmountVND},
 		},
 	}
-	if period, err := s.periods.GetByYearMonth(ctx, entryDate.Year(), int(entryDate.Month())); err == nil && period != nil {
-		entry.PeriodID = period.ID
-	}
+	s.attachPeriodAndNumber(ctx, entry)
 	if err := entry.Validate(); err != nil {
 		return err
 	}
