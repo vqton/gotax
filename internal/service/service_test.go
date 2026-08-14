@@ -305,6 +305,8 @@ func TestCreatePeriod(t *testing.T) {
 		Status:    domain.PeriodOpen,
 	}
 	assert.NoError(t, svc.CreatePeriod(ctx, p))
+	// Empty ID must be minted — PG periods.id is VARCHAR(20) PK, "" would store garbage.
+	assert.Equal(t, "P-202506", p.ID)
 }
 
 func TestCloseReopenPeriod(t *testing.T) {
@@ -445,6 +447,8 @@ func TestCreateExchangeRate(t *testing.T) {
 	svc, ctx := setupService(t)
 	rate := &domain.ExchangeRate{CurrencyCode: "USD", AverageRate: 23000, RateDate: time.Now()}
 	assert.NoError(t, svc.CreateExchangeRate(ctx, rate))
+	// Empty ID must be minted so PG uuid PK doesn't reject "".
+	assert.NotEmpty(t, rate.ID)
 }
 
 func TestGetExchangeRate_NotFound(t *testing.T) {

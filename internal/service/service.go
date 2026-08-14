@@ -11,6 +11,8 @@ import (
 
 	"gotax/internal/auth"
 	"gotax/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 type Service interface {
@@ -556,6 +558,10 @@ func (s *service) CreatePeriod(ctx context.Context, period *domain.Period) error
 	if err := period.Validate(); err != nil {
 		return err
 	}
+	if period.ID == "" {
+		// PG periods.id is VARCHAR(20) — short deterministic ID, unique per (year, month).
+		period.ID = fmt.Sprintf("P-%04d%02d", period.Year, period.Month)
+	}
 	return s.periods.Create(ctx, period)
 }
 
@@ -607,6 +613,9 @@ func (s *service) ReopenPeriod(ctx context.Context, id string) error {
 func (s *service) CreateExchangeRate(ctx context.Context, rate *domain.ExchangeRate) error {
 	if err := rate.Validate(); err != nil {
 		return err
+	}
+	if rate.ID == "" {
+		rate.ID = uuid.NewString()
 	}
 	return s.rates.Create(ctx, rate)
 }

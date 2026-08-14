@@ -610,7 +610,7 @@ func gormAuditToDomain(models []domain.AuditEntryGORM) []domain.AuditEntry {
 
 func (r *PGExchangeRateRepo) Create(ctx context.Context, rate *domain.ExchangeRate) error {
 	return r.db.WithContext(ctx).Create(&domain.ExchangeRateGORM{
-		CurrencyCode: rate.CurrencyCode, RateDate: rate.RateDate,
+		ID: rate.ID, CurrencyCode: rate.CurrencyCode, RateDate: rate.RateDate,
 		BuyRate: float64Ptr(rate.BuyRate), SellRate: float64Ptr(rate.SellRate),
 		AverageRate: rate.AverageRate, Source: nullStrG(rate.Source),
 	}).Error

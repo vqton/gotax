@@ -24,28 +24,53 @@ func (r *PGCompanyRepo) Create(ctx context.Context, c *domain.Company) error {
 	if c.ID == "" {
 		c.ID = "CMP" + time.Now().Format("20060102150405")
 	}
+	status := string(c.Status)
+	if status == "" {
+		status = string(domain.CompanyStatusActive)
+	}
+	legalForm := string(c.LegalForm)
+	if legalForm == "" {
+		legalForm = "LLC_1MEMBER"
+	}
+	regime := string(c.AccountingRegime)
+	if regime == "" {
+		regime = "TT99"
+	}
 	m := &domain.CompanyGORM{
-		ID:          c.ID,
-		TenantID:    c.TenantID,
-		Name:        c.LegalNameVN,
-		TaxCode:     c.TaxCode,
-		Address:     c.RegAddress,
-		Phone:       strPtr(c.Phone),
-		Email:       strPtr(c.Email),
-		Website:     strPtr(c.Website),
-		LegalRepName: strPtr(c.LegalRepName),
-		LegalRepID:  strPtr(c.LegalRepIDNumber),
-		ChiefAccountant: strPtr(c.ChiefAccountant),
-		TaxOffice:   strPtr(c.TaxOfficeName),
-		IsActive:    c.Status != domain.CompanyStatusDissolved,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:                   c.ID,
+		TenantID:             c.TenantID,
+		Name:                 c.LegalNameVN,
+		TaxCode:              c.TaxCode,
+		Address:              c.RegAddress,
+		Phone:                strPtr(c.Phone),
+		Email:                strPtr(c.Email),
+		Website:              strPtr(c.Website),
+		LegalRepName:         strPtr(c.LegalRepName),
+		LegalRepTitle:        strPtr(c.LegalRepTitle),
+		LegalRepID:           strPtr(c.LegalRepIDNumber),
+		ChiefAccountant:      strPtr(c.ChiefAccountant),
+		ChiefAccountantEmail: strPtr(c.ChiefAccountantEmail),
+		TaxOfficeCode:        strPtr(c.TaxOfficeCode),
+		TaxOffice:            strPtr(c.TaxOfficeName),
+		LegalForm:            legalForm,
+		AccountingRegime:     regime,
+		FiscalYearStartMonth: c.FiscalYearStartMonth,
+		DefaultCurrency:      c.DefaultCurrency,
+		Status:               status,
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
 	}
 	if c.LegalNameEN != "" {
 		m.NameEn = strPtr(c.LegalNameEN)
 	}
+	if c.ShortName != "" {
+		m.ShortName = strPtr(c.ShortName)
+	}
 	if c.RegProvince != "" {
 		m.City = strPtr(c.RegProvince)
+	}
+	if c.RegDistrict != "" {
+		m.Province = strPtr(c.RegDistrict)
 	}
 	return r.db.WithContext(ctx).Create(m).Error
 }
@@ -68,7 +93,7 @@ func (r *PGCompanyRepo) GetByTaxCode(ctx context.Context, tenantID, taxCode stri
 
 func (r *PGCompanyRepo) GetAll(ctx context.Context, tenantID string) ([]domain.Company, error) {
 	var ms []domain.CompanyGORM
-	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("name ASC").Find(&ms).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("legal_name_vn ASC").Find(&ms).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.Company, len(ms))
@@ -80,23 +105,33 @@ func (r *PGCompanyRepo) GetAll(ctx context.Context, tenantID string) ([]domain.C
 
 func (r *PGCompanyRepo) Update(ctx context.Context, c *domain.Company) error {
 	updates := map[string]any{
-		"name":        c.LegalNameVN,
-		"tax_code":    c.TaxCode,
-		"address":     c.RegAddress,
-		"phone":       c.Phone,
-		"email":       c.Email,
-		"website":     c.Website,
-		"legal_rep_name": c.LegalRepName,
-		"legal_rep_id": c.LegalRepIDNumber,
-		"chief_accountant": c.ChiefAccountant,
-		"tax_office":  c.TaxOfficeName,
-		"updated_at":  time.Now(),
+		"legal_name_vn":        c.LegalNameVN,
+		"tax_code":             c.TaxCode,
+		"reg_address":          c.RegAddress,
+		"phone":                c.Phone,
+		"email":                c.Email,
+		"website":              c.Website,
+		"legal_rep_name":       c.LegalRepName,
+		"legal_rep_id_number":  c.LegalRepIDNumber,
+		"chief_accountant":     c.ChiefAccountant,
+		"tax_office_name":      c.TaxOfficeName,
+		"legal_form":           string(c.LegalForm),
+		"accounting_regime":    string(c.AccountingRegime),
+		"status":               string(c.Status),
+		"legal_rep_title":      c.LegalRepTitle,
+		"short_name":           c.ShortName,
+		"fiscal_year_start_month": c.FiscalYearStartMonth,
+		"default_currency":     c.DefaultCurrency,
+		"updated_at":           time.Now(),
 	}
 	if c.LegalNameEN != "" {
-		updates["name_en"] = c.LegalNameEN
+		updates["legal_name_en"] = c.LegalNameEN
 	}
 	if c.RegProvince != "" {
-		updates["city"] = c.RegProvince
+		updates["reg_province"] = c.RegProvince
+	}
+	if c.RegDistrict != "" {
+		updates["reg_district"] = c.RegDistrict
 	}
 	return r.db.WithContext(ctx).Model(&domain.CompanyGORM{}).Where("id = ?", c.ID).Updates(updates).Error
 }
@@ -104,10 +139,8 @@ func (r *PGCompanyRepo) Update(ctx context.Context, c *domain.Company) error {
 func (r *PGCompanyRepo) Deactivate(ctx context.Context, id, reason string) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).Model(&domain.CompanyGORM{}).Where("id = ?", id).Updates(map[string]any{
-		"is_active":          false,
-		"deactivated_at":     &now,
-		"deactivation_reason": reason,
-		"updated_at":         now,
+		"status":     string(domain.CompanyStatusDissolved),
+		"updated_at": now,
 	}).Error
 }
 
@@ -687,8 +720,34 @@ func gormCompanyToDomain(m *domain.CompanyGORM) *domain.Company {
 	if m.TaxOffice != nil {
 		d.TaxOfficeName = *m.TaxOffice
 	}
-	if !m.IsActive {
+	switch domain.CompanyStatus(m.Status) {
+	case domain.CompanyStatusSuspended:
+		d.Status = domain.CompanyStatusSuspended
+	case domain.CompanyStatusDissolved:
 		d.Status = domain.CompanyStatusDissolved
+	case domain.CompanyStatusMerged:
+		d.Status = domain.CompanyStatusMerged
+	default:
+		d.Status = domain.CompanyStatusActive
+	}
+	d.LegalForm = domain.LegalForm(m.LegalForm)
+	d.AccountingRegime = domain.AccountingRegime(m.AccountingRegime)
+	d.FiscalYearStartMonth = m.FiscalYearStartMonth
+	d.DefaultCurrency = m.DefaultCurrency
+	if m.ShortName != nil {
+		d.ShortName = *m.ShortName
+	}
+	if m.Province != nil {
+		d.RegDistrict = *m.Province
+	}
+	if m.LegalRepTitle != nil {
+		d.LegalRepTitle = *m.LegalRepTitle
+	}
+	if m.TaxOfficeCode != nil {
+		d.TaxOfficeCode = *m.TaxOfficeCode
+	}
+	if m.ChiefAccountantEmail != nil {
+		d.ChiefAccountantEmail = *m.ChiefAccountantEmail
 	}
 	return d
 }
